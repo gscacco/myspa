@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Foglio di calcolo</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="top">
+  <button data-action="save">💾 Salva</button><button data-action="open">📂 Apri</button><i></i>
+  <button data-action="undo">↶</button><button data-action="redo">↷</button><i></i>
+  <button data-action="toggle-bold"><b>B</b></button><button data-action="dec-minus">.0←</button><button data-action="dec-plus">.0→</button>
+  <input type="color" data-action="bg-color" value="#fff2a8" title="Colore di sfondo"><button data-action="bg-clear">senza sfondo</button><i></i>
+  <button id="bflow" class="on" data-action="toggle-flow" title="Evidenzia sorgenti (blu) e dipendenti (arancio)">Flusso</button>
+  <button id="bfn" data-action="toggle-functions">ƒ CLJS</button>
+  <span id="stat" data-dyn></span>
+</div>
+<div id="fb"><input id="nb" readonly><b>ƒx</b><input id="fx" spellcheck="false"><span id="vv" data-dyn></span></div>
+<div id="gw"><div id="gx"><table id="g" data-dyn></table><div id="ov"></div><input id="ed" hidden></div></div>
+<div id="tabs" data-dyn></div>
+<div id="fn" hidden>
+  <b>Funzioni utente (ClojureScript)</b>
+  <div id="ce"><div id="ln" data-dyn></div><div id="cw"><pre id="hl" data-dyn></pre><textarea id="code" wrap="off" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea><div id="pop" hidden data-dyn></div></div></div>
+  <div id="cst" data-dyn></div>
+  <div id="pe">
+    <button data-action="apply-code" title="Valuta tutto il codice dell'editor e lo salva nel foglio">▶ Applica tutto</button>
+    <button data-action="eval-form" title="Valuta la s-exp che precede il cursore, come C-x C-e di Emacs (Ctrl+Invio)">▶ Valuta forma (Ctrl+Invio)</button>
+    <span class="lb">paredit</span>
+    <button data-action="paredit-slurp" title="Slurp (Ctrl+→): tira dentro la lista la forma che segue">Slurp ➡</button>
+    <button data-action="paredit-barf" title="Barf (Ctrl+←): spinge fuori dalla lista l'ultima forma">⬅ Barf</button>
+    <button data-action="paredit-splice" title="Splice (Ctrl+↑): toglie le parentesi della lista">Splice ⬆</button>
+    <button data-action="paredit-wrap" title="Wrap (Ctrl+↓): avvolge la forma o la selezione in una lista">Wrap ⬇</button>
+  </div>
+  <div id="note" data-dyn></div>
+  <div id="fe" data-dyn></div>
+<pre id="help">Il pannello qui sopra contiene le funzioni utente in ClojureScript: i simboli definiti
+con def/defn diventano disponibili nelle formule delle celle.
+
+Le formule restano espressioni del foglio: =B2*C2   =D6>1000?"Alta":"Bassa"
+A1  $A$1  Foglio2!B3 → valore di una cella
+A1:B5 → matrice (vettore di righe) da appiattire con (flatten …)
+Nei ternari metti spazi attorno a «:»  →  =x ? B2 : C2  (B2:C2 senza spazi è un intervallo)
+SUM AVG MIN MAX COUNT ROUND IF + funzioni matematiche (sqrt, abs, PI…) usabili anche nei cljs
+
+Editor con paredit attivo:
+( ) [ ] { } e " si chiudono da soli · Invio rientra · Tab indenta (Shift+Tab toglie)
+Le parentesi non si possono sbilanciare: se una cancellazione (Backspace/Delete) le
+romperebbe paredit la blocca, mentre una forma o un blocco interi si cancellano.
+Per cambiarle usa i pulsanti paredit o i tasti, che agiscono sulla lista in cui si
+trova il cursore (anche se il cursore è subito dopo la sua «)»):
+  Slurp ➡  tira dentro la lista la forma che segue      Ctrl+→
+  ⬅ Barf   spinge fuori dalla lista l'ultima forma      Ctrl+←
+  Splice ⬆ toglie le parentesi della lista              Ctrl+↑
+  Wrap ⬇   avvolge la forma o la selezione in «( )»     Ctrl+↓
+  (su macOS, se Ctrl+frecce è preso da Mission Control, usa Ctrl+Shift+frecce)
+Ctrl+/ commenta (;) · Ctrl+Spazio suggerimenti
+▶ Applica tutto valuta l'editor e ne salva il codice nel foglio (anche nel file salvato)
+▶ Valuta forma (Ctrl+Invio) valuta solo la s-exp prima del cursore, come C-x C-e di
+Emacs: ridefinisce una defn o una costante def senza ricaricare il resto e senza
+salvarla nel foglio (vale per la sessione; per conservarla usa ▶ Applica tutto).
+Esempio: (defn media [xs] (/ (SUM xs) (count xs)))   poi in una cella  =media(B2:B5)
+condizionali: (if (> D6 1000) "Alta" "Bassa")   locali: (let [x 1] (* x 2))
+Data flow: una cella si ricalcola solo se cambia una cella da cui dipende (le dipendenze sono scoperte durante il calcolo).</pre>
+</div>
+
+<script type="application/edn" id="model">
+{:version 1
+ :name "Foglio di calcolo"
+ :code "; Funzioni utente in ClojureScript: i simboli definiti con def/defn sono usabili nelle formule.\n(def IVA 0.22)\n\n(defn CONIVA\n  ([x] (CONIVA x IVA))\n  ([x r] (* x (+ 1 r))))\n\n; riceve matrici (vettori di righe): (flatten ...) le appiattisce\n(defn MEDIA_PESATA [valori pesi]\n  (let [v (flatten valori)\n        p (flatten pesi)]\n    (/ (SUM (map * v p)) (SUM p))))\n"
+ :sheets [{:name "Foglio1"
+  :cells {:A1 {:r "Prodotto" :b true} :B1 {:r "Prezzo" :b true} :C1 {:r "Qtà" :b true} :D1 {:r "Totale" :b true} :E1 {:r "Con IVA" :b true}
+          :A2 {:r "Penna"} :B2 {:r 1.5 :d 2} :C2 {:r 100} :D2 {:r "=B2*C2" :d 2} :E2 {:r "=CONIVA(D2)" :d 2}
+          :A3 {:r "Quaderno"} :B3 {:r 3.2 :d 2} :C3 {:r 40} :D3 {:r "=B3*C3" :d 2} :E3 {:r "=CONIVA(D3)" :d 2}
+          :A4 {:r "Zaino"} :B4 {:r 24.9 :d 2} :C4 {:r 12} :D4 {:r "=B4*C4" :d 2} :E4 {:r "=CONIVA(D4)" :d 2}
+          :A5 {:r "Lavagna"} :B5 {:r 89 :d 2} :C5 {:r 3} :D5 {:r "=B5*C5" :d 2} :E5 {:r "=CONIVA(D5)" :d 2}
+          :A6 {:r "Totale" :b true} :D6 {:r "=SUM(D2:D5)" :d 2 :b true} :E6 {:r "=SUM(E2:E5)" :d 2 :b true}
+          :A8 {:r "Prezzo medio pesato"} :D8 {:r "=MEDIA_PESATA(B2:B5, C2:C5)" :d 3}
+          :A9 {:r "Fascia"} :D9 {:r "=D6>1000?\"Alta\":\"Bassa\""}}}
+  {:name "Foglio2" :cells {:A1 {:r "Totale con IVA (da Foglio1)" :b true} :D1 {:r "=Foglio1!E6" :d 2}}}]}
+</script>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

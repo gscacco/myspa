@@ -1,0 +1,23 @@
+{
+  "name": "foglio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Foglio di calcolo: applicazione di calcolo standalone distribuita come singolo file HTML.",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "node tools/build.js",
+    "dev": "node tools/serve.js",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node --test tests/unit/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js",
+    "test:e2e": "node tools/build.js && node --test tests/e2e/*.test.js",
+    "check": "npm run test:unit && npm run test:integration && npm run build && node tools/verify-artifact.js && node --test tests/e2e/*.test.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "jsdom": "^25.0.1"
+  }
+}

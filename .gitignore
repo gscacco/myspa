@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# Dipendenze (solo sviluppo): reinstallabili con `npm ci`.
+# ---------------------------------------------------------------------------
+node_modules/
+
+# ---------------------------------------------------------------------------
+# Artefatto distribuibile generato dalla build.
+# Policy: dist/foglio.html è un prodotto della build, non un file sorgente.
+# Viene rigenerato con `npm run build` ed è intenzionalmente NON tracciato in
+# Git: la fonte di verità resta `src/` e `tools/`.
+# ---------------------------------------------------------------------------
+dist/
+
+# ---------------------------------------------------------------------------
+# Log dei gestori di pacchetti e file di log generici.
+# ---------------------------------------------------------------------------
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# ---------------------------------------------------------------------------
+# Cache e file temporanei di build/test.
+# ---------------------------------------------------------------------------
+.cache/
+tmp/
+temp/
+*.tmp
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Rumore del sistema operativo.
+# ---------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Editor / IDE: configurazioni locali, file di backup e di scambio.
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
