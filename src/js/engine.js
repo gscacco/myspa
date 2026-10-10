@@ -8,36 +8,27 @@
  * Le dipendenze sono "dinamiche": vengono scoperte durante la valutazione,
  * quando una formula legge altre celle tramite `$` / `$$`.
  *
- * Il codice utente è scritto in ClojureScript e viene valutato da `cljs.js`;
- * le funzioni/variabili definite diventano disponibili alle formule (che
- * restano espressioni del foglio) tramite l'ambiente `ENV`.
+ * Le formule sono ClojureScript e vengono valutate da `cljs.js`:
+ *  - `=pippo(A2)` è zucchero sintattico per `=(pippo A2)`;
+ *  - `=(count A3)` è codice ClojureScript vero e proprio;
+ *  - i riferimenti `A1`, `A1:B5`, `Foglio2!B3` sono risolti verso `$` / `$$`.
+ * Le definizioni del namespace `user` (il codice dell'utente) e quelle del
+ * namespace `sheet.core` (le funzioni del foglio, SUM/AVG/…) sono visibili
+ * senza prefisso. Le formule infisse di tipo JavaScript (`=B2*C2`) restano
+ * supportate come percorso di compatibilità.
  */
 
 import { colName, colIndex, addr, parseRef, mapRefs } from './references.js';
 import { sheetByName, setRaw } from './model.js';
-import { interpret } from './cljs.js';
+import { interpret, evaluateIn, readError, sheetCoreVars } from './cljs.js';
 
 /**
- * Costruisce l'ambiente con le funzioni incorporate: tutto `Math` più
- * SUM, COUNT, MIN, MAX, AVG/AVERAGE, ROUND, IF.
+ * Funzioni del foglio (namespace ClojureScript `sheet.core`) come oggetto
+ * piatto. Usato dal percorso JavaScript delle formule e dai test; la
+ * definizione delle funzioni vive in `cljs.js` (`SHEET_CORE_SOURCE`).
  * @returns {object}
  */
-export function buildBuiltins() {
-  const B = Object.create(null);
-  for (const k of Object.getOwnPropertyNames(Math)) B[k] = Math[k];
-  const num = a => a.flat(Infinity).filter(v => typeof v === 'number');
-  Object.assign(B, {
-    SUM: (...a) => num(a).reduce((x, y) => x + y, 0),
-    COUNT: (...a) => num(a).length,
-    MIN: (...a) => Math.min(...num(a)),
-    MAX: (...a) => Math.max(...num(a)),
-    AVG: (...a) => { const n = num(a); return n.length ? n.reduce((x, y) => x + y, 0) / n.length : 0; },
-    ROUND: (x, d = 0) => Math.round(x * 10 ** d) / 10 ** d,
-    IF: (c, a, b) => c ? a : b,
-  });
-  B.AVERAGE = B.AVG;
-  return B;
-}
+export function buildBuiltins() { return sheetCoreVars(); }
 
 /**
  * Crea un motore di calcolo per un workbook.
@@ -46,8 +37,8 @@ export function buildBuiltins() {
  */
 export function createEngine(workbook) {
   let wb = workbook;
-  let ENV = buildBuiltins();
-  let rootScope = null;                 // scope di primo livello riusato da evalForm
+  let ENV = null;                       // variabili visibili (namespace uniti), per le formule JS
+  let rootScope = null;                 // scope del namespace `user`, riusato da evalForm
   let ctx = null;                       // nodo in corso di valutazione
   const nodes = new Map();              // id "Foglio!A1" -> nodo
   const changed = new Set();            // nodi da ridisegnare
@@ -61,24 +52,38 @@ export function createEngine(workbook) {
       const [sh, a] = id.split('!');
       const s = sheetByName(wb, sh);
       if (!s) throw Error('#REF: foglio «' + sh + '» inesistente');
-      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, err: null, fn: null, raw: undefined };
+      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, err: null, fn: null, cljs: null, raw: undefined };
       nodes.set(id, n);
       setNode(n, s.cells[a]?.r);
     }
     return n;
   }
 
-  /** (Ri)compila il valore grezzo di un nodo in una funzione, o memorizza il valore. */
+  /**
+   * (Ri)compila il valore grezzo di un nodo. Una formula `=…` scritta in
+   * ClojureScript (`(…)` oppure chiamata `nome(argomenti…)`) viene risolta con
+   * l'interprete; una formula infissa resta sul percorso JavaScript.
+   */
   function setNode(n, raw) {
     n.deps.forEach(d => d.rd.delete(n));
     n.deps.clear();
-    n.raw = raw; n.fn = null; n.err = null; n.st = 0; n.val = null;
+    n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null;
     if (typeof raw === 'string' && raw[0] === '=') {
       try {
-        const js = mapRefs(raw.slice(1), x => x.b
-          ? `$$("${x.sh || n.sh}!${x.c}${x.r}:${x.b.c}${x.b.r}")`
-          : `$("${x.sh || n.sh}!${x.c}${x.r}")`);
-        n.fn = new Function('$', '$$', 'ENV', /\breturn\b|;/.test(js) ? 'with(ENV){' + js + '}' : 'with(ENV){return (' + js + ')}');
+        const cljs = toCljsSource(raw.slice(1));
+        if (cljs != null) {
+          const src = mapRefs(cljs, x => x.b
+            ? `($$ "${x.sh || n.sh}!${x.c}${x.r}:${x.b.c}${x.b.r}")`
+            : `($ "${x.sh || n.sh}!${x.c}${x.r}")`);
+          const e = readError(src);
+          if (e) throw e;
+          n.cljs = src;
+        } else {
+          const js = mapRefs(raw.slice(1), x => x.b
+            ? `$$("${x.sh || n.sh}!${x.c}${x.r}:${x.b.c}${x.b.r}")`
+            : `$("${x.sh || n.sh}!${x.c}${x.r}")`);
+          n.fn = new Function('$', '$$', 'ENV', /\breturn\b|;/.test(js) ? 'with(ENV){' + js + '}' : 'with(ENV){return (' + js + ')}');
+        }
         n.st = 1;
       } catch (e) { n.err = e; }
     } else n.val = raw === undefined ? null : raw;
@@ -93,13 +98,16 @@ export function createEngine(workbook) {
     return n.val;
   }
 
-  /** Esegue la funzione di un nodo. */
+  /** Esegue una formula di un nodo (ClojureScript oppure JavaScript). */
   function ev(n) {
     n.st = 2;
     n.deps.forEach(d => d.rd.delete(n));
     n.deps.clear();
     const p = ctx; ctx = n;
-    try { const v = n.fn($, $$, ENV); n.val = v === undefined ? null : v; n.err = null; }
+    try {
+      const v = n.cljs != null ? evaluateIn(rootScope, n.cljs) : n.fn($, $$, ENV);
+      n.val = v === undefined ? null : v; n.err = null;
+    }
     catch (e) { n.err = e instanceof Error ? e : new Error(String(e)); n.val = null; }
     ctx = p; n.st = 0; changed.add(n);
   }
@@ -120,8 +128,18 @@ export function createEngine(workbook) {
     return out;
   };
 
+  /** Ponte tra il motore e l'interprete ClojureScript (accesso alle celle). */
+  function bridge() { return { '$': $, '$$': $$ }; }
+
+  /** Installa scope (namespace) ed ENV restituiti da `interpret`. */
+  function installScope(r) { rootScope = r.scope; ENV = r.vars; }
+
+  // Scope iniziale (sheet.core + user vuoto): le formule sono valutabili anche
+  // senza aver mai chiamato `setCode`.
+  installScope(interpret('', bridge()));
+
   /** Propaga lo stato "da ricalcolare" lungo il grafo. */
-  function dd(n) { if (n.st === 1) return; if (n.fn) n.st = 1; n.rd.forEach(dd); }
+  function dd(n) { if (n.st === 1) return; if (n.fn || n.cljs) n.st = 1; n.rd.forEach(dd); }
 
   /**
    * Scrive un valore grezzo nel modello e aggiorna il grafo.
@@ -156,15 +174,14 @@ export function createEngine(workbook) {
   }
 
   /**
-   * Imposta il codice utente (ClojureScript) e ricostruisce l'ambiente delle
-   * formule con le definizioni esposte dall'interprete.
+   * Imposta il codice utente (ClojureScript, namespace `user`) e ricostruisce
+   * l'ambiente delle formule con le definizioni esposte dall'interprete. In
+   * caso di errore lo scope resta utilizzabile con le sole funzioni del foglio.
    * @returns {Error|null} errore di lettura/valutazione, oppure null
    */
   function setCode(code) {
-    const B = buildBuiltins();
-    const r = interpret(code || '', B);
-    rootScope = r.scope;
-    ENV = Object.assign(Object.create(null), B, r.defs);
+    const r = interpret(code || '', bridge());
+    installScope(r);
     return r.error;
   }
 
@@ -178,15 +195,14 @@ export function createEngine(workbook) {
    * @returns {{value:*, error:Error|null, defs:object}}
    */
   function evalForm(code) {
-    const r = interpret(code, ENV, rootScope);
+    const r = interpret(code, null, rootScope);
     if (r.error) return { value: null, error: r.error, defs: {} };
-    rootScope = r.scope;
-    ENV = Object.assign(Object.create(null), ENV, r.defs);
+    installScope(r);
     return { value: r.value, error: null, defs: r.defs };
   }
 
   /** Marca tutte le formule come da ricalcolare. */
-  function invalidateFormulas() { nodes.forEach(n => { if (n.fn) n.st = 1; }); }
+  function invalidateFormulas() { nodes.forEach(n => { if (n.fn || n.cljs) n.st = 1; }); }
 
   /** Cambia il workbook di riferimento (usato da apri/annulla/ripristina). */
   function setWorkbook(next) { wb = next; reset(); }
@@ -210,4 +226,39 @@ export function createEngine(workbook) {
 
 // Riesportati per comodità di chi usa il motore insieme alle utilità sui riferimenti.
 export { colName, colIndex };
+
+/**
+ * Riconosce una formula scritta in ClojureScript e la normalizza:
+ *  - se il corpo inizia con `(` è già una s-espr: usato così com'è;
+ *  - una chiamata in stile foglio `nome(argomenti…)` è zucchero per
+ *    `(nome argomenti…)` (per il lettore CLJS la virgola è spazio bianco);
+ *  - in tutti gli altri casi la formula segue il percorso JavaScript.
+ * @param {string} body testo dopo il segno `=`
+ * @returns {string|null} sorgente ClojureScript, oppure `null` (formula JS)
+ */
+function toCljsSource(body) {
+  const s = body.trim();
+  if (s[0] === '(') return s;
+  const m = /^([^\s()]+)\s*\(/.exec(s);
+  if (!m) return null;
+  const open = m[0].length - 1;
+  if (closingParen(s, open) !== s.length - 1) return null;   // la chiamata non è tutta l'espressione
+  return '(' + m[1] + ' ' + s.slice(open + 1, -1) + ')';
+}
+
+/** Indice della `)` che chiude la `(` in posizione `open`, ignorando le stringhe. */
+function closingParen(s, open) {
+  let depth = 0, quote = '', esc = false;
+  for (let i = open; i < s.length; i++) {
+    const c = s[i];
+    if (quote) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === quote) quote = '';
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
 

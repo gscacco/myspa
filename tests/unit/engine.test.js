@@ -205,3 +205,46 @@ test('evalForm di una costante è vista anche dalle funzioni già definite', () 
   assert.equal(engine.ENV.IVA, 0.5);
 });
 
+test('le formule possono essere codice ClojureScript (=pippo(A2) e =(count …))', () => {
+  const wb = createWorkbook({
+    code: '(defn pippo [x] (* x 2))',
+    sheets: [{ name: 'S', cells: {
+      A1: { r: 1 }, A2: { r: 3 }, A3: { r: 4 }, A4: { r: 5 },
+      B1: { r: '=pippo(A2)' },               // zucchero per (pippo A2)
+      B2: { r: '=(count A1:A3)' },           // codice cljs con riferimento a intervallo
+      B3: { r: '=(+ A4 A2)' },               // codice cljs con riferimenti a celle
+      B4: { r: '=sheet.core/SUM(A4:A4)' },   // funzione del foglio qualificata
+      B5: { r: '=user/pippo(A4)' },          // funzione utente qualificata
+    } }],
+  });
+  const engine = createEngine(wb);
+  assert.equal(engine.setCode(wb.code), null);
+  engine.loadAll();
+  engine.recalculate();
+  assert.equal(engine.evaluate('S!B1'), 6);
+  assert.equal(engine.evaluate('S!B2'), 3);
+  assert.equal(engine.evaluate('S!B3'), 8);
+  assert.equal(engine.evaluate('S!B4'), 5);
+  assert.equal(engine.evaluate('S!B5'), 10);
+});
+
+test('una formula ClojureScript con un simbolo sconosciuto produce un errore #NAME', () => {
+  const wb = createWorkbook({ sheets: [{ name: 'S', cells: { A1: { r: '=(sconosciuto 1)' } } }] });
+  const engine = engineWith(wb);
+  assert.equal(engine.getNode('S!A1').err.message.split(':')[0], '#NAME');
+  assert.throws(() => engine.evaluate('S!A1'), /#NAME/);
+});
+
+test('le formule infisse restano supportate accanto a quelle in ClojureScript', () => {
+  const wb = createWorkbook({
+    code: '(defn doppio [x] (* x 2))',
+    sheets: [{ name: 'S', cells: { A1: { r: 4 }, B1: { r: '=A1*10-1' }, B2: { r: '=doppio(A1)' } } }],
+  });
+  const engine = createEngine(wb);
+  assert.equal(engine.setCode(wb.code), null);
+  engine.loadAll();
+  engine.recalculate();
+  assert.equal(engine.evaluate('S!B1'), 39, 'formula infissa (percorso JavaScript)');
+  assert.equal(engine.evaluate('S!B2'), 8, 'chiamata ClojureScript');
+});
+

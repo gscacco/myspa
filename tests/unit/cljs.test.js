@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { interpret, evaluate, readForms, readError, declarations, munge, coreBuiltins, CLJSError } from '../../src/js/cljs.js';
+import { interpret, evaluate, readForms, readError, declarations, munge, coreBuiltins, sheetCoreVars, CLJSError } from '../../src/js/cljs.js';
 
 test('munge converte i nomi ClojureScript in nomi usabili da JavaScript', () => {
   assert.equal(munge('con-iva'), 'con_iva');
@@ -103,12 +103,36 @@ test('un simbolo non definito produce un errore #NAME', () => {
   assert.throws(() => r.defs.f(1), /#NAME/);
 });
 
-test('coreBuiltins espone aritmetica, collezioni e funzioni del foglio', () => {
+test('coreBuiltins espone aritmetica e collezioni; il foglio sta in sheet.core', () => {
   const B = coreBuiltins();
   assert.equal(B['+'](1, 2), 3);
   assert.deepEqual(B.flatten([[1], [2]]), [1, 2]);
-  assert.equal(B.SUM(1, 2, [3]), 6);
-  assert.equal(B.ROUND(1.2345, 2), 1.23);
+  assert.equal(B.SUM, undefined, 'le funzioni del foglio non fanno parte di cljs.core');
+  const S = sheetCoreVars();
+  assert.equal(S.SUM(1, 2, [3]), 6);
+  assert.equal(S.ROUND(1.2345, 2), 1.23);
+});
+
+test('le funzioni del foglio sono definite in ClojureScript nel namespace sheet.core', () => {
+  assert.equal(evaluate('(SUM 1 2 3)'), 6);
+  assert.equal(evaluate('(SUM [1 2] [[3]])'), 6);
+  assert.equal(evaluate('(COUNT 1 "x" 2)'), 2);
+  assert.equal(evaluate('(AVG 2 4)'), 3);
+  assert.equal(evaluate('(AVERAGE 2 4)'), 3);
+  assert.equal(evaluate('(MIN 3 1 2)'), 1);
+  assert.equal(evaluate('(MAX 3 1 2)'), 3);
+  assert.equal(evaluate('(ROUND 1.2345 2)'), 1.23);
+  assert.equal(evaluate('(IF true "a" "b")'), 'a');
+  assert.equal(evaluate('(sheet.core/SUM 1 2 3)'), 6, 'qualificabile col namespace');
+});
+
+test('i namespace sheet.core e user sono visibili al codice utente', () => {
+  const r = interpret('(ns user)\n(defn DOPPIO [x] (* x 2))\n(user/DOPPIO (sheet.core/SUM 1 2))');
+  assert.equal(r.error, null);
+  assert.equal(r.value, 6);
+  assert.ok(r.scope.registry.get('user').has('DOPPIO'));
+  assert.ok(r.scope.registry.get('sheet.core').has('SUM'));
+  assert.equal(r.vars.DOPPIO, r.defs.DOPPIO, 'le var di user sono visibili nello scope piatto');
 });
 
 test('il workbook di esempio in ClojureScript produce i valori attesi', async () => {

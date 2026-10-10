@@ -5,13 +5,17 @@
  * valutare il codice utente scritto in ClojureScript e a esporne le definizioni
  * (usabili poi dalle formule del foglio).
  *
+ * I namespace sono di primo livello: `sheet.core` contiene le funzioni del
+ * foglio definite in ClojureScript (SUM, AVG, …) e `user` è il namespace in cui
+ * vive il codice dell'utente. Le celle vedono entrambi anche senza prefisso.
+ *
  * Sottoinsieme supportato:
  *  - forme speciali: def defonce defn fn let if when when-not cond and or do
  *    -> ->> quote comment ns;
  *  - arità multiple `(defn f ([x] ...) ([x y] ...))` e variadiche `[x & xs]`;
  *  - tipi: numeri, stringhe, booleani, nil, keyword, vettori, mappe, liste;
- *  - funzioni di base: aritmetica, confronti, collezioni (map/filter/reduce/…),
- *    stringhe, matematica (`Math`), più le funzioni del foglio (SUM, AVG, …).
+ *  - funzioni di base (namespace implicito `cljs.core`): aritmetica, confronti,
+ *    collezioni (map/filter/reduce/…), stringhe, matematica (`Math`).
  *
  * I nomi ClojureScript con trattino/`?`/`!` sono esposti anche nella forma
  * "munged" (`con-iva` -> `con_iva`) così da poter essere usati nelle formule.
@@ -190,12 +194,25 @@ function data(f) {
   return f;
 }
 
+/**
+ * Risolve un simbolo: i nomi qualificati `ns/nome` nel registro dei namespace,
+ * gli altri lungo la catena degli scope (lessicale + namespace referiti).
+ */
+function resolveSym(scope, name, line) {
+  const slash = name.indexOf('/');
+  if (slash > 0 && slash < name.length - 1) {
+    const vars = scope.registry.get(name.slice(0, slash));
+    const vName = name.slice(slash + 1);
+    if (vars && vars.has(vName)) return vars.get(vName);
+    throw new CLJSError('#NAME: simbolo non definito «' + name + '»', line);
+  }
+  for (let s = scope; s; s = s.parent) if (s.vars.has(name)) return s.vars.get(name);
+  throw new CLJSError('#NAME: simbolo non definito «' + name + '»', line);
+}
+
 /** Valuta una forma nell'ambiente `scope`. */
 function evalForm(f, scope, defs) {
-  if (f instanceof Sym) {
-    for (let s = scope; s; s = s.parent) if (s.vars.has(f.name)) return s.vars.get(f.name);
-    throw new CLJSError('#NAME: simbolo non definito «' + f.name + '»', f.line);
-  }
+  if (f instanceof Sym) return resolveSym(scope, f.name, f.line);
   if (f instanceof Kw) return f.name;
   if (f instanceof Vec) return f.items.map(x => evalForm(x, scope, defs));
   if (f instanceof MapF) {
@@ -259,7 +276,7 @@ function makeFn(arities, scope, name, defs) {
   const fn = function (...args) {
     const a = arities.find(x => x.rest ? args.length >= x.params.length : x.params.length === args.length);
     if (!a) throw new CLJSError('#ARITY: «' + name + '» chiamata con ' + args.length + ' argomenti');
-    const s = { vars: new Map(), parent: scope };
+    const s = makeScope(scope, null);
     a.params.forEach((p, i) => s.vars.set(p, args[i]));
     if (a.rest) s.vars.set(a.rest, args.slice(a.params.length));
     return evalBody(a.body, s, defs);
@@ -269,7 +286,23 @@ function makeFn(arities, scope, name, defs) {
 }
 
 function makeScope(parent, initial) {
-  return { vars: new Map(initial ? Object.entries(initial) : []), parent };
+  return {
+    vars: new Map(initial ? Object.entries(initial) : []),
+    parent,
+    registry: parent ? parent.registry : new Map(),
+  };
+}
+
+/**
+ * Definisce una var nello scope, esponendo anche l'alias "munged" del nome
+ * (`con-iva` → `con_iva`, `pronto?` → `pronto_QMARK_`) così da poter essere
+ * usato sia dal codice ClojureScript sia dalle formule del foglio.
+ */
+function defineVar(scope, name, value) {
+  scope.vars.set(name, value);
+  const m = munge(name);
+  if (m !== name) scope.vars.set(m, value);
+  return value;
 }
 
 /** Inserisce il valore della forma precedente come primo/ultimo argomento. */
@@ -285,14 +318,14 @@ function threadStep(v, step, scope, defs, last) {
 /** Forme speciali (dispacciate per nome). */
 const SPECIALS = {
   quote: it => data(it[1]),
-  def: (it, scope, defs) => { const n = symName(it[1]); const v = it.length > 2 ? evalForm(it[2], scope, defs) : null; scope.vars.set(n, v); defs.add(n); return v; },
-  defonce: (it, scope, defs) => { const n = symName(it[1]); if (scope.vars.has(n)) return scope.vars.get(n); const v = it.length > 2 ? evalForm(it[2], scope, defs) : null; scope.vars.set(n, v); defs.add(n); return v; },
-  defn: (it, scope, defs) => { const n = symName(it[1]); const fn = makeFn(parseArities(it, 2), scope, n, defs); scope.vars.set(n, fn); defs.add(n); return fn; },
+  def: (it, scope, defs) => { const n = symName(it[1]); const v = it.length > 2 ? evalForm(it[2], scope, defs) : null; defineVar(scope, n, v); defs.add(n); return v; },
+  defonce: (it, scope, defs) => { const n = symName(it[1]); if (scope.vars.has(n)) return scope.vars.get(n); const v = it.length > 2 ? evalForm(it[2], scope, defs) : null; defineVar(scope, n, v); defs.add(n); return v; },
+  defn: (it, scope, defs) => { const n = symName(it[1]); const fn = makeFn(parseArities(it, 2), scope, n, defs); defineVar(scope, n, fn); defs.add(n); return fn; },
   fn: (it, scope, defs) => { let i = 1; if (it[i] instanceof Sym) i++; return makeFn(parseArities(it, i), scope, 'fn', defs); },
   let: (it, scope, defs) => {
     const binds = it[1];
     if (!(binds instanceof Vec)) throw new CLJSError('«let» richiede un vettore di associazioni');
-    const s = { vars: new Map(), parent: scope };
+    const s = makeScope(scope, null);
     for (let i = 0; i + 1 < binds.items.length; i += 2) s.vars.set(symName(binds.items[i]), evalForm(binds.items[i + 1], s, defs));
     return evalBody(it.slice(2), s, defs);
   },
@@ -311,13 +344,15 @@ const SPECIALS = {
   do: (it, scope, defs) => evalBody(it.slice(1), scope, defs),
   '->': (it, scope, defs) => { let v = evalForm(it[1], scope, defs); for (const s of it.slice(2)) v = threadStep(v, s, scope, defs, false); return v; },
   '->>': (it, scope, defs) => { let v = evalForm(it[1], scope, defs); for (const s of it.slice(2)) v = threadStep(v, s, scope, defs, true); return v; },
-  ns: () => null,
+  ns: (it, scope) => { const name = it[1] instanceof Sym ? it[1].name : USER_NS; scope.registry.set(name, scope.vars); return null; },
   comment: () => null,
 };
 
 /**
  * Funzioni di base del sottoinsieme ClojureScript (aritmetica, collezioni,
- * stringhe, matematica) più le funzioni del foglio di calcolo.
+ * stringhe, matematica), il namespace implicito `cljs.core`. Le funzioni del
+ * foglio (SUM, AVG, …) sono invece definite in ClojureScript dal sorgente
+ * `SHEET_CORE_SOURCE` nel namespace `sheet.core`.
  * @returns {object}
  */
 export function coreBuiltins() {
@@ -417,19 +452,102 @@ export function coreBuiltins() {
     'abs': Math.abs, 'sqrt': Math.sqrt, 'pow': Math.pow, 'floor': Math.floor, 'ceil': Math.ceil,
     'round': Math.round, 'trunc': Math.trunc, 'exp': Math.exp, 'log': Math.log, 'log10': Math.log10,
     'sin': Math.sin, 'cos': Math.cos, 'tan': Math.tan,
+    'asin': Math.asin, 'acos': Math.acos, 'atan': Math.atan, 'atan2': Math.atan2,
+    'sign': Math.sign, 'cbrt': Math.cbrt, 'hypot': Math.hypot, 'log2': Math.log2, 'random': Math.random,
     'PI': Math.PI, 'E': Math.E,
     'println': () => null, 'prn': () => null, 'print': () => null,
-    'SUM': (...a) => num(a).reduce((x, y) => x + y, 0),
-    'COUNT': (...a) => num(a).length,
-    'MIN': (...a) => Math.min(...num(a)),
-    'MAX': (...a) => Math.max(...num(a)),
-    'AVG': (...a) => { const n = num(a); return n.length ? n.reduce((x, y) => x + y, 0) / n.length : 0; },
-    'ROUND': (x, d = 0) => Math.round(x * 10 ** d) / 10 ** d,
-    'IF': (c, a, b) => c ? a : b,
   });
-  B.AVERAGE = B.AVG;
   return B;
 }
+
+
+/* ===== Namespace del foglio ===== */
+
+/** Namespace in cui sono definite le funzioni del foglio (SUM, AVG, …). */
+export const SHEET_CORE_NS = 'sheet.core';
+/** Namespace in cui è definito il codice dell'utente (visibile nelle celle). */
+export const USER_NS = 'user';
+
+/**
+ * Le funzioni del foglio sono scritte in ClojureScript e definite nel namespace
+ * `sheet.core`: usano solo le primitive del sottoconjunto (più i riferimenti a
+ * `$`/`$$` forniti dal motore). Le celle vedono `sheet.core` e `user` senza
+ * prefisso, quindi `SUM`, `AVG`, … funzionano direttamente.
+ */
+export const SHEET_CORE_SOURCE = `(ns sheet.core)
+
+; Le funzioni del foglio ricevono scalari oppure matrici (vettori di righe):
+; appiattiscono sempre gli argomenti con (flatten …) e tengono solo i numeri.
+
+(defn SUM [& xs] (reduce + 0 (filter number? (flatten xs))))
+
+(defn COUNT [& xs] (count (filter number? (flatten xs))))
+
+(defn MIN [& xs] (apply min (filter number? (flatten xs))))
+
+(defn MAX [& xs] (apply max (filter number? (flatten xs))))
+
+(defn AVG [& xs]
+  (let [n (filter number? (flatten xs))]
+    (if (empty? n) 0 (/ (reduce + 0 n) (count n)))))
+
+(def AVERAGE AVG)
+
+(defn ROUND
+  ([x] (ROUND x 0))
+  ([x d] (let [p (pow 10 d)] (/ (round (* x p)) p))))
+
+(defn IF [c a b] (if c a b))
+`;
+
+/** Scope di un namespace: le sue var sono registrate col nome del namespace. */
+function makeNsScope(name, parent) {
+  const s = makeScope(parent, null);
+  s.registry.set(name, s.vars);
+  return s;
+}
+
+/** Scope del namespace `sheet.core` (funzioni del foglio). */
+function makeSheetCoreScope(extra) {
+  const base = makeScope(null, Object.assign(Object.create(null), coreBuiltins(), extra || {}));
+  const sheetCore = makeNsScope(SHEET_CORE_NS, base);
+  const defs = new Set();
+  for (const f of readForms(SHEET_CORE_SOURCE)) evalForm(f, sheetCore, defs);
+  return sheetCore;
+}
+
+/** Scope del programma utente: `user` che vede `sheet.core` e `cljs.core`. */
+function makeProgramScope(extra) {
+  return makeNsScope(USER_NS, makeSheetCoreScope(extra));
+}
+
+/**
+ * Tutte le variabili visibili in uno scope (attraversando la catena dei
+ * namespace), con l'aggiunta dell'alias "munged" dei nomi con trattino/`?`/`!`.
+ * @param {object} scope
+ * @returns {object}
+ */
+export function visibleVars(scope) {
+  const chain = [];
+  for (let s = scope; s; s = s.parent) chain.push(s);
+  const out = Object.create(null);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    for (const [name, value] of chain[i].vars) {
+      out[name] = value;
+      const m = munge(name);
+      if (m !== name) out[m] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Funzioni del foglio (namespace `sheet.core`) come oggetto piatto: usato dal
+ * percorso JavaScript delle formule e dai test.
+ * @param {object} [extra]
+ * @returns {object}
+ */
+export function sheetCoreVars(extra = null) { return visibleVars(makeSheetCoreScope(extra)); }
 
 
 /* ===== API ===== */
@@ -446,7 +564,7 @@ export function coreBuiltins() {
  */
 export function interpret(code, extra = null, root = null) {
   const defs = new Set();
-  const scope = root || makeScope(null, Object.assign(Object.create(null), coreBuiltins(), extra || {}));
+  const scope = root || makeProgramScope(extra);
   let error = null, value = null;
   try {
     for (const f of readForms(code)) value = evalForm(f, scope, defs);
@@ -460,7 +578,21 @@ export function interpret(code, extra = null, root = null) {
     const m = munge(n);
     if (m !== n && !(m in userDefs)) userDefs[m] = v;
   }
-  return { error, value, defs: userDefs, scope };
+  return { error, value, defs: userDefs, scope, vars: visibleVars(scope) };
+}
+
+/**
+ * Valuta del codice in uno scope già costruito, senza riesaminarne le
+ * definizioni: usato dal motore per le formule scritte in ClojureScript.
+ * @param {object} scope
+ * @param {string} code
+ * @returns {*} valore dell'ultima forma (lancia `CLJSError` in caso di errore)
+ */
+export function evaluateIn(scope, code) {
+  let value = null;
+  const defs = new Set();
+  for (const f of readForms(code)) value = evalForm(f, scope, defs);
+  return value;
 }
 
 /**
