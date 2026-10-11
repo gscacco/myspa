@@ -80,6 +80,59 @@ test('clic su una cella completa il primo argomento di una formula ClojureScript
   close();
 });
 
+test('clic su una cella dopo il nome della funzione inserisce l’argomento nello spazio esistente', async () => {
+  const { document, window, app, close } = await mountApp();
+  document.querySelector('#code').value = '(defn pippo [x] (* x 2))';
+  mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
+
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  ed.value = '=(pippo )';
+  ed.setSelectionRange(8, 8);
+  mouse(window, 'mousedown', cell(document, 1, 1));
+
+  assert.equal(ed.hidden, false);
+  assert.equal(ed.value, '=(pippo B2)');
+  key(window, ed, { key: 'Enter' });
+  assert.equal(cell(document, 9, 8).textContent, '3');
+  close();
+});
+
+test('paredit nell’editor formula completa, salta e cancella le parentesi in coppia', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  ed.value = '=';
+  ed.setSelectionRange(1, 1);
+
+  key(window, ed, { key: '(' });
+  assert.equal(ed.value, '=()');
+  assert.equal(ed.selectionStart, 2);
+  key(window, ed, { key: 'Delete' });
+  assert.equal(ed.value, '=()');
+  key(window, ed, { key: 'Backspace' });
+  assert.equal(ed.value, '=');
+  assert.equal(ed.selectionStart, 1);
+
+  key(window, ed, { key: '(' });
+  key(window, ed, { key: ')' });
+  assert.equal(ed.value, '=()');
+  assert.equal(ed.selectionStart, 3);
+  close();
+});
+
+test('paredit nell’editor formula esegue i comandi strutturali da tastiera', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  ed.value = '=(f 1) 2';
+  ed.setSelectionRange(5, 5);
+  key(window, ed, { key: 'ArrowRight', ctrlKey: true });
+  assert.equal(ed.value, '=(f 1 2)');
+  close();
+});
+
 test('modifica dalla barra della formula', async () => {
   const { document, window, close } = await mountApp();
   const fx = document.querySelector('#fx');
