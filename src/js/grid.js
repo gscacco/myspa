@@ -155,9 +155,11 @@ export function createGrid(ctx) {
       const r = td.parentNode.rowIndex - 1, c = td.cellIndex - 1;
       if (!ed.hidden) {
         const v = ed.value, p = ed.selectionStart;
-        if (v[0] === '=' && /[=+\-*/(,<>&|?:!%^]$/.test(v.slice(0, p))) {
+        const prefix = v.slice(0, p);
+        const pendingCljsHead = /^=\(\s*[A-Za-z_*+!?][\w*+!?<>=./-]*$/.test(prefix);
+        if (v[0] === '=' && (/[=+\-*/(,<>&|?:!%^]$/.test(prefix) || pendingCljsHead)) {
           e.preventDefault();
-          ed.setRangeText(addr(r, c), p, ed.selectionEnd, 'end');
+          ed.setRangeText((pendingCljsHead ? ' ' : '') + addr(r, c), p, ed.selectionEnd, 'end');
           ed.focus();
           return;
         }
