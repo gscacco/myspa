@@ -20,8 +20,8 @@
 <div id="gw"><div id="gx"><table id="g" data-dyn></table><div id="ov"></div></div></div>
 <div id="tabs" data-dyn></div>
 <div id="formula-pop" role="dialog" aria-modal="false" aria-labelledby="formula-pop-title" hidden>
-  <div id="formula-pop-head"><b id="formula-pop-title">Formula</b><button id="formula-pop-close" type="button" title="Applica e chiudi" aria-label="Applica e chiudi">✓</button></div>
-  <input id="ed" hidden aria-label="Formula della cella" spellcheck="false" autocomplete="off">
+  <div id="formula-pop-head"><b id="formula-pop-title">Formula</b><button id="formula-pop-close" type="button" title="Apply and close" aria-label="Apply and close">✓</button></div>
+  <textarea id="ed" hidden aria-label="Cell formula" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
 </div>
 <div id="fn" hidden>
   <b>Funzioni utente (ClojureScript)</b>
@@ -39,48 +39,54 @@
   <div id="note" data-dyn></div>
   <div id="fe" data-dyn></div>
   <div id="help-resize" role="separator" aria-orientation="horizontal" aria-label="Ridimensiona la guida" aria-valuemin="40" aria-valuenow="100" tabindex="0"></div>
-<pre id="help">Il pannello qui sopra contiene le funzioni utente in ClojureScript: i simboli definiti
-con def/defn diventano disponibili nelle formule delle celle.
+<pre id="help">The panel above contains user-defined ClojureScript functions. Names declared
+with def/defn are available in cell formulas.
 
-Le formule restano espressioni del foglio: =B2*C2   =D6>1000?"Alta":"Bassa"
-A1  $A$1  Foglio2!B3 → valore di una cella
-A1:B5 → matrice (vettore di righe) da appiattire con (flatten …)
-Nei ternari metti spazi attorno a «:»  →  =x ? B2 : C2  (B2:C2 senza spazi è un intervallo)
-SUM AVG MIN MAX COUNT ROUND IF + funzioni matematiche (sqrt, abs, PI…) usabili anche nei cljs
+Spreadsheet formulas: =B2*C2   =D6&gt;1000?"High":"Low"
+A1  $A$1  Sheet2!B3 → cell value
+A1:B5 → a matrix (vector of rows); use (flatten …) to flatten it
+In ternary expressions, put spaces around «:» → =x ? B2 : C2 (B2:C2 without spaces is a range)
+SUM AVG MIN MAX COUNT ROUND IF and math functions (sqrt, abs, PI…) are also available in ClojureScript.
 
-Editor con paredit attivo:
-( ) [ ] { } e " si chiudono da soli · Invio rientra · Tab indenta (Shift+Tab toglie)
-Le parentesi non si possono sbilanciare: se una cancellazione (Backspace/Delete) le
-romperebbe paredit la blocca, mentre una forma o un blocco interi si cancellano.
-Per cambiarle usa i pulsanti paredit o i tasti, che agiscono sulla lista in cui si
-trova il cursore (anche se il cursore è subito dopo la sua «)»):
-  Slurp ➡  tira dentro la lista la forma che segue      Ctrl+→
-  ⬅ Barf   spinge fuori dalla lista l'ultima forma      Ctrl+←
-  Splice ⬆ toglie le parentesi della lista              Ctrl+↑
-  Wrap ⬇   avvolge la forma o la selezione in «( )»     Ctrl+↓
-  (su macOS, se Ctrl+frecce è preso da Mission Control, usa Ctrl+Shift+frecce)
-Ctrl+/ commenta (;) · Ctrl+Spazio suggerimenti
-▶ Applica tutto valuta l'editor e ne salva il codice nel foglio (anche nel file salvato)
-▶ Valuta forma (Ctrl+Invio) valuta solo la s-exp prima del cursore, come C-x C-e di
-Emacs: ridefinisce una defn o una costante def senza ricaricare il resto e senza
-salvarla nel foglio (vale per la sessione; per conservarla usa ▶ Applica tutto).
-Esempio: (defn media [xs] (/ (SUM xs) (count xs)))   poi in una cella  =media(B2:B5)
-condizionali: (if (> D6 1000) "Alta" "Bassa")   locali: (let [x 1] (* x 2))
-Data flow: una cella si ricalcola solo se cambia una cella da cui dipende (le dipendenze sono scoperte durante il calcolo).</pre>
+In the floating editor, enter the ClojureScript form without a leading =:
+(double-value B2)     (SUM A1:B5)     (if (> D6 1000) "High" "Low")
+
+The ClojureScript editor has paredit:
+( ) [ ] { } and " close automatically · Enter adds an indented line · Tab indents (Shift+Tab outdents)
+Paredit keeps delimiters balanced. Backspace/Delete cannot unbalance them, while a whole form or block can be deleted.
+Use the paredit buttons or shortcuts on the list containing the cursor, including when the cursor is just after its closing «)»:
+  Slurp ➡  pull the following form into the list             Ctrl+→
+  ⬅ Barf   push the last form out of the list                Ctrl+←
+  Splice ⬆ remove the list's delimiters                      Ctrl+↑
+  Wrap ⬇   wrap the form or selection in «( )»               Ctrl+↓
+  (On macOS, if Mission Control captures Ctrl+arrows, use Ctrl+Shift+arrows.)
+Ctrl+/ comments a line with ; · Ctrl+Space opens suggestions
+▶ Apply all evaluates the editor and saves its code in the workbook.
+▶ Evaluate form (Ctrl+Enter) evaluates only the s-expression before the cursor, like Emacs C-x C-e.
+It can redefine a function or constant without reloading the rest of the editor. The change lasts for this session; use Apply all to save it.
+
+Example:
+(defn weighted-average [values weights]
+  (let [value-list (flatten values)
+        weight-list (flatten weights)]
+    (/ (SUM (map * value-list weight-list)) (SUM weight-list))))
+Use it in a cell as (weighted-average B2:B5 C2:C5).
+Conditionals: (if (> D6 1000) "High" "Low") · Locals: (let [x 1] (* x 2))
+Data flow: a cell recalculates only when one of its dependencies changes.</pre>
 </div>
 
 <script type="application/edn" id="model">
 {:version 1
  :name "Foglio di calcolo"
- :code "; Funzioni utente in ClojureScript: i simboli definiti con def/defn sono usabili nelle formule.\n(def IVA 0.22)\n\n(defn CONIVA\n  ([x] (CONIVA x IVA))\n  ([x r] (* x (+ 1 r))))\n\n; riceve matrici (vettori di righe): (flatten ...) le appiattisce\n(defn MEDIA_PESATA [valori pesi]\n  (let [v (flatten valori)\n        p (flatten pesi)]\n    (/ (SUM (map * v p)) (SUM p))))\n"
+ :code "; User-defined functions in ClojureScript: symbols declared with def/defn are available in formulas.\n(def TAX_RATE 0.22)\n\n(defn WITH_TAX\n  ([x] (WITH_TAX x TAX_RATE))\n  ([x rate] (* x (+ 1 rate))))\n\n; Accepts matrices (vectors of rows); flatten turns them into sequences.\n(defn WEIGHTED_AVERAGE [values weights]\n  (let [value-list (flatten values)\n        weight-list (flatten weights)]\n    (/ (SUM (map * value-list weight-list)) (SUM weight-list))))\n"
  :sheets [{:name "Foglio1"
   :cells {:A1 {:r "Prodotto" :b true} :B1 {:r "Prezzo" :b true} :C1 {:r "Qtà" :b true} :D1 {:r "Totale" :b true} :E1 {:r "Con IVA" :b true}
-          :A2 {:r "Penna"} :B2 {:r 1.5 :d 2} :C2 {:r 100} :D2 {:r "=B2*C2" :d 2} :E2 {:r "=CONIVA(D2)" :d 2}
-          :A3 {:r "Quaderno"} :B3 {:r 3.2 :d 2} :C3 {:r 40} :D3 {:r "=B3*C3" :d 2} :E3 {:r "=CONIVA(D3)" :d 2}
-          :A4 {:r "Zaino"} :B4 {:r 24.9 :d 2} :C4 {:r 12} :D4 {:r "=B4*C4" :d 2} :E4 {:r "=CONIVA(D4)" :d 2}
-          :A5 {:r "Lavagna"} :B5 {:r 89 :d 2} :C5 {:r 3} :D5 {:r "=B5*C5" :d 2} :E5 {:r "=CONIVA(D5)" :d 2}
+          :A2 {:r "Penna"} :B2 {:r 1.5 :d 2} :C2 {:r 100} :D2 {:r "=B2*C2" :d 2} :E2 {:r "=WITH_TAX(D2)" :d 2}
+          :A3 {:r "Quaderno"} :B3 {:r 3.2 :d 2} :C3 {:r 40} :D3 {:r "=B3*C3" :d 2} :E3 {:r "=WITH_TAX(D3)" :d 2}
+          :A4 {:r "Zaino"} :B4 {:r 24.9 :d 2} :C4 {:r 12} :D4 {:r "=B4*C4" :d 2} :E4 {:r "=WITH_TAX(D4)" :d 2}
+          :A5 {:r "Lavagna"} :B5 {:r 89 :d 2} :C5 {:r 3} :D5 {:r "=B5*C5" :d 2} :E5 {:r "=WITH_TAX(D5)" :d 2}
           :A6 {:r "Totale" :b true} :D6 {:r "=SUM(D2:D5)" :d 2 :b true} :E6 {:r "=SUM(E2:E5)" :d 2 :b true}
-          :A8 {:r "Prezzo medio pesato"} :D8 {:r "=MEDIA_PESATA(B2:B5, C2:C5)" :d 3}
+          :A8 {:r "Prezzo medio pesato"} :D8 {:r "=WEIGHTED_AVERAGE(B2:B5, C2:C5)" :d 3}
           :A9 {:r "Fascia"} :D9 {:r "=D6>1000?\"Alta\":\"Bassa\""}}}
   {:name "Foglio2" :cells {:A1 {:r "Totale con IVA (da Foglio1)" :b true} :D1 {:r "=Foglio1!E6" :d 2}}}]}
 </script>
