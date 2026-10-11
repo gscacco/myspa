@@ -101,6 +101,31 @@ test('the formula window opens on the active cell and applies before closing', a
   close();
 });
 
+test('the formula editor stays open until Ctrl+Enter or the apply button', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  ed.value = '(+ 2 3)';
+  ed.setSelectionRange(ed.value.length, ed.value.length);
+
+  ed.dispatchEvent(new window.FocusEvent('blur'));
+  assert.equal(ed.hidden, false);
+  key(window, ed, { key: 'Escape' });
+  assert.equal(ed.hidden, false);
+  key(window, ed, { key: 'Tab' });
+  assert.equal(ed.hidden, false);
+  mouse(window, 'mousedown', cell(document, 1, 1));
+  assert.equal(ed.hidden, false);
+  assert.deepEqual(app.grid.cursor(), { r: 9, c: 8 });
+
+  key(window, ed, { key: 'Enter', ctrlKey: true });
+  assert.equal(ed.hidden, true);
+  assert.equal(app.currentSheet().cells.I10.r, '=(+ 2 3)');
+  assert.equal(cell(document, 9, 8).textContent, '5');
+  close();
+});
+
 test('Enter inserts a newline and Ctrl+Enter applies the form', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
