@@ -8,7 +8,7 @@
 
 import { ROWS, COLS, sheetByName } from './model.js';
 import { colName, addr, parseRef } from './references.js';
-import { PAIRS, CLOSERS, safeDeletion, pareditSlurp, pareditBarf, pareditSplice, pareditWrap } from './editor-assistance.js';
+import { PAIRS, CLOSERS, safeDeletion, indentFor, pareditNewline, pareditSlurp, pareditBarf, pareditSplice, pareditWrap } from './editor-assistance.js';
 
 /**
  * Crea la vista della griglia.
@@ -115,11 +115,23 @@ export function createGrid(ctx) {
     const { r, c } = S.a, td = tdOf(r, c);
     if (!td) return;
     const raw = sheet().cells[addr(r, c)]?.r;
-    ed.value = init ?? (raw === undefined ? '' : raw);
+    const source = String(init ?? (raw === undefined ? '' : raw));
+    const isFormula = source.startsWith('=');
+    ed.dataset.formula = String(isFormula);
+    ed.value = isFormula ? source.slice(1) : source;
     Q('#formula-pop-title').textContent = 'Formula · ' + addr(r, c);
     ed.hidden = false;
     Q('#formula-pop').hidden = false;
     ed.focus();
+  }
+
+  /** Converte il testo dell'editor flottante nel valore memorizzato nella cella. */
+  function editedCellText() {
+    let source = ed.value;
+    const isFormula = ed.dataset.formula === 'true' || /^\s*\(/.test(source);
+    if (!isFormula) return source;
+    if (source.startsWith('=')) source = source.slice(1);
+    return source.trim() ? '=' + source : '';
   }
 
   /** Chiude l'editor inline, salvando (`ok`) ed eventualmente spostando la selezione. */
@@ -127,7 +139,7 @@ export function createGrid(ctx) {
     if (ed.hidden) return;
     ed.hidden = true;
     Q('#formula-pop').hidden = true;
-    if (ok) setCellText(S.a.r, S.a.c, ed.value);
+    if (ok) setCellText(S.a.r, S.a.c, editedCellText());
     mv ? sel(S.a.r + mv[0], S.a.c + mv[1]) : showCell();
   }
 
@@ -145,6 +157,11 @@ export function createGrid(ctx) {
     Q('#formula-pop-close').addEventListener('click', () => endEdit(1));
     ed.addEventListener('keydown', e => {
       const v = ed.value, a = ed.selectionStart, b = ed.selectionEnd, m = e.ctrlKey || e.metaKey;
+      if (e.key === '=' && !m && !e.altKey && !v && a === 0 && b === 0) {
+        e.preventDefault();
+        ed.dataset.formula = 'true';
+        return;
+      }
       const structures = {
         ArrowRight: () => pareditSlurp(v, a),
         ArrowLeft: () => pareditBarf(v, a),
@@ -191,7 +208,16 @@ export function createGrid(ctx) {
       ed.setSelectionRange(a + 1, a + 1);
     });
     ed.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); endEdit(1, [e.shiftKey ? -1 : 1, 0]); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.ctrlKey || e.metaKey) { endEdit(1); return; }
+        const v = ed.value, a = ed.selectionStart, b = ed.selectionEnd;
+        const r = a === b
+          ? pareditNewline(v, a)
+          : { from: a, to: b, text: '\n' + ' '.repeat(indentFor(v, a)), caret: a + 1 + indentFor(v, a) };
+        ed.setRangeText(r.text, r.from, r.to, 'end');
+        ed.setSelectionRange(r.caret, r.caret);
+      }
       else if (e.key === 'Tab') { e.preventDefault(); endEdit(1, [0, e.shiftKey ? -1 : 1]); }
       else if (e.key === 'Escape') endEdit(0);
     });
@@ -207,9 +233,11 @@ export function createGrid(ctx) {
       if (!ed.hidden) {
         const v = ed.value, p = ed.selectionStart;
         const prefix = v.slice(0, p);
-        const pendingCljsHead = /^=\(\s*[A-Za-z_*+!?][\w*+!?<>=./-]*\s*$/.test(prefix);
-        if (v[0] === '=' && (/[=+\-*/(,<>&|?:!%^]$/.test(prefix) || pendingCljsHead)) {
+        const pendingCljsHead = /^\s*\(\s*[A-Za-z_*+!?][\w*+!?<>=./-]*\s*$/.test(prefix);
+        const formulaMode = ed.dataset.formula === 'true' || /^\s*\(/.test(v);
+        if (formulaMode && (/[=+\-*/(,<>&|?:!%^]$/.test(prefix) || pendingCljsHead)) {
           e.preventDefault();
+          ed.dataset.formula = 'true';
           ed.setRangeText((pendingCljsHead && !/\s$/.test(prefix) ? ' ' : '') + addr(r, c), p, ed.selectionEnd, 'end');
           ed.focus();
           return;
