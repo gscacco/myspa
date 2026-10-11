@@ -58,7 +58,7 @@ test('the formula panel applies edits with Ctrl+Enter', async () => {
   assert.equal(document.querySelector('#ln').children.length, ed.value.split('\n').length);
   ed.value = '';
   ed.setSelectionRange(0, 0);
-  ed.value = '1+1';
+  ed.value = '(+ 1 1)';
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.ok(ed.value.includes('(defn WITH_TAX'));
@@ -93,13 +93,15 @@ test('cell formulas reuse the syntax-highlighted editor and its apply button', a
   assert.equal(code.value, 'B2*C2');
   assert.equal(document.querySelector('#apply-code').textContent, 'Apply formula');
 
-  code.value = 'B2*C2+1';
+  code.value = '(SUM B2 C2)';
+  code.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.match(document.querySelector('#hl').innerHTML, /class="b">SUM/);
   document.querySelector('#apply-code').click();
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.equal(code.value, originalCode);
   assert.equal(document.querySelector('#nb').value, 'D2');
-  assert.equal(document.querySelector('#fx').value, '=B2*C2+1');
-  assert.equal(document.querySelector('#g').rows[2].cells[4].textContent, '151.00');
+  assert.equal(document.querySelector('#fx').value, '=(SUM B2 C2)');
+  assert.equal(document.querySelector('#g').rows[2].cells[4].textContent, '101.50');
   close();
 });
 
@@ -124,7 +126,7 @@ test('the formula editor stays open until Ctrl+Enter or the apply button', async
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.ok(ed.value.includes('(defn WITH_TAX'));
-  assert.equal(app.currentSheet().cells.I10.r, '=(+ 2 3)');
+  assert.equal(app.currentSheet().cells.I10.r.trim(), '=(+ 2 3)');
   assert.equal(cell(document, 9, 8).textContent, '5');
   close();
 });
@@ -167,16 +169,20 @@ test('Enter inserts a newline and Ctrl+Enter applies the form', async () => {
 test('the editor has no duplicate textarea, help block, or paredit toolbar', async () => {
   const { document, close } = await mountApp();
   assert.equal(document.querySelector('#fn b').textContent, 'User-defined functions (ClojureScript)');
+  assert.equal(document.querySelectorAll('#fn textarea').length, 1);
   assert.equal(document.querySelector('#help'), null);
   assert.equal(document.querySelector('#help-resize'), null);
   assert.equal(document.querySelectorAll('#fn [data-action^="paredit-"]').length, 0);
+  assert.deepEqual([...document.querySelectorAll('#fn button')].map(button => button.id), ['apply-code']);
+  assert.equal(document.querySelector('#note').getAttribute('role'), 'status');
+  assert.ok(document.querySelector('#fe'));
   close();
 });
 
 test('clicking a cell completes the first argument of a ClojureScript formula', async () => {
   const { document, window, app, close } = await mountApp();
   document.querySelector('#code').value = '(defn double-value [x] (* x 2))';
-  mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
+  mouse(window, 'click', document.querySelector('#apply-code'));
 
   app.grid.sel(9, 8);
   app.grid.edit();
@@ -196,7 +202,7 @@ test('clicking a cell completes the first argument of a ClojureScript formula', 
 test('clicking a cell after a function name inserts its argument in the existing space', async () => {
   const { document, window, app, close } = await mountApp();
   document.querySelector('#code').value = '(defn double-value [x] (* x 2))';
-  mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
+  mouse(window, 'click', document.querySelector('#apply-code'));
 
   app.grid.sel(9, 8);
   app.grid.edit();
@@ -327,7 +333,7 @@ test('sheets can be added and selected from the tabs', async () => {
 test('ClojureScript code can be applied from the editor', async () => {
   const { document, window, app, close } = await mountApp();
   document.querySelector('#code').value = '(defn TRIPLE [x] (* x 3))';
-  mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
+  mouse(window, 'click', document.querySelector('#apply-code'));
   app.grid.setCellText(0, 8, '=TRIPLE(4)');
   assert.equal(cell(document, 0, 8).textContent, '12');
   close();
@@ -336,7 +342,7 @@ test('ClojureScript code can be applied from the editor', async () => {
 test('an editor error does not affect built-in functions', async () => {
   const { document, window, app, close } = await mountApp();
   document.querySelector('#code').value = '(defn broken [x]';
-  mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
+  mouse(window, 'click', document.querySelector('#apply-code'));
   assert.match(document.querySelector('#fe').textContent, /Riga/);
   app.grid.setCellText(0, 8, '=SUM(1,2,3)');
   assert.equal(cell(document, 0, 8).textContent, '6');
