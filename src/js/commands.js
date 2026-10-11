@@ -71,6 +71,7 @@ export function createCommands(ctx) {
 
   /* ===== Fogli ===== */
   function addSheet() {
+    if (ctx.grid.isEditing()) return;
     const i = ctx.session.addNewSheet();
     ctx.setSheetIndex(i);
     ctx.grid.render();
@@ -80,6 +81,7 @@ export function createCommands(ctx) {
   }
 
   function delSheet() {
+    if (ctx.grid.isEditing()) return;
     if (!confirm('Eliminare il foglio «' + ctx.currentSheet().name + '»? Le formule che lo usano andranno in errore.')) return;
     ctx.session.deleteSheet(ctx.sheetIndex);
     ctx.setSheetIndex(0);
@@ -93,7 +95,10 @@ export function createCommands(ctx) {
     Q('#tabs').replaceChildren(
       ...wb.sheets.map((s, i) => E('button', {
         textContent: s.name, className: i === ctx.sheetIndex ? 'on' : '',
-        onclick: () => { ctx.grid.endEdit(1); ctx.setSheetIndex(i); ctx.grid.render(); renderTabs(); ctx.grid.sel(0, 0); ctx.updateStatus(); },
+        onclick: () => {
+          if (ctx.grid.isEditing()) return;
+          ctx.setSheetIndex(i); ctx.grid.render(); renderTabs(); ctx.grid.sel(0, 0); ctx.updateStatus();
+        },
       })),
       E('button', { textContent: '＋', title: 'Nuovo foglio', onclick: addSheet }),
       ...(wb.sheets.length > 1 ? [E('button', { textContent: '🗑 elimina «' + ctx.currentSheet().name + '»', onclick: delSheet })] : []),

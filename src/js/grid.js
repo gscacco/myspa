@@ -255,6 +255,7 @@ export function createGrid(ctx) {
   return {
     mount, render, paint, paintAddresses, showCell, sel, edit, endEdit, setCellText,
     rebuild, rect, flow, setFlow, getFlowOn: () => flowOn,
+    isEditing: () => !ed.hidden,
     cursor: () => ({ r: S.a.r, c: S.a.c }),
     selection: () => S,
     tdOf,
