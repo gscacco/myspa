@@ -8,6 +8,7 @@
 
 import { ROWS, COLS, sheetByName } from './model.js';
 import { colName, addr, parseRef } from './references.js';
+import { PAIRS, CLOSERS, safeDeletion, pareditSlurp, pareditBarf, pareditSplice, pareditWrap } from './editor-assistance.js';
 
 /**
  * Crea la vista della griglia.
@@ -139,6 +140,53 @@ export function createGrid(ctx) {
 
   /** Collega gli eventi di editing (editor inline e barra della formula). */
   function mount() {
+    ed.addEventListener('keydown', e => {
+      const v = ed.value, a = ed.selectionStart, b = ed.selectionEnd, m = e.ctrlKey || e.metaKey;
+      const structures = {
+        ArrowRight: () => pareditSlurp(v, a),
+        ArrowLeft: () => pareditBarf(v, a),
+        ArrowUp: () => pareditSplice(v, a),
+        ArrowDown: () => pareditWrap(v, a, b),
+      };
+      if (m && structures[e.key]) {
+        e.preventDefault();
+        const r = structures[e.key]();
+        if (r) {
+          ed.setRangeText(r.text, r.from, r.to, 'end');
+          if (r.caret != null) ed.setSelectionRange(r.caret, r.selEnd != null ? r.selEnd : r.caret);
+        }
+        return;
+      }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        const empty = a === b;
+        if (e.key === 'Backspace' && empty && PAIRS[v[a - 1]] && PAIRS[v[a - 1]] === v[a]) {
+          e.preventDefault();
+          ed.setRangeText('', a - 1, a + 1, 'end');
+          return;
+        }
+        const from = empty ? (e.key === 'Backspace' ? a - 1 : a) : a;
+        const to = empty ? (e.key === 'Backspace' ? a : a + 1) : b;
+        if (from >= 0 && to > from && !safeDeletion(v, from, to)) e.preventDefault();
+        return;
+      }
+      if (m || e.altKey || e.key.length !== 1) return;
+      if (CLOSERS.has(e.key) && v[a] === e.key && a === b) {
+        e.preventDefault();
+        ed.setSelectionRange(a + 1, a + 1);
+        return;
+      }
+      if (!PAIRS[e.key]) return;
+      if (a !== b) {
+        e.preventDefault();
+        ed.setRangeText(e.key + v.slice(a, b) + PAIRS[e.key], a, b, 'end');
+        ed.setSelectionRange(a + 1, b + 1);
+        return;
+      }
+      if (!/[({\[]/.test(e.key) && /\w/.test(v[a - 1] || '')) return;
+      e.preventDefault();
+      ed.setRangeText(e.key + PAIRS[e.key], a, b, 'end');
+      ed.setSelectionRange(a + 1, a + 1);
+    });
     ed.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); endEdit(1, [e.shiftKey ? -1 : 1, 0]); }
       else if (e.key === 'Tab') { e.preventDefault(); endEdit(1, [0, e.shiftKey ? -1 : 1]); }
