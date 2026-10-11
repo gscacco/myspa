@@ -22,6 +22,16 @@ function load() {
   return { html, dom };
 }
 
+test('the standalone artifact embeds its favicon as an SVG data URL', () => {
+  const { dom } = load();
+  const icon = dom.window.document.querySelector('link[rel~="icon"]');
+  assert.ok(icon);
+  assert.equal(icon.type, 'image/svg+xml');
+  assert.match(icon.href, /^data:image\/svg\+xml,/);
+  assert.match(decodeURIComponent(icon.href.slice('data:image/svg+xml,'.length)), /<svg[^>]+viewBox=/);
+  dom.window.close();
+});
+
 /** Return the zero-based cell at (r,c) on the current sheet. */
 const cell = (document, r, c) => document.querySelector('#g').rows[r + 1].cells[c + 1];
 
