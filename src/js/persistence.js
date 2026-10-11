@@ -3,8 +3,8 @@
  * l'applicazione sia il modello EDN del workbook.
  *
  * Il documento viene costruito clonando il DOM corrente, svuotando gli
- * elementi dinamici (`[data-dyn]`), nascondendo gli elementi non pertinenti
- * (`#ed`, `#fn`) e iniettando il modello serializzato in `#model`.
+ * elementi dinamici (`[data-dyn]`), nascondendo l'editor di funzioni (`#fn`)
+ * e iniettando il modello serializzato in `#model`.
  */
 
 import { writeEDN, readEDN } from './edn.js';
@@ -21,7 +21,7 @@ export const FILE_TYPES = [{ description: 'Foglio di calcolo HTML', accept: { 't
 export function buildDocument(doc, wb) {
   const h = doc.documentElement.cloneNode(true);
   h.querySelectorAll('[data-dyn]').forEach(e => e.replaceChildren());
-  ['#ed', '#fn'].forEach(i => h.querySelector(i).hidden = true);
+  h.querySelector('#fn').hidden = true;
   h.querySelector('#model').textContent = '\n' + writeEDN(wb, 0) + '\n';
   h.querySelector('title').textContent = wb.name;
   return '<!doctype html>\n' + h.outerHTML;

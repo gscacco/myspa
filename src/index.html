@@ -19,60 +19,11 @@
 <div id="fb"><input id="nb" readonly><b>ƒx</b><input id="fx" spellcheck="false"><span id="vv" data-dyn></span></div>
 <div id="gw"><div id="gx"><table id="g" data-dyn></table><div id="ov"></div></div></div>
 <div id="tabs" data-dyn></div>
-<div id="formula-pop" role="dialog" aria-modal="false" aria-labelledby="formula-pop-title" hidden>
-  <div id="formula-pop-head"><b id="formula-pop-title">Formula</b><button id="formula-pop-close" type="button" title="Apply and close" aria-label="Apply and close">✓</button></div>
-  <textarea id="ed" hidden aria-label="Cell formula" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"></textarea>
-</div>
 <div id="fn" hidden>
-  <b>User-defined functions (ClojureScript)</b>
-  <div id="ce"><div id="ln" data-dyn></div><div id="cw"><pre id="hl" data-dyn></pre><textarea id="code" wrap="off" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea><div id="pop" hidden data-dyn></div></div></div>
-  <div id="cst" data-dyn></div>
-  <div id="pe">
-    <button data-action="apply-code" title="Valuta tutto il codice dell'editor e lo salva nel foglio">▶ Applica tutto</button>
-    <button data-action="eval-form" title="Valuta la s-exp che precede il cursore, come C-x C-e di Emacs (Ctrl+Invio)">▶ Valuta forma (Ctrl+Invio)</button>
-    <span class="lb">paredit</span>
-    <button data-action="paredit-slurp" title="Slurp (Ctrl+→): tira dentro la lista la forma che segue">Slurp ➡</button>
-    <button data-action="paredit-barf" title="Barf (Ctrl+←): spinge fuori dalla lista l'ultima forma">⬅ Barf</button>
-    <button data-action="paredit-splice" title="Splice (Ctrl+↑): toglie le parentesi della lista">Splice ⬆</button>
-    <button data-action="paredit-wrap" title="Wrap (Ctrl+↓): avvolge la forma o la selezione in una lista">Wrap ⬇</button>
-  </div>
-  <div id="note" data-dyn></div>
+  <div id="fn-head"><b id="fn-title">User-defined functions (ClojureScript)</b><button id="apply-code" type="button" title="Apply all function definitions">Apply all</button></div>
+  <div id="ce"><div id="ln" data-dyn></div><div id="cw"><pre id="hl" data-dyn></pre><textarea id="code" aria-label="ClojureScript code or cell formula" wrap="off" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea><div id="pop" hidden data-dyn></div></div></div>
   <div id="fe" data-dyn></div>
-  <div id="help-resize" role="separator" aria-orientation="horizontal" aria-label="Resize the help panel" aria-valuemin="40" aria-valuenow="100" tabindex="0"></div>
-<pre id="help">The panel above contains user-defined ClojureScript functions. Names declared
-with def/defn are available in cell formulas.
-
-Spreadsheet formulas: =B2*C2   =D6&gt;1000?"High":"Low"
-A1  $A$1  Sheet2!B3 → cell value
-A1:B5 → a matrix (vector of rows); use (flatten …) to flatten it
-In ternary expressions, put spaces around «:» → =x ? B2 : C2 (B2:C2 without spaces is a range)
-SUM AVG MIN MAX COUNT ROUND IF and math functions (sqrt, abs, PI…) are also available in ClojureScript.
-
-In the floating editor, enter the ClojureScript form without a leading =:
-(double-value B2)     (SUM A1:B5)     (if (> D6 1000) "High" "Low")
-
-The ClojureScript editor has paredit:
-( ) [ ] { } and " close automatically · Enter adds an indented line · Tab indents (Shift+Tab outdents)
-Paredit keeps delimiters balanced. Backspace/Delete cannot unbalance them, while a whole form or block can be deleted.
-Use the paredit buttons or shortcuts on the list containing the cursor, including when the cursor is just after its closing «)»:
-  Slurp ➡  pull the following form into the list             Ctrl+→
-  ⬅ Barf   push the last form out of the list                Ctrl+←
-  Splice ⬆ remove the list's delimiters                      Ctrl+↑
-  Wrap ⬇   wrap the form or selection in «( )»               Ctrl+↓
-  (On macOS, if Mission Control captures Ctrl+arrows, use Ctrl+Shift+arrows.)
-Ctrl+/ comments a line with ; · Ctrl+Space opens suggestions
-▶ Apply all evaluates the editor and saves its code in the workbook.
-▶ Evaluate form (Ctrl+Enter) evaluates only the s-expression before the cursor, like Emacs C-x C-e.
-It can redefine a function or constant without reloading the rest of the editor. The change lasts for this session; use Apply all to save it.
-
-Example:
-(defn weighted-average [values weights]
-  (let [value-list (flatten values)
-        weight-list (flatten weights)]
-    (/ (SUM (map * value-list weight-list)) (SUM weight-list))))
-Use it in a cell as (weighted-average B2:B5 C2:C5).
-Conditionals: (if (> D6 1000) "High" "Low") · Locals: (let [x 1] (* x 2))
-Data flow: a cell recalculates only when one of its dependencies changes.</pre>
+  <div id="note" data-dyn role="status" aria-live="polite"></div>
 </div>
 
 <script type="application/edn" id="model">

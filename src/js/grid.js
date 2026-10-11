@@ -8,7 +8,6 @@
 
 import { ROWS, COLS, sheetByName } from './model.js';
 import { colName, addr, parseRef } from './references.js';
-import { PAIRS, CLOSERS, safeDeletion, indentFor, pareditNewline, pareditSlurp, pareditBarf, pareditSplice, pareditWrap } from './editor-assistance.js';
 
 /**
  * Crea la vista della griglia.
@@ -18,7 +17,7 @@ import { PAIRS, CLOSERS, safeDeletion, indentFor, pareditNewline, pareditSlurp, 
 export function createGrid(ctx) {
   const Q = s => document.querySelector(s);
   const G = Q('#g');
-  const ed = Q('#ed');
+  const ed = Q('#code');
   const tdOf = (r, c) => G.rows[r + 1]?.cells[c + 1];
 
   let S = { a: { r: 0, c: 0 }, f: { r: 0, c: 0 } };
@@ -117,29 +116,18 @@ export function createGrid(ctx) {
     const raw = sheet().cells[addr(r, c)]?.r;
     const source = String(init ?? (raw === undefined ? '' : raw));
     const isFormula = source.startsWith('=');
-    ed.dataset.formula = String(isFormula);
-    ed.value = isFormula ? source.slice(1) : source;
-    Q('#formula-pop-title').textContent = 'Formula · ' + addr(r, c);
-    ed.hidden = false;
-    Q('#formula-pop').hidden = false;
-    ed.focus();
-  }
-
-  /** Converte il testo dell'editor flottante nel valore memorizzato nella cella. */
-  function editedCellText() {
-    let source = ed.value;
-    const isFormula = ed.dataset.formula === 'true' || /^\s*\(/.test(source);
-    if (!isFormula) return source;
-    if (source.startsWith('=')) source = source.slice(1);
-    return source.trim() ? '=' + source : '';
+    ctx.editor.beginCellEdit({
+      value: isFormula ? source.slice(1) : source,
+      formula: isFormula,
+      address: addr(r, c),
+      apply: text => setCellText(r, c, text),
+    });
   }
 
   /** Chiude l'editor inline, salvando (`ok`) ed eventualmente spostando la selezione. */
   function endEdit(ok, mv) {
-    if (ed.hidden) return;
-    ed.hidden = true;
-    Q('#formula-pop').hidden = true;
-    if (ok) setCellText(S.a.r, S.a.c, editedCellText());
+    if (!ctx.editor.isCellEditing()) return;
+    ctx.editor.finishCellEdit(ok);
     mv ? sel(S.a.r + mv[0], S.a.c + mv[1]) : showCell();
   }
 
@@ -154,72 +142,6 @@ export function createGrid(ctx) {
 
   /** Collega gli eventi di editing (editor inline e barra della formula). */
   function mount() {
-    Q('#formula-pop-close').addEventListener('click', () => endEdit(1));
-    ed.addEventListener('keydown', e => {
-      const v = ed.value, a = ed.selectionStart, b = ed.selectionEnd, m = e.ctrlKey || e.metaKey;
-      if (e.key === '=' && !m && !e.altKey && !v && a === 0 && b === 0) {
-        e.preventDefault();
-        ed.dataset.formula = 'true';
-        return;
-      }
-      const structures = {
-        ArrowRight: () => pareditSlurp(v, a),
-        ArrowLeft: () => pareditBarf(v, a),
-        ArrowUp: () => pareditSplice(v, a),
-        ArrowDown: () => pareditWrap(v, a, b),
-      };
-      if (m && structures[e.key]) {
-        e.preventDefault();
-        const r = structures[e.key]();
-        if (r) {
-          ed.setRangeText(r.text, r.from, r.to, 'end');
-          if (r.caret != null) ed.setSelectionRange(r.caret, r.selEnd != null ? r.selEnd : r.caret);
-        }
-        return;
-      }
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        const empty = a === b;
-        if (e.key === 'Backspace' && empty && PAIRS[v[a - 1]] && PAIRS[v[a - 1]] === v[a]) {
-          e.preventDefault();
-          ed.setRangeText('', a - 1, a + 1, 'end');
-          return;
-        }
-        const from = empty ? (e.key === 'Backspace' ? a - 1 : a) : a;
-        const to = empty ? (e.key === 'Backspace' ? a : a + 1) : b;
-        if (from >= 0 && to > from && !safeDeletion(v, from, to)) e.preventDefault();
-        return;
-      }
-      if (m || e.altKey || e.key.length !== 1) return;
-      if (CLOSERS.has(e.key) && v[a] === e.key && a === b) {
-        e.preventDefault();
-        ed.setSelectionRange(a + 1, a + 1);
-        return;
-      }
-      if (!PAIRS[e.key]) return;
-      if (a !== b) {
-        e.preventDefault();
-        ed.setRangeText(e.key + v.slice(a, b) + PAIRS[e.key], a, b, 'end');
-        ed.setSelectionRange(a + 1, b + 1);
-        return;
-      }
-      if (!/[({\[]/.test(e.key) && /\w/.test(v[a - 1] || '')) return;
-      e.preventDefault();
-      ed.setRangeText(e.key + PAIRS[e.key], a, b, 'end');
-      ed.setSelectionRange(a + 1, a + 1);
-    });
-    ed.addEventListener('keydown', e => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (e.ctrlKey || e.metaKey) { endEdit(1); return; }
-        const v = ed.value, a = ed.selectionStart, b = ed.selectionEnd;
-        const r = a === b
-          ? pareditNewline(v, a)
-          : { from: a, to: b, text: '\n' + ' '.repeat(indentFor(v, a)), caret: a + 1 + indentFor(v, a) };
-        ed.setRangeText(r.text, r.from, r.to, 'end');
-        ed.setSelectionRange(r.caret, r.caret);
-      }
-      else if (e.key === 'Tab') e.preventDefault();
-    });
     Q('#fx').addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); setCellText(S.a.r, S.a.c, e.target.value); e.target.blur(); }
       else if (e.key === 'Escape') { showCell(); e.target.blur(); }
@@ -228,7 +150,7 @@ export function createGrid(ctx) {
       const td = e.target.closest('td');
       if (!td) return;
       const r = td.parentNode.rowIndex - 1, c = td.cellIndex - 1;
-      if (!ed.hidden) {
+      if (ctx.editor.isCellEditing()) {
         const v = ed.value, p = ed.selectionStart;
         const prefix = v.slice(0, p);
         const pendingCljsHead = /^\s*\(\s*[A-Za-z_*+!?][\w*+!?<>=./-]*\s*$/.test(prefix);
@@ -237,6 +159,7 @@ export function createGrid(ctx) {
           e.preventDefault();
           ed.dataset.formula = 'true';
           ed.setRangeText((pendingCljsHead && !/\s$/.test(prefix) ? ' ' : '') + addr(r, c), p, ed.selectionEnd, 'end');
+          ctx.editor.refresh();
           ed.focus();
           return;
         }
@@ -255,7 +178,7 @@ export function createGrid(ctx) {
   return {
     mount, render, paint, paintAddresses, showCell, sel, edit, endEdit, setCellText,
     rebuild, rect, flow, setFlow, getFlowOn: () => flowOn,
-    isEditing: () => !ed.hidden,
+    isEditing: () => ctx.editor.isCellEditing(),
     cursor: () => ({ r: S.a.r, c: S.a.c }),
     selection: () => S,
     tdOf,

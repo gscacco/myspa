@@ -111,6 +111,7 @@ export function createCommands(ctx) {
 
   /** Applica il codice delle funzioni utente dall'editor. */
   function applyCode() {
+    if (ctx.grid.isEditing()) { ctx.grid.endEdit(1); return; }
     const code = ctx.editor.value();
     const { error, changed } = ctx.session.applyCode(code);
     ctx.grid.paint(changed);
@@ -153,12 +154,6 @@ export function createCommands(ctx) {
     ctx.editor.note('✓ ' + brief(form.text) + '  →  ' + describe(value));
   }
 
-  /** Valuta la forma sotto il cursore (pulsante «Valuta forma»). */
-  const applyFormAtCursor = () => applyForm(ctx.editor.formAtCursor());
-
-  /** Esegue un comando paredit richiesto da un pulsante dell'editor. */
-  const pareditCommand = name => ctx.editor.command(name);
-
   /* ===== Barra strumenti ===== */
   function wireToolbar() {
     const act = (name, fn, evName = 'click') => { const el = Q('[data-action="' + name + '"]'); if (el) el.addEventListener(evName, fn); };
@@ -172,15 +167,12 @@ export function createCommands(ctx) {
     act('bg-color', e => fmt('bg', e.target.value), 'input');
     act('bg-clear', () => fmt('bg', ''));
     act('toggle-flow', () => { const on = !ctx.grid.getFlowOn(); ctx.grid.setFlow(on); Q('#bflow').classList.toggle('on', on); });
-    act('toggle-functions', () => { Q('#fn').hidden = !Q('#fn').hidden; Q('#bfn').classList.toggle('on', !Q('#fn').hidden); });
-    act('apply-code', applyCode);
-    // I pulsanti agiscono come i tasti: `mousedown` + preventDefault tiene il
-    // cursore (e la selezione) dentro il textarea dell'editor.
-    ['slurp', 'barf', 'splice', 'wrap'].forEach(name => {
-      const el = Q('[data-action="paredit-' + name + '"]');
-      if (el) el.addEventListener('mousedown', e => { e.preventDefault(); pareditCommand(name); });
+    act('toggle-functions', () => {
+      if (ctx.grid.isEditing()) return;
+      Q('#fn').hidden = !Q('#fn').hidden;
+      Q('#bfn').classList.toggle('on', !Q('#fn').hidden);
     });
-    act('eval-form', e => { e.preventDefault(); applyFormAtCursor(); }, 'mousedown');
+    Q('#apply-code').addEventListener('click', applyCode);
   }
 
   /* ===== Scorciatoie globali ===== */
@@ -216,6 +208,6 @@ export function createCommands(ctx) {
     addEventListener('paste', paste);
   }
 
-  return { init, renderTabs, applyCode, applyForm, applyFormAtCursor, pareditCommand, clearSel, fillDown, fmt, cp, paste, addSheet, delSheet, doUndo, doRedo };
+  return { init, renderTabs, applyCode, applyForm, clearSel, fillDown, fmt, cp, paste, addSheet, delSheet, doUndo, doRedo };
 }
 

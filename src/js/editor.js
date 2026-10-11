@@ -21,12 +21,13 @@ export function createEditor(ctx) {
   const Q = s => document.querySelector(s);
   const E = (t, a = {}, ...k) => { const e = document.createElement(t); Object.assign(e, a); e.append(...k); return e; };
   const ta = Q('#code'), hl = Q('#hl'), ln = Q('#ln'), pop = Q('#pop'), cw = Q('#cw');
+  const fn = Q('#fn'), fnTitle = Q('#fn-title'), applyButton = Q('#apply-code');
   const noteEl = Q('#note');
 
-  let errLine = 0, bm = [], ac = null, cwid = 0, chk = 0;
+  let errLine = 0, bm = [], ac = null, cwid = 0, chk = 0, cellEdit = null;
 
   function highlight() {
-    const code = ta.value, own = new Set(extractDeclarations(code).map(x => x.n));
+    const code = ta.value, own = new Set(extractDeclarations(cellEdit ? cellEdit.code : code).map(x => x.n));
     hl.innerHTML = code.replace(TOKEN_RE, (m, c, st, kw, n, id, other, off) => {
       const t = escapeHTML(m);
       if (c) return `<i class=c>${t}</i>`;
@@ -47,14 +48,76 @@ export function createEditor(ctx) {
     ln.scrollTop = ta.scrollTop;
   }
 
-  function stat() {
-    const b = ta.value.slice(0, ta.selectionStart).split('\n');
-    Q('#cst').textContent = 'Riga ' + b.length + ', col ' + (b[b.length - 1].length + 1) + ' · ' + ta.value.split('\n').length + ' righe';
-  }
-
-  const refresh = () => { bm = matchBr(); highlight(); stat(); };
+  const refresh = () => { bm = matchBr(); highlight(); };
 
   function setCode(v) { ta.value = v; errLine = 0; refresh(); }
+
+  function beginCellEdit({ value, formula, address, apply }) {
+    if (cellEdit) return false;
+    clearTimeout(chk);
+    cellEdit = {
+      code: ta.value,
+      selectionStart: ta.selectionStart,
+      selectionEnd: ta.selectionEnd,
+      panelHidden: fn.hidden,
+      title: fnTitle.textContent,
+      applyLabel: applyButton.textContent,
+      applyTitle: applyButton.title,
+      note: noteEl.textContent,
+      noteClass: noteEl.className,
+      error: Q('#fe').textContent,
+      errLine,
+      formula: !!formula,
+      apply,
+    };
+    fn.hidden = false;
+    Q('#bfn').classList.add('on');
+    fnTitle.textContent = 'Cell formula · ' + address;
+    applyButton.textContent = 'Apply formula';
+    applyButton.title = 'Apply this cell formula';
+    ta.value = value;
+    ta.dataset.formula = String(!!formula);
+    errLine = 0;
+    showError('', 0);
+    note('');
+    hidePop();
+    refresh();
+    ta.focus();
+    return true;
+  }
+
+  function finishCellEdit(ok) {
+    if (!cellEdit) return false;
+    const edit = cellEdit;
+    let cellValue = ta.value;
+    const formula = edit.formula || /^\s*\(/.test(cellValue);
+    if (formula) {
+      if (cellValue.startsWith('=')) cellValue = cellValue.slice(1);
+      cellValue = cellValue.trim() ? '=' + cellValue : '';
+    }
+
+    cellEdit = null;
+    clearTimeout(chk);
+    hidePop();
+    ta.value = edit.code;
+    ta.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+    delete ta.dataset.formula;
+    fnTitle.textContent = edit.title;
+    applyButton.textContent = edit.applyLabel;
+    applyButton.title = edit.applyTitle;
+    fn.hidden = edit.panelHidden;
+    Q('#bfn').classList.toggle('on', !edit.panelHidden);
+    errLine = edit.errLine;
+    Q('#fe').textContent = edit.error;
+    noteEl.textContent = edit.note;
+    noteEl.className = edit.noteClass;
+    refresh();
+
+    if (ok) edit.apply(cellValue);
+    if (edit.panelHidden) ta.blur();
+    else ta.focus();
+    return true;
+  }
 
   function matchBr() {
     const v = ta.value, p = ta.selectionStart;
@@ -72,7 +135,7 @@ export function createEditor(ctx) {
 
   function showError(msg, line) { errLine = line || 0; Q('#fe').textContent = msg ? (line ? 'Riga ' + line + ': ' : '') + msg : ''; lines(); }
 
-  /** Nota nella riga dei comandi paredit: conferme e motivi dei rifiuti. */
+  /** Show evaluation feedback and paredit command results. */
   function note(msg, bad) {
     if (!noteEl) return;
     noteEl.textContent = msg || '';
@@ -126,8 +189,7 @@ export function createEditor(ctx) {
   };
 
   /**
-   * Esegue un comando paredit sul cursore: usato dai tasti (Ctrl+frecce) e dai
-   * pulsanti della barra dell'editor.
+   * Run a paredit command at the cursor using its keyboard shortcut.
    * @param {string} name slurp|barf|splice|wrap
    */
   function command(name) {
@@ -139,9 +201,6 @@ export function createEditor(ctx) {
     note(ok ? '✓ ' + name.charAt(0).toUpperCase() + name.slice(1) : name.charAt(0).toUpperCase() + name.slice(1) + ': ' + op.hint, !ok);
     return ok;
   }
-
-  /** Forma che termina prima del cursore, per la valutazione puntuale. */
-  const formAtCursor = () => formBefore(ta.value, ta.selectionStart);
 
   /** Applica `fn` alle righe selezionate (array di stringhe). */
   function blk(fn) {
@@ -203,7 +262,8 @@ export function createEditor(ctx) {
     ta.addEventListener('input', () => {
       refresh();
       clearTimeout(chk);
-      chk = setTimeout(() => { const e = syntaxError(ta.value); showError(e && e.msg, e && e.line); }, 400);
+      if (cellEdit) showError('', 0);
+      else chk = setTimeout(() => { const e = syntaxError(ta.value); showError(e && e.msg, e && e.line); }, 400);
       suggest();
     });
     ta.addEventListener('scroll', () => { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; ln.scrollTop = ta.scrollTop; hidePop(); });
@@ -221,22 +281,27 @@ export function createEditor(ctx) {
       // Ctrl+Invio: valuta la sola s-exp prima del cursore (come C-x C-e di
       // Emacs, utile per ridefinire una defn o una costante def); se non c'è
       // alcuna forma da valutare applica l'intero editor.
-      if (m && e.key === 'Enter') { e.preventDefault(); ctx.applyForm(formBefore(v, a)); return; }
+      if (m && e.key === 'Enter') {
+        e.preventDefault();
+        if (cellEdit) ctx.grid.endEdit(1);
+        else ctx.applyForm(formBefore(v, a));
+        return;
+      }
       if (m && e.code === 'Space') { e.preventDefault(); suggest(1); return; }
       if (m && e.key === '/') {
         e.preventDefault();
         blk(L => { const all = L.every(l => !l.trim() || /^\s*;/.test(l)); return L.map(l => !l.trim() ? l : all ? l.replace(/^(\s*); ?/, '$1') : l.replace(/^(\s*)/, '$1; ')); });
         return;
       }
-      // Comandi paredit (gli stessi dei pulsanti): slurp/barf/splice/wrap.
+      // Paredit keyboard commands: slurp/barf/splice/wrap.
       if (m && e.key === 'ArrowRight') { e.preventDefault(); command('slurp'); return; }
       if (m && e.key === 'ArrowLeft') { e.preventDefault(); command('barf'); return; }
       if (m && e.key === 'ArrowUp') { e.preventDefault(); command('splice'); return; }
       if (m && e.key === 'ArrowDown') { e.preventDefault(); command('wrap'); return; }
       if (e.key === 'Tab') { e.preventDefault(); a === b && !e.shiftKey ? ins('  ', a, b, 2) : blk(L => L.map(l => e.shiftKey ? l.replace(/^ {1,2}/, '') : '  ' + l)); return; }
       if (e.key === 'Enter' && !m) { e.preventDefault(); newline(); return; }
-      // Paredit: nessuna cancellazione deve poter sbilanciare le parentesi;
-      // quando servono slurp/barf/splice i pulsanti lo dicono nella nota.
+      // Paredit prevents deletions from unbalancing delimiters; use slurp,
+      // barf, or splice when the structure prevents a deletion.
       if (e.key === 'Backspace' || e.key === 'Delete') {
         const empty = a === b;
         if (e.key === 'Backspace' && empty && PAIRS[v[a - 1]] && PAIRS[v[a - 1]] === v[a]) { e.preventDefault(); ins('', a - 1, a + 1); return; }
@@ -260,6 +325,10 @@ export function createEditor(ctx) {
     });
   }
 
-  return { mount, setCode, showError, note, command, formAtCursor, refresh, suggest, hidePop, value: () => ta.value, node: ta };
+  return {
+    mount, setCode, showError, note, command, refresh, suggest, hidePop,
+    beginCellEdit, finishCellEdit, isCellEditing: () => !!cellEdit,
+    value: () => ta.value, node: ta,
+  };
 }
 
