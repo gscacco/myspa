@@ -60,6 +60,27 @@ test('modifica inline con doppio clic e Invio', async () => {
   close();
 });
 
+test('la finestra formula si apre sulla cella attiva e applica prima di chiudersi', async () => {
+  const { document, app, close } = await mountApp();
+  const popup = document.querySelector('#formula-pop');
+  assert.equal(popup.hidden, true);
+
+  app.grid.sel(1, 3);
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  assert.equal(popup.hidden, false);
+  assert.equal(document.querySelector('#formula-pop-title').textContent, 'Formula · D2');
+  assert.equal(ed.value, '=B2*C2');
+
+  ed.value = '=B2*C2+1';
+  document.querySelector('#formula-pop-close').click();
+  assert.equal(popup.hidden, true);
+  assert.equal(ed.hidden, true);
+  assert.equal(document.querySelector('#nb').value, 'D2');
+  assert.equal(document.querySelector('#g').rows[2].cells[4].textContent, '151.00');
+  close();
+});
+
 test('clic su una cella completa il primo argomento di una formula ClojureScript', async () => {
   const { document, window, app, close } = await mountApp();
   document.querySelector('#code').value = '(defn pippo [x] (* x 2))';
