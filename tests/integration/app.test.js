@@ -98,7 +98,7 @@ test('Invio inserisce una nuova riga e Ctrl+Invio applica la forma', async () =>
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(document.querySelector('#formula-pop').hidden, true);
   assert.equal(cell(document, 9, 8).textContent, '3');
-  assert.match(document.querySelector('#fx').value, /^=\(\+ 1\n/);
+  assert.match(app.currentSheet().cells.I10.r, /^=\(\+ 1\n/);
   close();
 });
 
