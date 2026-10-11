@@ -60,6 +60,26 @@ test('modifica inline con doppio clic e Invio', async () => {
   close();
 });
 
+test('clic su una cella completa il primo argomento di una formula ClojureScript', async () => {
+  const { document, window, app, close } = await mountApp();
+  document.querySelector('#code').value = '(defn pippo [x] (* x 2))';
+  mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
+
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  ed.value = '=(pippo';
+  ed.setSelectionRange(ed.value.length, ed.value.length);
+  mouse(window, 'mousedown', cell(document, 1, 1));
+
+  assert.equal(ed.hidden, false);
+  assert.equal(ed.value, '=(pippo B2');
+  ed.value += ')';
+  key(window, ed, { key: 'Enter' });
+  assert.equal(cell(document, 9, 8).textContent, '3');
+  close();
+});
+
 test('modifica dalla barra della formula', async () => {
   const { document, window, close } = await mountApp();
   const fx = document.querySelector('#fx');
