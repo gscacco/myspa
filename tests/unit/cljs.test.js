@@ -127,15 +127,15 @@ test('le funzioni del foglio sono definite in ClojureScript nel namespace sheet.
 });
 
 test('i namespace sheet.core e user sono visibili al codice utente', () => {
-  const r = interpret('(ns user)\n(defn DOPPIO [x] (* x 2))\n(user/DOPPIO (sheet.core/SUM 1 2))');
+  const r = interpret('(ns user)\n(defn DOUBLE [x] (* x 2))\n(user/DOUBLE (sheet.core/SUM 1 2))');
   assert.equal(r.error, null);
   assert.equal(r.value, 6);
-  assert.ok(r.scope.registry.get('user').has('DOPPIO'));
+  assert.ok(r.scope.registry.get('user').has('DOUBLE'));
   assert.ok(r.scope.registry.get('sheet.core').has('SUM'));
-  assert.equal(r.vars.DOPPIO, r.defs.DOPPIO, 'le var di user sono visibili nello scope piatto');
+  assert.equal(r.vars.DOUBLE, r.defs.DOUBLE, 'user vars are visible in the flat scope');
 });
 
-test('il workbook di esempio in ClojureScript produce i valori attesi', async () => {
+test('the sample workbook produces the expected values in ClojureScript', async () => {
   const { workbook } = await import('../helpers/sample.js');
   const wb = workbook();
   const r = interpret(wb.code);

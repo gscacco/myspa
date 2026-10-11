@@ -119,7 +119,7 @@ test('put aggiorna il modello e il valore nullo per celle vuote', () => {
   assert.deepEqual(wb.sheets[0].cells, {});
 });
 
-test('il workbook di esempio calcola i valori attesi', () => {
+test('the sample workbook calculates the expected values', () => {
   const engine = engineWith(sampleWorkbook());
   engine.setCode(sampleWorkbook().code);
   engine.invalidateFormulas();
@@ -205,16 +205,16 @@ test('evalForm di una costante è vista anche dalle funzioni già definite', () 
   assert.equal(engine.ENV.IVA, 0.5);
 });
 
-test('le formule possono essere codice ClojureScript (=pippo(A2) e =(count …))', () => {
+test('spreadsheet formulas can call ClojureScript forms (=double-value(A2) and =(count …))', () => {
   const wb = createWorkbook({
-    code: '(defn pippo [x] (* x 2))',
+    code: '(defn double-value [x] (* x 2))',
     sheets: [{ name: 'S', cells: {
       A1: { r: 1 }, A2: { r: 3 }, A3: { r: 4 }, A4: { r: 5 },
-      B1: { r: '=pippo(A2)' },               // zucchero per (pippo A2)
-      B2: { r: '=(count A1:A3)' },           // codice cljs con riferimento a intervallo
-      B3: { r: '=(+ A4 A2)' },               // codice cljs con riferimenti a celle
-      B4: { r: '=sheet.core/SUM(A4:A4)' },   // funzione del foglio qualificata
-      B5: { r: '=user/pippo(A4)' },          // funzione utente qualificata
+      B1: { r: '=double-value(A2)' },             // shorthand for (double-value A2)
+      B2: { r: '=(count A1:A3)' },                // ClojureScript form with a range reference
+      B3: { r: '=(+ A4 A2)' },                    // ClojureScript form with cell references
+      B4: { r: '=sheet.core/SUM(A4:A4)' },        // qualified sheet function
+      B5: { r: '=user/double-value(A4)' },        // qualified user-defined function
     } }],
   });
   const engine = createEngine(wb);

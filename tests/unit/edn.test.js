@@ -46,13 +46,13 @@ test('writeEDN protegge la sequenza di chiusura script', () => {
   assert.equal(readEDN(out), 'x</script>y');
 });
 
-test('round-trip del modello di esempio', () => {
+test('sample model round-trips through EDN serialization', () => {
   const wb = workbook();
   const again = readEDN(writeEDN(wb, 0));
   assert.equal(writeEDN(again, 0), writeEDN(wb, 0));
 });
 
-test('il modello di esempio contiene i fogli e il codice utente', () => {
+test('the sample model contains sheets and user-defined code', () => {
   const wb = readEDN(modelEDN());
   assert.equal(wb.sheets.length, 2);
   assert.equal(wb.sheets[0].name, 'Foglio1');
