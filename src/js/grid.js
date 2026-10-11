@@ -218,10 +218,8 @@ export function createGrid(ctx) {
         ed.setRangeText(r.text, r.from, r.to, 'end');
         ed.setSelectionRange(r.caret, r.caret);
       }
-      else if (e.key === 'Tab') { e.preventDefault(); endEdit(1, [0, e.shiftKey ? -1 : 1]); }
-      else if (e.key === 'Escape') endEdit(0);
+      else if (e.key === 'Tab') e.preventDefault();
     });
-    ed.addEventListener('blur', () => endEdit(1));
     Q('#fx').addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); setCellText(S.a.r, S.a.c, e.target.value); e.target.blur(); }
       else if (e.key === 'Escape') { showCell(); e.target.blur(); }
@@ -242,7 +240,9 @@ export function createGrid(ctx) {
           ed.focus();
           return;
         }
-        endEdit(1);
+        e.preventDefault();
+        ed.focus();
+        return;
       }
       sel(r, c, e.shiftKey);
       drag = 1;
