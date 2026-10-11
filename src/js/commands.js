@@ -198,6 +198,7 @@ export function createCommands(ctx) {
       }
       else if (e.key === 'F2') ctx.grid.edit();
       else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); clearSel(); }
+      else if (e.key === '=' && !m && !e.altKey) { e.preventDefault(); ctx.grid.edit('='); }
       else if (e.key.length === 1 && !m && !e.altKey) ctx.grid.edit('');
     });
   }
