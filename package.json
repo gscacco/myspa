@@ -19,5 +19,8 @@
   "devDependencies": {
     "esbuild": "^0.24.0",
     "jsdom": "^25.0.1"
+  },
+  "dependencies": {
+    "@openai/codex": "^0.162.1"
   }
 }
