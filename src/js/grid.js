@@ -156,10 +156,10 @@ export function createGrid(ctx) {
       if (!ed.hidden) {
         const v = ed.value, p = ed.selectionStart;
         const prefix = v.slice(0, p);
-        const pendingCljsHead = /^=\(\s*[A-Za-z_*+!?][\w*+!?<>=./-]*$/.test(prefix);
+        const pendingCljsHead = /^=\(\s*[A-Za-z_*+!?][\w*+!?<>=./-]*\s*$/.test(prefix);
         if (v[0] === '=' && (/[=+\-*/(,<>&|?:!%^]$/.test(prefix) || pendingCljsHead)) {
           e.preventDefault();
-          ed.setRangeText((pendingCljsHead ? ' ' : '') + addr(r, c), p, ed.selectionEnd, 'end');
+          ed.setRangeText((pendingCljsHead && !/\s$/.test(prefix) ? ' ' : '') + addr(r, c), p, ed.selectionEnd, 'end');
           ed.focus();
           return;
         }
