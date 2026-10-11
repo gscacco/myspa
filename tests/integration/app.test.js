@@ -67,6 +67,18 @@ test('modifica formula nel pannello e applica con Ctrl+Invio', async () => {
   close();
 });
 
+test('typing = opens the formula editor without inserting the prefix', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.sel(9, 8);
+  key(window, window, { key: '=' });
+
+  const ed = document.querySelector('#ed');
+  assert.equal(ed.hidden, false);
+  assert.equal(ed.value, '');
+  assert.equal(ed.dataset.formula, 'true');
+  close();
+});
+
 test('la finestra formula si apre sulla cella attiva e applica prima di chiudersi', async () => {
   const { document, app, close } = await mountApp();
   const popup = document.querySelector('#formula-pop');
