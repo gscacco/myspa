@@ -45,7 +45,9 @@ test('the artifact mounts the ClojureScript editor with user-defined functions',
   assert.ok(document.querySelector('#hl').innerHTML.includes('class="u"'));
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.equal(document.querySelector('#bfn').textContent, 'ƒ CLJS');
-  assert.match(document.querySelector('#help').textContent, /paredit/);
+  assert.equal(document.querySelector('#ed'), null);
+  assert.equal(document.querySelector('#help'), null);
+  assert.equal(document.querySelectorAll('#fn [data-action^="paredit-"]').length, 0);
   assert.match(document.querySelector('#fn b').textContent, /ClojureScript/);
   dom.window.close();
 });
@@ -55,7 +57,6 @@ test('the artifact runs paredit and evaluates the form before the cursor', async
   const { document, window } = dom.window;
   const ta = document.querySelector('#code');
   const key = (el, init) => { const ev = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }); el.dispatchEvent(ev); return ev; };
-  const mouse = el => el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
 
   // Ctrl+Enter evaluates the s-expression before the cursor and makes it available.
   const form = '(defn TRIPLE [x] (* x 3))';
@@ -75,12 +76,12 @@ test('the artifact runs paredit and evaluates the form before the cursor', async
   key(ta, { key: 'Enter', ctrlKey: true });
   assert.equal(cell(document, 0, 0).textContent, '40');
 
-  // Paredit buttons act on the list containing the cursor.
+  // Paredit shortcuts act on the list containing the cursor.
   ta.value = '(a b) c';
   ta.setSelectionRange(5, 5);
-  mouse(document.querySelector('[data-action="paredit-slurp"]'));
+  key(ta, { key: 'ArrowRight', ctrlKey: true });
   assert.equal(ta.value, '(a b c)');
-  mouse(document.querySelector('[data-action="paredit-barf"]'));
+  key(ta, { key: 'ArrowLeft', ctrlKey: true });
   assert.equal(ta.value, '(a b) c');
 
   // Delimiters remain protected from unbalancing deletions.

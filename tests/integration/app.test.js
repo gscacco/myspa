@@ -35,7 +35,8 @@ test('startup renders the toolbar, tabs, editor, and status', async () => {
   assert.ok(document.querySelector('#code').value.includes('(defn WEIGHTED_AVERAGE'));
   assert.doesNotMatch(document.querySelector('#code').value, /CONIVA|MEDIA_PESATA|valori|pesi/);
   assert.ok(document.querySelector('#hl').innerHTML.includes('class="u"'));
-  assert.equal(document.querySelector('#ed').hidden, true);
+  assert.equal(document.querySelector('#ed'), null);
+  assert.equal(document.querySelector('#formula-pop'), null);
   close();
 });
 
@@ -51,16 +52,16 @@ test('the formula panel applies edits with Ctrl+Enter', async () => {
   const { document, window, close } = await mountApp();
   mouse(window, 'mousedown', cell(document, 1, 2));
   mouse(window, 'dblclick', cell(document, 1, 2));
-  const ed = document.querySelector('#ed');
-  assert.equal(ed.hidden, false);
+  const ed = document.querySelector('#code');
+  assert.equal(document.querySelector('#fn').hidden, false);
   assert.equal(ed.value, '100');
+  assert.equal(document.querySelector('#ln').children.length, ed.value.split('\n').length);
   ed.value = '';
   ed.setSelectionRange(0, 0);
-  key(window, ed, { key: '=' });
-  assert.equal(ed.value, '');
   ed.value = '1+1';
   key(window, ed, { key: 'Enter', ctrlKey: true });
-  assert.equal(ed.hidden, true);
+  assert.equal(document.querySelector('#fn').hidden, true);
+  assert.ok(ed.value.includes('(defn WITH_TAX'));
   assert.equal(cell(document, 1, 2).textContent, '2');
   assert.equal(cell(document, 1, 3).textContent, '3.00');
   assert.equal(document.querySelector('#nb').value, 'C2');
@@ -72,29 +73,30 @@ test('typing = opens the formula editor without inserting the prefix', async () 
   app.grid.sel(9, 8);
   key(window, window, { key: '=' });
 
-  const ed = document.querySelector('#ed');
-  assert.equal(ed.hidden, false);
+  const ed = document.querySelector('#code');
+  assert.equal(document.querySelector('#fn').hidden, false);
   assert.equal(ed.value, '');
   assert.equal(ed.dataset.formula, 'true');
   close();
 });
 
-test('the formula window opens on the active cell and applies before closing', async () => {
+test('cell formulas reuse the syntax-highlighted editor and its apply button', async () => {
   const { document, app, close } = await mountApp();
-  const popup = document.querySelector('#formula-pop');
-  assert.equal(popup.hidden, true);
+  const code = document.querySelector('#code');
+  const originalCode = code.value;
+  assert.equal(document.querySelector('#fn').hidden, true);
 
   app.grid.sel(1, 3);
   app.grid.edit();
-  const ed = document.querySelector('#ed');
-  assert.equal(popup.hidden, false);
-  assert.equal(document.querySelector('#formula-pop-title').textContent, 'Formula · D2');
-  assert.equal(ed.value, 'B2*C2');
+  assert.equal(document.querySelector('#fn').hidden, false);
+  assert.equal(document.querySelector('#fn-title').textContent, 'Cell formula · D2');
+  assert.equal(code.value, 'B2*C2');
+  assert.equal(document.querySelector('#apply-code').textContent, 'Apply formula');
 
-  ed.value = 'B2*C2+1';
-  document.querySelector('#formula-pop-close').click();
-  assert.equal(popup.hidden, true);
-  assert.equal(ed.hidden, true);
+  code.value = 'B2*C2+1';
+  document.querySelector('#apply-code').click();
+  assert.equal(document.querySelector('#fn').hidden, true);
+  assert.equal(code.value, originalCode);
   assert.equal(document.querySelector('#nb').value, 'D2');
   assert.equal(document.querySelector('#fx').value, '=B2*C2+1');
   assert.equal(document.querySelector('#g').rows[2].cells[4].textContent, '151.00');
@@ -105,22 +107,23 @@ test('the formula editor stays open until Ctrl+Enter or the apply button', async
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
   app.grid.edit();
-  const ed = document.querySelector('#ed');
+  const ed = document.querySelector('#code');
   ed.value = '(+ 2 3)';
   ed.setSelectionRange(ed.value.length, ed.value.length);
 
   ed.dispatchEvent(new window.FocusEvent('blur'));
-  assert.equal(ed.hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   key(window, ed, { key: 'Escape' });
-  assert.equal(ed.hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   key(window, ed, { key: 'Tab' });
-  assert.equal(ed.hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   mouse(window, 'mousedown', cell(document, 1, 1));
-  assert.equal(ed.hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   assert.deepEqual(app.grid.cursor(), { r: 9, c: 8 });
 
   key(window, ed, { key: 'Enter', ctrlKey: true });
-  assert.equal(ed.hidden, true);
+  assert.equal(document.querySelector('#fn').hidden, true);
+  assert.ok(ed.value.includes('(defn WITH_TAX'));
   assert.equal(app.currentSheet().cells.I10.r, '=(+ 2 3)');
   assert.equal(cell(document, 9, 8).textContent, '5');
   close();
@@ -130,12 +133,12 @@ test('switching sheets cannot close the active formula editor', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
   app.grid.edit();
-  const ed = document.querySelector('#ed');
+  const ed = document.querySelector('#code');
   ed.value = '(+ 2 3)';
 
   mouse(window, 'click', document.querySelectorAll('#tabs button')[1]);
 
-  assert.equal(ed.hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   assert.equal(app.currentSheet().name, 'Foglio1');
   assert.equal(app.currentSheet().cells.I10, undefined);
   close();
@@ -145,30 +148,28 @@ test('Enter inserts a newline and Ctrl+Enter applies the form', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
   app.grid.edit();
-  const ed = document.querySelector('#ed');
+  const ed = document.querySelector('#code');
   ed.value = '(+ 1 2)';
   ed.setSelectionRange(4, 4);
 
   key(window, ed, { key: 'Enter' });
-  assert.equal(document.querySelector('#formula-pop').hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   assert.equal(ed.value.includes('\n'), true);
   assert.equal(cell(document, 9, 8).textContent, '');
 
   key(window, ed, { key: 'Enter', ctrlKey: true });
-  assert.equal(document.querySelector('#formula-pop').hidden, true);
+  assert.equal(document.querySelector('#fn').hidden, true);
   assert.equal(cell(document, 9, 8).textContent, '3');
   assert.match(app.currentSheet().cells.I10.r, /^=\(\+ 1\n/);
   close();
 });
 
-test('the scripting guide is in English and uses English example names', async () => {
+test('the editor has no duplicate textarea, help block, or paredit toolbar', async () => {
   const { document, close } = await mountApp();
-  const help = document.querySelector('#help').textContent;
-  assert.match(help, /The panel above contains user-defined ClojureScript functions/);
   assert.equal(document.querySelector('#fn b').textContent, 'User-defined functions (ClojureScript)');
-  assert.match(help, /\(double-value B2\)/);
-  assert.match(help, /weighted-average/);
-  assert.doesNotMatch(help, /Il pannello|Le formule restano|Editor con paredit/);
+  assert.equal(document.querySelector('#help'), null);
+  assert.equal(document.querySelector('#help-resize'), null);
+  assert.equal(document.querySelectorAll('#fn [data-action^="paredit-"]').length, 0);
   close();
 });
 
@@ -179,12 +180,12 @@ test('clicking a cell completes the first argument of a ClojureScript formula', 
 
   app.grid.sel(9, 8);
   app.grid.edit();
-  const ed = document.querySelector('#ed');
+  const ed = document.querySelector('#code');
   ed.value = '(double-value';
   ed.setSelectionRange(ed.value.length, ed.value.length);
   mouse(window, 'mousedown', cell(document, 1, 1));
 
-  assert.equal(ed.hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   assert.equal(ed.value, '(double-value B2');
   ed.value += ')';
   key(window, ed, { key: 'Enter', ctrlKey: true });
@@ -199,13 +200,13 @@ test('clicking a cell after a function name inserts its argument in the existing
 
   app.grid.sel(9, 8);
   app.grid.edit();
-  const ed = document.querySelector('#ed');
+  const ed = document.querySelector('#code');
   ed.value = '(double-value )';
   const cursor = '(double-value '.length;
   ed.setSelectionRange(cursor, cursor);
   mouse(window, 'mousedown', cell(document, 1, 1));
 
-  assert.equal(ed.hidden, false);
+  assert.equal(document.querySelector('#fn').hidden, false);
   assert.equal(ed.value, '(double-value B2)');
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(cell(document, 9, 8).textContent, '3');
@@ -215,12 +216,9 @@ test('clicking a cell after a function name inserts its argument in the existing
 test('paredit completes, skips, and deletes paired delimiters in the formula editor', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.edit();
-  const ed = document.querySelector('#ed');
+  const ed = document.querySelector('#code');
   ed.value = '';
   ed.setSelectionRange(0, 0);
-  key(window, ed, { key: '=' });
-  assert.equal(ed.value, '');
-  assert.equal(ed.dataset.formula, 'true');
 
   key(window, ed, { key: '(' });
   assert.equal(ed.value, '()');
@@ -241,7 +239,7 @@ test('paredit completes, skips, and deletes paired delimiters in the formula edi
 test('paredit runs structural keyboard commands in the formula editor', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.edit();
-  const ed = document.querySelector('#ed');
+  const ed = document.querySelector('#code');
   ed.value = '(f 1) 2';
   ed.setSelectionRange(5, 5);
   key(window, ed, { key: 'ArrowRight', ctrlKey: true });
@@ -378,31 +376,22 @@ test('the dependency-flow toggle highlights sources and dependents', async () =>
   close();
 });
 
-test('paredit buttons run slurp, barf, and splice', async () => {
+test('paredit keyboard shortcuts run slurp, barf, splice, and wrap', async () => {
   const { document, window, close } = await mountApp();
   const ta = document.querySelector('#code');
-  const btn = a => document.querySelector('[data-action="' + a + '"]');
-  const runAction = (action, value, cursor, expected) => {
+  const run = (value, cursor, keyName, expected) => {
     ta.value = value;
     ta.setSelectionRange(cursor, cursor);
-    mouse(window, 'mousedown', btn(action));
-    assert.equal(ta.value, expected, action);
+    key(window, ta, { key: keyName, ctrlKey: true });
+    assert.equal(ta.value, expected, keyName);
   };
-  runAction('paredit-slurp', '(a b) c', 5, '(a b c)'); // cursor just after «)»
-  runAction('paredit-barf', '(a b c)', 7, '(a b) c');
-  runAction('paredit-splice', '(a b) c', 5, 'a b c');
-  assert.match(document.querySelector('#note').textContent, /^✓ Splice/, 'the note confirms the command');
-  // Wrap the selection.
+  run('(a b) c', 5, 'ArrowRight', '(a b c)');
+  run('(a b c)', 7, 'ArrowLeft', '(a b) c');
+  run('(a b) c', 5, 'ArrowUp', 'a b c');
   ta.value = 'a b';
   ta.setSelectionRange(0, 3);
-  mouse(window, 'mousedown', btn('paredit-wrap'));
+  key(window, ta, { key: 'ArrowDown', ctrlKey: true });
   assert.equal(ta.value, '(a b)');
-  // An inapplicable command leaves the text unchanged and explains why.
-  ta.value = 'a b';
-  ta.setSelectionRange(1, 1);
-  mouse(window, 'mousedown', btn('paredit-splice'));
-  assert.equal(ta.value, 'a b');
-  assert.match(document.querySelector('#note').textContent, /nessuna lista/);
   await new Promise(r => setTimeout(r, 450));
   close();
 });
