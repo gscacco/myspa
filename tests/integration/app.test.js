@@ -126,6 +126,21 @@ test('the formula editor stays open until Ctrl+Enter or the apply button', async
   close();
 });
 
+test('switching sheets cannot close the active formula editor', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  ed.value = '(+ 2 3)';
+
+  mouse(window, 'click', document.querySelectorAll('#tabs button')[1]);
+
+  assert.equal(ed.hidden, false);
+  assert.equal(app.currentSheet().name, 'Foglio1');
+  assert.equal(app.currentSheet().cells.I10, undefined);
+  close();
+});
+
 test('Enter inserts a newline and Ctrl+Enter applies the form', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
