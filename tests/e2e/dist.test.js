@@ -41,7 +41,7 @@ test("l'artefatto si avvia e calcola i valori del modello d'esempio", () => {
 test("l'artefatto monta l'editor ClojureScript con le funzioni utente", () => {
   const { dom } = load();
   const { document } = dom.window;
-  assert.ok(document.querySelector('#code').value.includes('(defn CONIVA'));
+  assert.ok(document.querySelector('#code').value.includes('(defn WITH_TAX'));
   assert.ok(document.querySelector('#hl').innerHTML.includes('class="u"'));
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.equal(document.querySelector('#bfn').textContent, 'ƒ CLJS');

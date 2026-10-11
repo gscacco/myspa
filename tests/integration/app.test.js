@@ -31,7 +31,9 @@ test('avvio: barra, schede, editor e stato', async () => {
   assert.equal(document.querySelector('#fx').value, 'Prodotto');
   assert.equal(document.querySelectorAll('#tabs button').length, 4);
   assert.equal(document.querySelector('#tabs button').textContent, 'Foglio1');
-  assert.ok(document.querySelector('#code').value.includes('CONIVA'));
+  assert.ok(document.querySelector('#code').value.includes('(defn WITH_TAX'));
+  assert.ok(document.querySelector('#code').value.includes('(defn WEIGHTED_AVERAGE'));
+  assert.doesNotMatch(document.querySelector('#code').value, /CONIVA|MEDIA_PESATA|valori|pesi/);
   assert.ok(document.querySelector('#hl').innerHTML.includes('class="u"'));
   assert.equal(document.querySelector('#ed').hidden, true);
   close();
@@ -45,18 +47,23 @@ test('la selezione aggiorna il riquadro dei riferimenti', async () => {
   close();
 });
 
-test('modifica inline con doppio clic e Invio', async () => {
+test('modifica formula nel pannello e applica con Ctrl+Invio', async () => {
   const { document, window, close } = await mountApp();
   mouse(window, 'mousedown', cell(document, 1, 2));
   mouse(window, 'dblclick', cell(document, 1, 2));
   const ed = document.querySelector('#ed');
   assert.equal(ed.hidden, false);
-  ed.value = '=1+1';
-  key(window, ed, { key: 'Enter' });
+  assert.equal(ed.value, '100');
+  ed.value = '';
+  ed.setSelectionRange(0, 0);
+  key(window, ed, { key: '=' });
+  assert.equal(ed.value, '');
+  ed.value = '1+1';
+  key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(ed.hidden, true);
   assert.equal(cell(document, 1, 2).textContent, '2');
   assert.equal(cell(document, 1, 3).textContent, '3.00');
-  assert.equal(document.querySelector('#nb').value, 'C3');
+  assert.equal(document.querySelector('#nb').value, 'C2');
   close();
 });
 
@@ -119,14 +126,14 @@ test('clic su una cella completa il primo argomento di una formula ClojureScript
   app.grid.sel(9, 8);
   app.grid.edit();
   const ed = document.querySelector('#ed');
-  ed.value = '=(pippo';
+  ed.value = '(pippo';
   ed.setSelectionRange(ed.value.length, ed.value.length);
   mouse(window, 'mousedown', cell(document, 1, 1));
 
   assert.equal(ed.hidden, false);
-  assert.equal(ed.value, '=(pippo B2');
+  assert.equal(ed.value, '(pippo B2');
   ed.value += ')';
-  key(window, ed, { key: 'Enter' });
+  key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(cell(document, 9, 8).textContent, '3');
   close();
 });
@@ -139,13 +146,13 @@ test('clic su una cella dopo il nome della funzione inserisce l’argomento nell
   app.grid.sel(9, 8);
   app.grid.edit();
   const ed = document.querySelector('#ed');
-  ed.value = '=(pippo )';
-  ed.setSelectionRange(8, 8);
+  ed.value = '(pippo )';
+  ed.setSelectionRange(7, 7);
   mouse(window, 'mousedown', cell(document, 1, 1));
 
   assert.equal(ed.hidden, false);
-  assert.equal(ed.value, '=(pippo B2)');
-  key(window, ed, { key: 'Enter' });
+  assert.equal(ed.value, '(pippo B2)');
+  key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(cell(document, 9, 8).textContent, '3');
   close();
 });
@@ -154,22 +161,25 @@ test('paredit nell’editor formula completa, salta e cancella le parentesi in c
   const { document, window, app, close } = await mountApp();
   app.grid.edit();
   const ed = document.querySelector('#ed');
-  ed.value = '=';
-  ed.setSelectionRange(1, 1);
+  ed.value = '';
+  ed.setSelectionRange(0, 0);
+  key(window, ed, { key: '=' });
+  assert.equal(ed.value, '');
+  assert.equal(ed.dataset.formula, 'true');
 
   key(window, ed, { key: '(' });
-  assert.equal(ed.value, '=()');
-  assert.equal(ed.selectionStart, 2);
-  key(window, ed, { key: 'Delete' });
-  assert.equal(ed.value, '=()');
-  key(window, ed, { key: 'Backspace' });
-  assert.equal(ed.value, '=');
+  assert.equal(ed.value, '()');
   assert.equal(ed.selectionStart, 1);
+  key(window, ed, { key: 'Delete' });
+  assert.equal(ed.value, '()');
+  key(window, ed, { key: 'Backspace' });
+  assert.equal(ed.value, '');
+  assert.equal(ed.selectionStart, 0);
 
   key(window, ed, { key: '(' });
   key(window, ed, { key: ')' });
-  assert.equal(ed.value, '=()');
-  assert.equal(ed.selectionStart, 3);
+  assert.equal(ed.value, '()');
+  assert.equal(ed.selectionStart, 2);
   close();
 });
 
@@ -177,10 +187,10 @@ test('paredit nell’editor formula esegue i comandi strutturali da tastiera', a
   const { document, window, app, close } = await mountApp();
   app.grid.edit();
   const ed = document.querySelector('#ed');
-  ed.value = '=(f 1) 2';
+  ed.value = '(f 1) 2';
   ed.setSelectionRange(5, 5);
   key(window, ed, { key: 'ArrowRight', ctrlKey: true });
-  assert.equal(ed.value, '=(f 1 2)');
+  assert.equal(ed.value, '(f 1 2)');
   close();
 });
 
@@ -390,7 +400,7 @@ test('Ctrl+Invio valuta la forma prima del cursore (C-x C-e)', async () => {
   valuta('(defn TRIPLO [x] (* x 10))');
   assert.equal(cell(document, 0, 8).textContent, '40');
   // le altre definizioni del modello restano attive
-  app.grid.setCellText(0, 9, '=CONIVA(1)');
+  app.grid.setCellText(0, 9, '=WITH_TAX(1)');
   assert.equal(app.session.engine.evaluate('Foglio1!J1'), 1 + 0.22);
   // senza una forma prima del cursore si applica tutto l'editor
   ta.value = '   ';

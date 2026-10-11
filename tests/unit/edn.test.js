@@ -57,5 +57,5 @@ test('il modello di esempio contiene i fogli e il codice utente', () => {
   assert.equal(wb.sheets.length, 2);
   assert.equal(wb.sheets[0].name, 'Foglio1');
   assert.equal(wb.sheets[1].name, 'Foglio2');
-  assert.ok(wb.code.includes('CONIVA'));
+  assert.ok(wb.code.includes('WITH_TAX'));
 });

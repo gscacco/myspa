@@ -140,7 +140,7 @@ test('il workbook di esempio in ClojureScript produce i valori attesi', async ()
   const wb = workbook();
   const r = interpret(wb.code);
   assert.equal(r.error, null);
-  assert.equal(r.defs.CONIVA(150), 183);
-  const v = r.defs.MEDIA_PESATA([[1.5], [3.2], [24.9], [89]], [[100], [40], [12], [3]]);
+  assert.equal(r.defs.WITH_TAX(150), 183);
+  const v = r.defs.WEIGHTED_AVERAGE([[1.5], [3.2], [24.9], [89]], [[100], [40], [12], [3]]);
   assert.ok(Math.abs(v - 843.8 / 155) < 1e-12);
 });

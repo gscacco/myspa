@@ -56,7 +56,7 @@ export function verify(html, sourceHtml) {
     model = readEDN(edn);
     check('modello rileggibile', true);
     check('modello con fogli', Array.isArray(model.sheets) && model.sheets.length > 0);
-    check('modello con codice utente in ClojureScript', typeof model.code === 'string' && model.code.includes('(defn CONIVA'));
+    check('modello con codice utente in ClojureScript', typeof model.code === 'string' && model.code.includes('(defn WITH_TAX'));
   } catch (e) {
     check('modello rileggibile', false, e.message);
   }
