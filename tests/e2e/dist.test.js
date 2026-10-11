@@ -1,9 +1,9 @@
 /**
- * Test end-to-end sull'artefatto costruito: carica `dist/foglio.html` in jsdom
- * eseguendone gli script, così da verificare il bundle minificato reale (che i
- * test di integrazione, montando i moduli direttamente, non coprono).
+ * End-to-end test for the built artifact: load `dist/foglio.html` in jsdom and
+ * execute its scripts to verify the real minified bundle (which integration
+ * tests that mount modules directly do not cover).
  *
- * Richiede che l'artefatto esista: `npm run build` (lo fa già `npm run check`).
+ * Requires a built artifact: run `npm run build` (`npm run check` does this).
  */
 
 import { test } from 'node:test';
@@ -15,17 +15,17 @@ import { ROOT } from '../helpers/sample.js';
 
 const ARTIFACT = join(ROOT, 'dist/foglio.html');
 
-/** Carica l'artefatto eseguendone gli script inline. */
+/** Load the artifact and execute its inline scripts. */
 function load() {
   const html = readFileSync(ARTIFACT, 'utf8');
   const dom = new JSDOM(html, { url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true });
   return { html, dom };
 }
 
-/** Cella (r,c) a base 0 del foglio corrente. */
+/** Return the zero-based cell at (r,c) on the current sheet. */
 const cell = (document, r, c) => document.querySelector('#g').rows[r + 1].cells[c + 1];
 
-test("l'artefatto si avvia e calcola i valori del modello d'esempio", () => {
+test('the artifact starts and calculates the sample workbook values', () => {
   const { dom } = load();
   const { document } = dom.window;
   assert.equal(document.querySelector('#g').rows.length, 101);
@@ -38,7 +38,7 @@ test("l'artefatto si avvia e calcola i valori del modello d'esempio", () => {
   dom.window.close();
 });
 
-test("l'artefatto monta l'editor ClojureScript con le funzioni utente", () => {
+test('the artifact mounts the ClojureScript editor with user-defined functions', () => {
   const { dom } = load();
   const { document } = dom.window;
   assert.ok(document.querySelector('#code').value.includes('(defn WITH_TAX'));
@@ -50,32 +50,32 @@ test("l'artefatto monta l'editor ClojureScript con le funzioni utente", () => {
   dom.window.close();
 });
 
-test("l'artefatto esegue paredit e la valutazione della forma dal cursore", async () => {
+test('the artifact runs paredit and evaluates the form before the cursor', async () => {
   const { dom } = load();
   const { document, window } = dom.window;
   const ta = document.querySelector('#code');
   const key = (el, init) => { const ev = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }); el.dispatchEvent(ev); return ev; };
   const mouse = el => el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
 
-  // Ctrl+Invio valuta la s-exp prima del cursore e la rende subito disponibile
-  const form = '(defn TRIPLO [x] (* x 3))';
+  // Ctrl+Enter evaluates the s-expression before the cursor and makes it available.
+  const form = '(defn TRIPLE [x] (* x 3))';
   ta.value = form;
   ta.setSelectionRange(form.length, form.length);
   key(ta, { key: 'Enter', ctrlKey: true });
-  assert.match(document.querySelector('#note').textContent, /^✓ .*TRIPLO/);
+  assert.match(document.querySelector('#note').textContent, /^✓ .*TRIPLE/);
   const fx = document.querySelector('#fx');
-  fx.value = '=TRIPLO(4)';
+  fx.value = '=TRIPLE(4)';
   key(fx, { key: 'Enter' });
   assert.equal(cell(document, 0, 0).textContent, '12');
 
-  // ridefinire la stessa defn aggiorna le formule che la usano
-  const nuovo = '(defn TRIPLO [x] (* x 10))';
-  ta.value = nuovo;
-  ta.setSelectionRange(nuovo.length, nuovo.length);
+  // Redefining the function updates formulas that use it.
+  const redefinedForm = '(defn TRIPLE [x] (* x 10))';
+  ta.value = redefinedForm;
+  ta.setSelectionRange(redefinedForm.length, redefinedForm.length);
   key(ta, { key: 'Enter', ctrlKey: true });
   assert.equal(cell(document, 0, 0).textContent, '40');
 
-  // i pulsanti paredit agiscono sulla lista del cursore
+  // Paredit buttons act on the list containing the cursor.
   ta.value = '(a b) c';
   ta.setSelectionRange(5, 5);
   mouse(document.querySelector('[data-action="paredit-slurp"]'));
@@ -83,20 +83,20 @@ test("l'artefatto esegue paredit e la valutazione della forma dal cursore", asyn
   mouse(document.querySelector('[data-action="paredit-barf"]'));
   assert.equal(ta.value, '(a b) c');
 
-  // le parentesi restano protette dalle cancellazioni
+  // Delimiters remain protected from unbalancing deletions.
   ta.setSelectionRange(5, 5);
   assert.equal(key(ta, { key: 'Backspace' }).defaultPrevented, true);
 
-  // Attende il controllo sintattico differito dell'editor prima di chiudere il DOM.
+  // Wait for the editor's delayed syntax check before closing the DOM.
   await new Promise(r => setTimeout(r, 450));
   dom.window.close();
 });
 
-test("l'artefatto è minificato (bundle e CSS)", () => {
+test('the artifact is minified (bundle and CSS)', () => {
   const { html } = load();
   const style = /<style>([\s\S]*?)<\/style>/.exec(html)[1];
   const bundle = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].find(m => !/application\/edn/.test(m[1]))[2];
   const wsRatio = s => (s.match(/[ \t\n]/g) || []).length / s.length;
-  assert.ok(wsRatio(bundle) < 0.08, 'bundle minificato (spazi bianchi: ' + (wsRatio(bundle) * 100).toFixed(1) + '%)');
-  assert.ok(wsRatio(style) < 0.08, 'CSS minificato (spazi bianchi: ' + (wsRatio(style) * 100).toFixed(1) + '%)');
+  assert.ok(wsRatio(bundle) < 0.08, 'minified bundle (whitespace: ' + (wsRatio(bundle) * 100).toFixed(1) + '%)');
+  assert.ok(wsRatio(style) < 0.08, 'minified CSS (whitespace: ' + (wsRatio(style) * 100).toFixed(1) + '%)');
 });

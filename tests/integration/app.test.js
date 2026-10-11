@@ -2,12 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mountApp, fakeClipboardEvent } from '../helpers/dom.js';
 
-/** Scorciatoia: cella (r,c) a base 0. */
+/** Shortcut: zero-based cell coordinates (r,c). */
 const cell = (document, r, c) => document.querySelector('#g').rows[r + 1].cells[c + 1];
 const mouse = (window, type, el) => el.dispatchEvent(new window.MouseEvent(type, { bubbles: true }));
 const key = (window, el, init) => el.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, ...init }));
 
-test('avvio: la griglia è costruita e i valori sono calcolati', async () => {
+test('startup builds the grid and calculates cell values', async () => {
   const { document, close } = await mountApp();
   const G = document.querySelector('#g');
   assert.equal(G.rows.length, 101);
@@ -24,7 +24,7 @@ test('avvio: la griglia è costruita e i valori sono calcolati', async () => {
   close();
 });
 
-test('avvio: barra, schede, editor e stato', async () => {
+test('startup renders the toolbar, tabs, editor, and status', async () => {
   const { document, close } = await mountApp();
   assert.equal(document.querySelector('#stat').textContent, 'Foglio di calcolo');
   assert.equal(document.querySelector('#nb').value, 'A1');
@@ -39,7 +39,7 @@ test('avvio: barra, schede, editor e stato', async () => {
   close();
 });
 
-test('la selezione aggiorna il riquadro dei riferimenti', async () => {
+test('selecting a cell updates the reference field', async () => {
   const { document, close } = await mountApp();
   mouse(document.defaultView, 'mousedown', cell(document, 5, 3));
   assert.equal(document.querySelector('#nb').value, 'D6');
@@ -47,7 +47,7 @@ test('la selezione aggiorna il riquadro dei riferimenti', async () => {
   close();
 });
 
-test('modifica formula nel pannello e applica con Ctrl+Invio', async () => {
+test('the formula panel applies edits with Ctrl+Enter', async () => {
   const { document, window, close } = await mountApp();
   mouse(window, 'mousedown', cell(document, 1, 2));
   mouse(window, 'dblclick', cell(document, 1, 2));
@@ -79,7 +79,7 @@ test('typing = opens the formula editor without inserting the prefix', async () 
   close();
 });
 
-test('la finestra formula si apre sulla cella attiva e applica prima di chiudersi', async () => {
+test('the formula window opens on the active cell and applies before closing', async () => {
   const { document, app, close } = await mountApp();
   const popup = document.querySelector('#formula-pop');
   assert.equal(popup.hidden, true);
@@ -101,7 +101,7 @@ test('la finestra formula si apre sulla cella attiva e applica prima di chiuders
   close();
 });
 
-test('Invio inserisce una nuova riga e Ctrl+Invio applica la forma', async () => {
+test('Enter inserts a newline and Ctrl+Enter applies the form', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
   app.grid.edit();
@@ -121,56 +121,58 @@ test('Invio inserisce una nuova riga e Ctrl+Invio applica la forma', async () =>
   close();
 });
 
-test('la guida di scripting è interamente in inglese e usa esempi con nomi inglesi', async () => {
+test('the scripting guide is in English and uses English example names', async () => {
   const { document, close } = await mountApp();
   const help = document.querySelector('#help').textContent;
   assert.match(help, /The panel above contains user-defined ClojureScript functions/);
+  assert.equal(document.querySelector('#fn b').textContent, 'User-defined functions (ClojureScript)');
   assert.match(help, /\(double-value B2\)/);
   assert.match(help, /weighted-average/);
   assert.doesNotMatch(help, /Il pannello|Le formule restano|Editor con paredit/);
   close();
 });
 
-test('clic su una cella completa il primo argomento di una formula ClojureScript', async () => {
+test('clicking a cell completes the first argument of a ClojureScript formula', async () => {
   const { document, window, app, close } = await mountApp();
-  document.querySelector('#code').value = '(defn pippo [x] (* x 2))';
+  document.querySelector('#code').value = '(defn double-value [x] (* x 2))';
   mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
 
   app.grid.sel(9, 8);
   app.grid.edit();
   const ed = document.querySelector('#ed');
-  ed.value = '(pippo';
+  ed.value = '(double-value';
   ed.setSelectionRange(ed.value.length, ed.value.length);
   mouse(window, 'mousedown', cell(document, 1, 1));
 
   assert.equal(ed.hidden, false);
-  assert.equal(ed.value, '(pippo B2');
+  assert.equal(ed.value, '(double-value B2');
   ed.value += ')';
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(cell(document, 9, 8).textContent, '3');
   close();
 });
 
-test('clic su una cella dopo il nome della funzione inserisce l’argomento nello spazio esistente', async () => {
+test('clicking a cell after a function name inserts its argument in the existing space', async () => {
   const { document, window, app, close } = await mountApp();
-  document.querySelector('#code').value = '(defn pippo [x] (* x 2))';
+  document.querySelector('#code').value = '(defn double-value [x] (* x 2))';
   mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
 
   app.grid.sel(9, 8);
   app.grid.edit();
   const ed = document.querySelector('#ed');
-  ed.value = '(pippo )';
-  ed.setSelectionRange(7, 7);
+  ed.value = '(double-value )';
+  const cursor = '(double-value '.length;
+  ed.setSelectionRange(cursor, cursor);
   mouse(window, 'mousedown', cell(document, 1, 1));
 
   assert.equal(ed.hidden, false);
-  assert.equal(ed.value, '(pippo B2)');
+  assert.equal(ed.value, '(double-value B2)');
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(cell(document, 9, 8).textContent, '3');
   close();
 });
 
-test('paredit nell’editor formula completa, salta e cancella le parentesi in coppia', async () => {
+test('paredit completes, skips, and deletes paired delimiters in the formula editor', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.edit();
   const ed = document.querySelector('#ed');
@@ -196,7 +198,7 @@ test('paredit nell’editor formula completa, salta e cancella le parentesi in c
   close();
 });
 
-test('paredit nell’editor formula esegue i comandi strutturali da tastiera', async () => {
+test('paredit runs structural keyboard commands in the formula editor', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.edit();
   const ed = document.querySelector('#ed');
@@ -207,7 +209,7 @@ test('paredit nell’editor formula esegue i comandi strutturali da tastiera', a
   close();
 });
 
-test('modifica dalla barra della formula', async () => {
+test('the formula bar edits the selected cell', async () => {
   const { document, window, close } = await mountApp();
   const fx = document.querySelector('#fx');
   fx.value = '7';
@@ -216,7 +218,7 @@ test('modifica dalla barra della formula', async () => {
   close();
 });
 
-test('navigazione da tastiera e selezione estesa', async () => {
+test('keyboard navigation and extended selection work', async () => {
   const { document, window, close } = await mountApp();
   key(window, window, { key: 'ArrowDown' });
   assert.equal(document.querySelector('#nb').value, 'A2');
@@ -228,10 +230,10 @@ test('navigazione da tastiera e selezione estesa', async () => {
   close();
 });
 
-test('grassetto, decimali e sfondo dalla barra strumenti', async () => {
+test('the toolbar changes bold, decimal places, and background color', async () => {
   const { document, window, close } = await mountApp();
-  // B2 è una cella numerica senza grassetto né sfondo: si usa per verificare
-  // che la barra strumenti applichi le formattazioni.
+  // B2 is a numeric cell without bold or background formatting, so it can be
+  // used to verify toolbar formatting.
   mouse(window, 'mousedown', cell(document, 1, 1));
   mouse(window, 'click', document.querySelector('[data-action="toggle-bold"]'));
   assert.equal(cell(document, 1, 1).style.fontWeight, '700');
@@ -245,7 +247,7 @@ test('grassetto, decimali e sfondo dalla barra strumenti', async () => {
   close();
 });
 
-test('cancella con Delete e annulla con Ctrl+Z', async () => {
+test('Delete clears a cell and Ctrl+Z undoes the change', async () => {
   const { document, window, app, close } = await mountApp();
   mouse(window, 'mousedown', cell(document, 0, 0));
   key(window, window, { key: 'Delete' });
@@ -257,7 +259,7 @@ test('cancella con Delete e annulla con Ctrl+Z', async () => {
   close();
 });
 
-test('copia e incolla con appunti interni', async () => {
+test('copy and paste work with the internal clipboard', async () => {
   const { document, app, close } = await mountApp();
   app.grid.sel(0, 0);
   const e1 = fakeClipboardEvent(document.body);
@@ -271,7 +273,7 @@ test('copia e incolla con appunti interni', async () => {
   close();
 });
 
-test('aggiunta e selezione di fogli tramite le schede', async () => {
+test('sheets can be added and selected from the tabs', async () => {
   const { document, window, close } = await mountApp();
   const plus = () => [...document.querySelectorAll('#tabs button')].find(b => b.textContent === '＋');
   mouse(window, 'click', plus());
@@ -284,18 +286,18 @@ test('aggiunta e selezione di fogli tramite le schede', async () => {
   close();
 });
 
-test('applicazione del codice ClojureScript dall\'editor', async () => {
+test('ClojureScript code can be applied from the editor', async () => {
   const { document, window, app, close } = await mountApp();
-  document.querySelector('#code').value = '(defn TRIPLO [x] (* x 3))';
+  document.querySelector('#code').value = '(defn TRIPLE [x] (* x 3))';
   mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
-  app.grid.setCellText(0, 8, '=TRIPLO(4)');
+  app.grid.setCellText(0, 8, '=TRIPLE(4)');
   assert.equal(cell(document, 0, 8).textContent, '12');
   close();
 });
 
-test('un errore nell\'editor non compromette le funzioni incorporate', async () => {
+test('an editor error does not affect built-in functions', async () => {
   const { document, window, app, close } = await mountApp();
-  document.querySelector('#code').value = '(defn rotto [x]';
+  document.querySelector('#code').value = '(defn broken [x]';
   mouse(window, 'click', document.querySelector('[data-action="apply-code"]'));
   assert.match(document.querySelector('#fe').textContent, /Riga/);
   app.grid.setCellText(0, 8, '=SUM(1,2,3)');
@@ -303,7 +305,7 @@ test('un errore nell\'editor non compromette le funzioni incorporate', async () 
   close();
 });
 
-test('l\'editor applica paredit (slurp/barf) con Ctrl+frecce', async () => {
+test('the editor applies paredit slurp/barf with Ctrl+arrows', async () => {
   const { document, window, close } = await mountApp();
   const ta = document.querySelector('#code');
   ta.value = '(a b) c';
@@ -312,12 +314,12 @@ test('l\'editor applica paredit (slurp/barf) con Ctrl+frecce', async () => {
   assert.equal(ta.value, '(a b c)');
   key(window, ta, { key: 'ArrowLeft', ctrlKey: true });
   assert.equal(ta.value, '(a b) c');
-  // Attende il controllo sintattico differito dell'editor prima di chiudere il DOM.
+  // Wait for the editor's delayed syntax check before closing the DOM.
   await new Promise(r => setTimeout(r, 450));
   close();
 });
 
-test('il pannello delle funzioni si apre e si chiude', async () => {
+test('the functions panel can be opened and closed', async () => {
   const { document, window, close } = await mountApp();
   const panel = document.querySelector('#fn');
   assert.equal(panel.hidden, true);
@@ -327,7 +329,7 @@ test('il pannello delle funzioni si apre e si chiude', async () => {
   close();
 });
 
-test('l\'interruttore del flusso evidenzia sorgenti e dipendenti', async () => {
+test('the dependency-flow toggle highlights sources and dependents', async () => {
   const { document, window, close } = await mountApp();
   mouse(window, 'mousedown', cell(document, 5, 3));
   assert.ok(document.querySelectorAll('#g td.pre').length > 0);
@@ -336,26 +338,26 @@ test('l\'interruttore del flusso evidenzia sorgenti e dipendenti', async () => {
   close();
 });
 
-test('i pulsanti paredit eseguono slurp, barf e splice', async () => {
+test('paredit buttons run slurp, barf, and splice', async () => {
   const { document, window, close } = await mountApp();
   const ta = document.querySelector('#code');
   const btn = a => document.querySelector('[data-action="' + a + '"]');
-  const esegui = (action, valore, cursore, atteso) => {
-    ta.value = valore;
-    ta.setSelectionRange(cursore, cursore);
+  const runAction = (action, value, cursor, expected) => {
+    ta.value = value;
+    ta.setSelectionRange(cursor, cursor);
     mouse(window, 'mousedown', btn(action));
-    assert.equal(ta.value, atteso, action);
+    assert.equal(ta.value, expected, action);
   };
-  esegui('paredit-slurp', '(a b) c', 5, '(a b c)');       // cursore subito dopo la «)»
-  esegui('paredit-barf', '(a b c)', 7, '(a b) c');
-  esegui('paredit-splice', '(a b) c', 5, 'a b c');
-  assert.match(document.querySelector('#note').textContent, /^✓ Splice/, 'la nota conferma il comando');
-  // wrap avvolge la selezione
+  runAction('paredit-slurp', '(a b) c', 5, '(a b c)'); // cursor just after «)»
+  runAction('paredit-barf', '(a b c)', 7, '(a b) c');
+  runAction('paredit-splice', '(a b) c', 5, 'a b c');
+  assert.match(document.querySelector('#note').textContent, /^✓ Splice/, 'the note confirms the command');
+  // Wrap the selection.
   ta.value = 'a b';
   ta.setSelectionRange(0, 3);
   mouse(window, 'mousedown', btn('paredit-wrap'));
   assert.equal(ta.value, '(a b)');
-  // un comando non applicabile non cambia il testo e spiega perché
+  // An inapplicable command leaves the text unchanged and explains why.
   ta.value = 'a b';
   ta.setSelectionRange(1, 1);
   mouse(window, 'mousedown', btn('paredit-splice'));
@@ -365,57 +367,57 @@ test('i pulsanti paredit eseguono slurp, barf e splice', async () => {
   close();
 });
 
-test('paredit: Backspace e Delete non sbilanciano le parentesi', async () => {
+test('paredit: Backspace and Delete keep delimiters balanced', async () => {
   const { document, window, close } = await mountApp();
   const ta = document.querySelector('#code');
-  const premi = init => {
+  const pressKey = init => {
     const ev = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
     ta.dispatchEvent(ev);
     return ev;
   };
   ta.value = '(a b)';
   ta.setSelectionRange(1, 1);
-  assert.equal(premi({ key: 'Backspace' }).defaultPrevented, true, 'la «(» è protetta');
+  assert.equal(pressKey({ key: 'Backspace' }).defaultPrevented, true, 'the opening «(» is protected');
   assert.match(document.querySelector('#note').textContent, /sbilancerebbe/);
   ta.setSelectionRange(5, 5);
-  assert.equal(premi({ key: 'Backspace' }).defaultPrevented, true, 'la «)» è protetta');
+  assert.equal(pressKey({ key: 'Backspace' }).defaultPrevented, true, 'the closing «)» is protected');
   ta.setSelectionRange(2, 2);
-  assert.equal(premi({ key: 'Backspace' }).defaultPrevented, false, 'il testo si cancella normalmente');
+  assert.equal(pressKey({ key: 'Backspace' }).defaultPrevented, false, 'ordinary text can be deleted');
   ta.setSelectionRange(1, 1);
-  assert.equal(premi({ key: 'Delete' }).defaultPrevented, false, 'Delete su un carattere normale');
+  assert.equal(pressKey({ key: 'Delete' }).defaultPrevented, false, 'Delete works on an ordinary character');
   ta.setSelectionRange(0, 5);
-  assert.equal(premi({ key: 'Delete' }).defaultPrevented, false, 'una lista intera resta bilanciata');
+  assert.equal(pressKey({ key: 'Delete' }).defaultPrevented, false, 'a whole list remains balanced');
   ta.value = '(a b';
   ta.setSelectionRange(0, 4);
-  assert.equal(premi({ key: 'Delete' }).defaultPrevented, true, 'una selezione tagliata a metà è protetta');
-  // la coppia vuota si cancella tutta insieme
+  assert.equal(pressKey({ key: 'Delete' }).defaultPrevented, true, 'a selection that cuts through a list is protected');
+  // An empty pair is deleted as a whole.
   ta.value = '()';
   ta.setSelectionRange(1, 1);
-  premi({ key: 'Backspace' });
+  pressKey({ key: 'Backspace' });
   assert.equal(ta.value, '');
   await new Promise(r => setTimeout(r, 450));
   close();
 });
 
-test('Ctrl+Invio valuta la forma prima del cursore (C-x C-e)', async () => {
+test('Ctrl+Enter evaluates the form before the cursor (C-x C-e)', async () => {
   const { document, window, app, close } = await mountApp();
   const ta = document.querySelector('#code');
-  const valuta = testo => {
-    ta.value = testo;
-    ta.setSelectionRange(testo.length, testo.length);
+  const evaluate = text => {
+    ta.value = text;
+    ta.setSelectionRange(text.length, text.length);
     key(window, ta, { key: 'Enter', ctrlKey: true });
   };
-  valuta('(defn TRIPLO [x] (* x 3))');
-  app.grid.setCellText(0, 8, '=TRIPLO(4)');
+  evaluate('(defn TRIPLE [x] (* x 3))');
+  app.grid.setCellText(0, 8, '=TRIPLE(4)');
   assert.equal(cell(document, 0, 8).textContent, '12');
-  assert.match(document.querySelector('#note').textContent, /TRIPLO/);
-  // ridefinire la funzione aggiorna le formule che la usano
-  valuta('(defn TRIPLO [x] (* x 10))');
+  assert.match(document.querySelector('#note').textContent, /TRIPLE/);
+  // Redefining the function updates formulas that use it.
+  evaluate('(defn TRIPLE [x] (* x 10))');
   assert.equal(cell(document, 0, 8).textContent, '40');
-  // le altre definizioni del modello restano attive
+  // Other model definitions remain active.
   app.grid.setCellText(0, 9, '=WITH_TAX(1)');
   assert.equal(app.session.engine.evaluate('Foglio1!J1'), 1 + 0.22);
-  // senza una forma prima del cursore si applica tutto l'editor
+  // If there is no form before the cursor, the whole editor is applied.
   ta.value = '   ';
   ta.setSelectionRange(3, 3);
   key(window, ta, { key: 'Enter', ctrlKey: true });
@@ -423,15 +425,15 @@ test('Ctrl+Invio valuta la forma prima del cursore (C-x C-e)', async () => {
   close();
 });
 
-test('Ctrl+Invio segnala l’errore di una forma non valutabile', async () => {
+test('Ctrl+Enter reports an error for a form that cannot be evaluated', async () => {
   const { document, window, close } = await mountApp();
   const ta = document.querySelector('#code');
-  const form = '(chiave 1)';
+  const form = '(missing-key 1)';
   ta.value = form;
   ta.setSelectionRange(form.length, form.length);
   key(window, ta, { key: 'Enter', ctrlKey: true });
   assert.match(document.querySelector('#note').textContent, /^✗/);
-  assert.match(document.querySelector('#fe').textContent, /chiave/);
+  assert.match(document.querySelector('#fe').textContent, /missing-key/);
   close();
 });
 
