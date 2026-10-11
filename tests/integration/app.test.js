@@ -70,14 +70,44 @@ test('la finestra formula si apre sulla cella attiva e applica prima di chiuders
   const ed = document.querySelector('#ed');
   assert.equal(popup.hidden, false);
   assert.equal(document.querySelector('#formula-pop-title').textContent, 'Formula · D2');
-  assert.equal(ed.value, '=B2*C2');
+  assert.equal(ed.value, 'B2*C2');
 
-  ed.value = '=B2*C2+1';
+  ed.value = 'B2*C2+1';
   document.querySelector('#formula-pop-close').click();
   assert.equal(popup.hidden, true);
   assert.equal(ed.hidden, true);
   assert.equal(document.querySelector('#nb').value, 'D2');
+  assert.equal(document.querySelector('#fx').value, '=B2*C2+1');
   assert.equal(document.querySelector('#g').rows[2].cells[4].textContent, '151.00');
+  close();
+});
+
+test('Invio inserisce una nuova riga e Ctrl+Invio applica la forma', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const ed = document.querySelector('#ed');
+  ed.value = '(+ 1 2)';
+  ed.setSelectionRange(4, 4);
+
+  key(window, ed, { key: 'Enter' });
+  assert.equal(document.querySelector('#formula-pop').hidden, false);
+  assert.equal(ed.value.includes('\n'), true);
+  assert.equal(cell(document, 9, 8).textContent, '');
+
+  key(window, ed, { key: 'Enter', ctrlKey: true });
+  assert.equal(document.querySelector('#formula-pop').hidden, true);
+  assert.equal(cell(document, 9, 8).textContent, '3');
+  assert.match(document.querySelector('#fx').value, /^=\(\+ 1\n/);
+  close();
+});
+
+test('la guida di scripting è interamente in inglese e usa esempi con nomi inglesi', async () => {
+  const { document, close } = await mountApp();
+  const help = document.querySelector('#help').textContent;
+  assert.match(help, /The panel above contains user-defined ClojureScript functions/);
+  assert.match(help, /weighted-average/);
+  assert.doesNotMatch(help, /Il pannello|Le formule restano|Editor con paredit/);
   close();
 });
 
