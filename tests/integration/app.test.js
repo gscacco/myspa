@@ -113,6 +113,7 @@ test('la guida di scripting è interamente in inglese e usa esempi con nomi ingl
   const { document, close } = await mountApp();
   const help = document.querySelector('#help').textContent;
   assert.match(help, /The panel above contains user-defined ClojureScript functions/);
+  assert.match(help, /\(double-value B2\)/);
   assert.match(help, /weighted-average/);
   assert.doesNotMatch(help, /Il pannello|Le formule restano|Editor con paredit/);
   close();
