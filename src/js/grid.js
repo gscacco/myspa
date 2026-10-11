@@ -115,9 +115,10 @@ export function createGrid(ctx) {
     const { r, c } = S.a, td = tdOf(r, c);
     if (!td) return;
     const raw = sheet().cells[addr(r, c)]?.r;
-    Object.assign(ed.style, { left: td.offsetLeft + 'px', top: td.offsetTop + 'px', width: Math.max(td.offsetWidth, 130) + 'px', height: td.offsetHeight + 'px' });
     ed.value = init ?? (raw === undefined ? '' : raw);
+    Q('#formula-pop-title').textContent = 'Formula · ' + addr(r, c);
     ed.hidden = false;
+    Q('#formula-pop').hidden = false;
     ed.focus();
   }
 
@@ -125,6 +126,7 @@ export function createGrid(ctx) {
   function endEdit(ok, mv) {
     if (ed.hidden) return;
     ed.hidden = true;
+    Q('#formula-pop').hidden = true;
     if (ok) setCellText(S.a.r, S.a.c, ed.value);
     mv ? sel(S.a.r + mv[0], S.a.c + mv[1]) : showCell();
   }
@@ -140,6 +142,7 @@ export function createGrid(ctx) {
 
   /** Collega gli eventi di editing (editor inline e barra della formula). */
   function mount() {
+    Q('#formula-pop-close').addEventListener('click', () => endEdit(1));
     ed.addEventListener('keydown', e => {
       const v = ed.value, a = ed.selectionStart, b = ed.selectionEnd, m = e.ctrlKey || e.metaKey;
       const structures = {
