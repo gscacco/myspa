@@ -104,6 +104,7 @@ test('cell formulas and ClojureScript data forms need no equals prefix', async (
   code.setSelectionRange(code.value.length, code.value.length);
   mouse(window, 'mousedown', cell(document, 1, 1));
   assert.equal(code.value, '[1 B2');
+  code.value += ']';
   key(window, code, { key: 'Enter', ctrlKey: true });
   assert.deepEqual(app.session.engine.evaluate('Foglio1!I10'), [1, 1.5]);
   close();
