@@ -33,7 +33,20 @@ export function createGrid(ctx) {
     const v = n.val;
     if (v === null) return '';
     if (typeof v === 'number') return f.d != null ? v.toFixed(f.d) : String(+v.toPrecision(12));
-    return Array.isArray(v) ? '[' + v.flat(Infinity).length + ']' : String(v);
+    return printValue(v);
+  }
+
+  /** Render ClojureScript collection values as readable, single-line forms. */
+  function printValue(v, nested = false) {
+    if (v === null || v === undefined) return 'nil';
+    if (typeof v === 'string') return nested ? JSON.stringify(v) : v;
+    if (typeof v === 'number') return String(+v.toPrecision(12));
+    if (typeof v === 'boolean') return String(v);
+    if (Array.isArray(v)) return '[' + v.map(x => printValue(x, true)).join(' ') + ']';
+    if (typeof v === 'object') {
+      return '{' + Object.entries(v).map(([k, x]) => ':' + k + ' ' + printValue(x, true)).join(' ') + '}';
+    }
+    return String(v);
   }
 
   /** Ridisegna una cella dal suo nodo. */
@@ -116,10 +129,13 @@ export function createGrid(ctx) {
     const raw = sheet().cells[addr(r, c)]?.r;
     const source = String(init ?? (raw === undefined ? '' : raw));
     const isFormula = source.startsWith('=');
+    const opener = ['(', '[', '{'].includes(source) ? source : '';
+    const value = opener ? opener + { '(': ')', '[': ']', '{': '}' }[opener] : isFormula ? source.slice(1) : source;
     ctx.editor.beginCellEdit({
-      value: isFormula ? source.slice(1) : source,
+      value,
       formula: isFormula,
       address: addr(r, c),
+      caret: opener ? 1 : undefined,
       apply: text => setCellText(r, c, text),
     });
   }

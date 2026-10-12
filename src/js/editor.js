@@ -52,7 +52,7 @@ export function createEditor(ctx) {
 
   function setCode(v) { ta.value = v; errLine = 0; refresh(); }
 
-  function beginCellEdit({ value, formula, address, apply }) {
+  function beginCellEdit({ value, formula, address, apply, caret }) {
     if (cellEdit) return false;
     clearTimeout(chk);
     cellEdit = {
@@ -63,6 +63,7 @@ export function createEditor(ctx) {
       title: fnTitle.textContent,
       applyLabel: applyButton.textContent,
       applyTitle: applyButton.title,
+      applyAriaLabel: applyButton.getAttribute('aria-label'),
       note: noteEl.textContent,
       noteClass: noteEl.className,
       error: Q('#fe').textContent,
@@ -73,9 +74,11 @@ export function createEditor(ctx) {
     fn.hidden = false;
     Q('#bfn').classList.add('on');
     fnTitle.textContent = 'Cell formula · ' + address;
-    applyButton.textContent = 'Apply formula';
+    applyButton.textContent = '✓';
     applyButton.title = 'Apply this cell formula';
+    applyButton.setAttribute('aria-label', 'Apply this cell formula');
     ta.value = value;
+    if (caret !== undefined) ta.setSelectionRange(caret, caret);
     ta.dataset.formula = String(!!formula);
     errLine = 0;
     showError('', 0);
@@ -104,6 +107,8 @@ export function createEditor(ctx) {
     fnTitle.textContent = edit.title;
     applyButton.textContent = edit.applyLabel;
     applyButton.title = edit.applyTitle;
+    if (edit.applyAriaLabel === null) applyButton.removeAttribute('aria-label');
+    else applyButton.setAttribute('aria-label', edit.applyAriaLabel);
     fn.hidden = edit.panelHidden;
     Q('#bfn').classList.toggle('on', !edit.panelHidden);
     errLine = edit.errLine;
