@@ -154,8 +154,9 @@ export function createGrid(ctx) {
         const v = ed.value, p = ed.selectionStart;
         const prefix = v.slice(0, p);
         const pendingCljsHead = /^\s*\(\s*[A-Za-z_*+!?][\w*+!?<>=./-]*\s*$/.test(prefix);
-        const formulaMode = ed.dataset.formula === 'true' || /^\s*\(/.test(v);
-        if (formulaMode && (/[=+\-*/(,<>&|?:!%^]$/.test(prefix) || pendingCljsHead)) {
+        const formulaMode = ed.dataset.formula === 'true' || hasImplicitCljsSyntax(v);
+        const openFormSlot = /\s$/.test(prefix) && hasOpenCljsForm(prefix);
+        if (formulaMode && (!prefix.trim() || /[=+\-*/(\[{},<>&|?:!%^]$/.test(prefix) || openFormSlot || pendingCljsHead)) {
           e.preventDefault();
           ed.dataset.formula = 'true';
           ed.setRangeText((pendingCljsHead && !/\s$/.test(prefix) ? ' ' : '') + addr(r, c), p, ed.selectionEnd, 'end');
@@ -173,6 +174,32 @@ export function createGrid(ctx) {
     G.addEventListener('mouseover', e => { if (!drag) return; const td = e.target.closest('td'); if (td) { S.f = { r: td.parentNode.rowIndex - 1, c: td.cellIndex - 1 }; showCell(); } });
     G.addEventListener('dblclick', e => { if (e.target.closest('td')) edit(); });
     window.addEventListener('mouseup', () => drag = 0);
+  }
+
+  function hasImplicitCljsSyntax(source) {
+    const s = source.trim();
+    return ['(', '[', '{', ':', '"', "'", '`', '\\'].includes(s[0])
+      || s.startsWith('#{') || s.startsWith('#_')
+      || /^(?:true|false|nil)$/.test(s)
+      || /^[^\s()]+\s*\(/.test(s);
+  }
+
+  function hasOpenCljsForm(source) {
+    let depth = 0, string = false, escape = false, comment = false;
+    for (const c of source) {
+      if (comment) { if (c === '\n') comment = false; continue; }
+      if (string) {
+        if (escape) escape = false;
+        else if (c === '\\') escape = true;
+        else if (c === '"') string = false;
+        continue;
+      }
+      if (c === ';') comment = true;
+      else if (c === '"') string = true;
+      else if ('([{'.includes(c)) depth++;
+      else if (')]}'.includes(c)) depth--;
+    }
+    return depth > 0;
   }
 
   return {

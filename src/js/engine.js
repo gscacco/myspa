@@ -9,8 +9,9 @@
  * quando una formula legge altre celle tramite `$` / `$$`.
  *
  * Le formule sono ClojureScript e vengono valutate da `cljs.js`:
- *  - `=pippo(A2)` è zucchero sintattico per `=(pippo A2)`;
- *  - `=(count A3)` è codice ClojureScript vero e proprio;
+ *  - `(pippo A2)` è una forma ClojureScript, senza prefisso `=`;
+ *  - `:keyword`, `[1 2 3]` e `{:key 12}` sono valori ClojureScript;
+ *  - `pippo(A2)` è zucchero sintattico per `(pippo A2)`;
  *  - i riferimenti `A1`, `A1:B5`, `Foglio2!B3` sono risolti verso `$` / `$$`.
  * Le definizioni del namespace `user` (il codice dell'utente) e quelle del
  * namespace `sheet.core` (le funzioni del foglio, SUM/AVG/…) sono visibili
@@ -60,17 +61,18 @@ export function createEngine(workbook) {
   }
 
   /**
-   * (Ri)compila il valore grezzo di un nodo. Una formula `=…` scritta in
-   * ClojureScript (`(…)` oppure chiamata `nome(argomenti…)`) viene risolta con
-   * l'interprete; una formula infissa resta sul percorso JavaScript.
+   * (Ri)compila il valore grezzo di un nodo. Le forme ClojureScript vengono
+   * valutate senza `=`; il prefisso resta supportato per formule infisse.
    */
   function setNode(n, raw) {
     n.deps.forEach(d => d.rd.delete(n));
     n.deps.clear();
     n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null;
-    if (typeof raw === 'string' && raw[0] === '=') {
+    if (typeof raw === 'string') {
       try {
-        const cljs = toCljsSource(raw.slice(1));
+        const hasPrefix = raw[0] === '=';
+        const body = hasPrefix ? raw.slice(1) : raw;
+        const cljs = toCljsSource(body) ?? (!hasPrefix ? implicitCljsSource(body, ENV) : null);
         if (cljs != null) {
           const src = mapRefs(cljs, x => x.b
             ? `($$ "${x.sh || n.sh}!${x.c}${x.r}:${x.b.c}${x.b.r}")`
@@ -78,13 +80,16 @@ export function createEngine(workbook) {
           const e = readError(src);
           if (e) throw e;
           n.cljs = src;
-        } else {
-          const js = mapRefs(raw.slice(1), x => x.b
+          n.st = 1;
+        } else if (hasPrefix) {
+          const js = mapRefs(body, x => x.b
             ? `$$("${x.sh || n.sh}!${x.c}${x.r}:${x.b.c}${x.b.r}")`
             : `$("${x.sh || n.sh}!${x.c}${x.r}")`);
           n.fn = new Function('$', '$$', 'ENV', /\breturn\b|;/.test(js) ? 'with(ENV){' + js + '}' : 'with(ENV){return (' + js + ')}');
+          n.st = 1;
+        } else {
+          n.val = raw;
         }
-        n.st = 1;
       } catch (e) { n.err = e; }
     } else n.val = raw === undefined ? null : raw;
   }
@@ -228,22 +233,32 @@ export function createEngine(workbook) {
 export { colName, colIndex };
 
 /**
- * Riconosce una formula scritta in ClojureScript e la normalizza:
- *  - se il corpo inizia con `(` è già una s-espr: usato così com'è;
- *  - una chiamata in stile foglio `nome(argomenti…)` è zucchero per
- *    `(nome argomenti…)` (per il lettore CLJS la virgola è spazio bianco);
- *  - in tutti gli altri casi la formula segue il percorso JavaScript.
- * @param {string} body testo dopo il segno `=`
- * @returns {string|null} sorgente ClojureScript, oppure `null` (formula JS)
+ * Recognize an explicit ClojureScript form, or normalize function-call
+ * shorthand such as `name(args…)` to `(name args…)`.
+ * @param {string} body raw cell text, optionally after a legacy `=` prefix
+ * @returns {string|null} ClojureScript source, or `null`
  */
 function toCljsSource(body) {
   const s = body.trim();
-  if (s[0] === '(') return s;
+  if (['(', '[', '{', ':', '"', "'", '`', '\\'].includes(s[0])
+    || s.startsWith('#{') || s.startsWith('#_')
+    || /^(?:true|false|nil)$/.test(s)) return s;
   const m = /^([^\s()]+)\s*\(/.exec(s);
   if (!m) return null;
   const open = m[0].length - 1;
   if (closingParen(s, open) !== s.length - 1) return null;   // la chiamata non è tutta l'espressione
   return '(' + m[1] + ' ' + s.slice(open + 1, -1) + ')';
+}
+
+/** Recognize unambiguous CLJS atoms while leaving ordinary cell text intact. */
+function implicitCljsSource(source, env) {
+  const s = source.trim();
+  if (['(', '[', '{', ':', '"', "'", '`', '\\'].includes(s[0])
+    || s.startsWith('#{') || s.startsWith('#_')
+    || /^(?:true|false|nil)$/.test(s)) return s;
+  if (!/^[A-Za-z_*+!?<>=./-][\w*+!?<>=./-]*$/.test(s)) return null;
+  const isCellRef = /^(?:[A-Za-z_]\w*!)?\$?[A-Z]{1,2}\$?\d+$/.test(s);
+  return isCellRef || s.includes('/') || Object.prototype.hasOwnProperty.call(env, s) ? s : null;
 }
 
 /** Indice della `)` che chiude la `(` in posizione `open`, ignorando le stringhe. */

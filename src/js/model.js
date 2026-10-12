@@ -121,9 +121,9 @@ export function uniqueSheetName(wb, base) {
 /**
  * Converte il testo digitato dall'utente nel valore grezzo da memorizzare.
  *  - stringa vuota -> `undefined` (cancella la cella)
- *  - inizio `=` -> stringa (formula)
+ *  - inizio `=` -> stringa (formula infissa legacy o formula esplicita)
  *  - letterale numerico -> numero
- *  - altrimenti -> stringa
+ *  - altrimenti -> stringa conservata per il motore, che riconosce le forme CLJS
  * @param {string} t
  * @returns {string|number|undefined}
  */

@@ -90,11 +90,10 @@ export function createEditor(ctx) {
     if (!cellEdit) return false;
     const edit = cellEdit;
     let cellValue = ta.value;
-    const formula = edit.formula || /^\s*\(/.test(cellValue);
-    if (formula) {
-      if (cellValue.startsWith('=')) cellValue = cellValue.slice(1);
-      cellValue = cellValue.trim() ? '=' + cellValue : '';
-    }
+    const hasPrefix = cellValue.startsWith('=');
+    const body = hasPrefix ? cellValue.slice(1) : cellValue;
+    const implicitCljs = hasImplicitCljsSyntax(body);
+    cellValue = edit.formula && !implicitCljs && body.trim() ? '=' + body : body;
 
     cellEdit = null;
     clearTimeout(chk);
@@ -117,6 +116,14 @@ export function createEditor(ctx) {
     if (edit.panelHidden) ta.blur();
     else ta.focus();
     return true;
+  }
+
+  function hasImplicitCljsSyntax(source) {
+    const s = source.trim();
+    return ['(', '[', '{', ':', '"', "'", '`', '\\'].includes(s[0])
+      || s.startsWith('#{') || s.startsWith('#_')
+      || /^(?:true|false|nil)$/.test(s)
+      || /^[^\s()]+\s*\(/.test(s);
   }
 
   function matchBr() {
