@@ -379,6 +379,29 @@ test('copy and paste work with the internal clipboard', async () => {
   close();
 });
 
+test('copying a ClojureScript formula shifts relative rows and columns while keeping dollar anchors', async () => {
+  const { document, app, close } = await mountApp();
+  app.grid.setCellText(1, 1, '1');
+  app.grid.setCellText(1, 2, '2');
+  app.grid.setCellText(1, 3, '3');
+  app.grid.setCellText(2, 2, '4');
+  app.grid.setCellText(2, 3, '5');
+  app.grid.setCellText(19, 0, '(+ B2 $C$2 C$2 $D2)');
+  assert.equal(app.session.engine.evaluate('Foglio1!A20'), 8);
+
+  app.grid.sel(19, 0);
+  const copied = fakeClipboardEvent(document.body);
+  app.commands.cp(copied, 0);
+  app.grid.sel(20, 1);
+  const pasted = fakeClipboardEvent(document.body);
+  pasted.clipboardData.setData('text/plain', copied.store['text/plain']);
+  app.commands.paste(pasted);
+
+  assert.equal(app.currentSheet().cells.B21.r, '(+ C3 $C$2 D$2 $D3)');
+  assert.equal(app.session.engine.evaluate('Foglio1!B21'), 14);
+  close();
+});
+
 test('sheets can be added and selected from the tabs', async () => {
   const { document, window, close } = await mountApp();
   const plus = () => [...document.querySelectorAll('#tabs button')].find(b => b.textContent === '＋');

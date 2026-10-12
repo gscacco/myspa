@@ -80,6 +80,15 @@ test('pasteRows con appunti interni sposta i riferimenti', () => {
   assert.equal(getRaw(s.workbook, 'S', 'B2'), '=B2+1');
 });
 
+test('pasteRows sposta formule ClojureScript e rispetta gli ancoraggi assoluti', () => {
+  const s = makeSession();
+  s.pasteRows('S', 2, 2, [['(+ B2 $C$2 C$2 $D2)', 'Ordine A1']], {
+    internal: true, baseR: 1, baseC: 1, formulas: [[true, false]],
+  });
+  assert.equal(getRaw(s.workbook, 'S', 'C3'), '(+ C3 $C$2 D$2 $D3)');
+  assert.equal(getRaw(s.workbook, 'S', 'D3'), 'Ordine A1');
+});
+
 test('pasteRows da appunti esterni non sposta i riferimenti', () => {
   const s = makeSession();
   s.pasteRows('S', 1, 1, [['=A1+1', '3']], { internal: false });

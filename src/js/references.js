@@ -69,5 +69,6 @@ export function mapRefs(src, f) {
  */
 export function shiftRefs(v, dr, dc) {
   const one = (p, sh) => p.ac + (p.ac ? p.c : colName(Math.max(0, colIndex(p.c) + dc))) + p.ar + (p.ar ? p.r : Math.max(1, p.r + dr));
-  return '=' + mapRefs(v.slice(1), x => (x.sh ? x.sh + '!' : '') + one(x) + (x.b ? ':' + one(x.b) : ''));
+  const prefix = v.startsWith('=') ? '=' : '';
+  return prefix + mapRefs(prefix ? v.slice(1) : v, x => (x.sh ? x.sh + '!' : '') + one(x) + (x.b ? ':' + one(x.b) : ''));
 }

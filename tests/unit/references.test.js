@@ -46,6 +46,10 @@ test('shiftRefs sposta solo i riferimenti relativi', () => {
   assert.equal(shiftRefs('=$A1+B$2', 1, 1), '=$A2+C$2');
 });
 
+test('shiftRefs supporta forme ClojureScript senza prefisso e ancoraggi di riga o colonna', () => {
+  assert.equal(shiftRefs('(+ B2 $C$2 C$2 $D2)', 1, 1), '(+ C3 $C$2 D$2 $D3)');
+});
+
 test('shiftRefs sposta gli intervalli e mantiene il foglio', () => {
   assert.equal(shiftRefs('=SUM(A1:A5)', 1, 0), '=SUM(A2:A6)');
   assert.equal(shiftRefs('=Foglio2!A1', 1, 0), '=Foglio2!A2');

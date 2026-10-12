@@ -46,10 +46,18 @@ export function createCommands(ctx) {
   /* ===== Appunti ===== */
   function cp(e, cut) {
     if (/INPUT|TEXTAREA/.test(e.target.tagName)) return;
-    const { r0, r1, c0, c1 } = ctx.grid.rect(), sheet = ctx.currentSheet(), rows = [];
-    for (let r = r0; r <= r1; r++) { const row = []; for (let c = c0; c <= c1; c++) row.push(String(sheet.cells[addr(r, c)]?.r ?? '')); rows.push(row); }
+    const { r0, r1, c0, c1 } = ctx.grid.rect(), sheet = ctx.currentSheet(), rows = [], formulas = [];
+    for (let r = r0; r <= r1; r++) {
+      const row = [], formulaRow = [];
+      for (let c = c0; c <= c1; c++) {
+        const address = addr(r, c), node = ctx.session.engine.nd(sheet.name + '!' + address);
+        row.push(String(sheet.cells[address]?.r ?? ''));
+        formulaRow.push(!!(node.fn || node.cljs));
+      }
+      rows.push(row); formulas.push(formulaRow);
+    }
     const tsv = rows.map(x => x.join('\t')).join('\n');
-    CB = { tsv, r0, c0, rows };
+    CB = { tsv, r0, c0, rows, formulas };
     e.clipboardData.setData('text/plain', tsv);
     e.preventDefault();
     if (cut) clearSel();
@@ -63,7 +71,10 @@ export function createCommands(ctx) {
     const same = CB && CB.tsv === t;
     const rows = same ? CB.rows : t.replace(/\r/g, '').replace(/\n$/, '').split('\n').map(l => l.split('\t'));
     const { r0, c0 } = ctx.grid.rect();
-    const changed = ctx.session.pasteRows(ctx.currentSheet().name, r0, c0, rows, { internal: !!same, baseR: same ? CB.r0 : 0, baseC: same ? CB.c0 : 0 });
+    const changed = ctx.session.pasteRows(ctx.currentSheet().name, r0, c0, rows, {
+      internal: !!same, baseR: same ? CB.r0 : 0, baseC: same ? CB.c0 : 0,
+      formulas: same ? CB.formulas : [],
+    });
     ctx.grid.paint(changed);
     ctx.grid.showCell();
     ctx.updateStatus();

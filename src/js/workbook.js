@@ -96,12 +96,13 @@ export function createSession(workbook) {
    * Se `internal` è vero i riferimenti relativi vengono spostati dell'offset
    * rispetto all'area di origine (come nell'applicazione originale).
    */
-  function pasteRows(sheetName, r0, c0, rows, { internal = false, baseR = 0, baseC = 0 } = {}) {
+  function pasteRows(sheetName, r0, c0, rows, { internal = false, baseR = 0, baseC = 0, formulas = [] } = {}) {
     snapshot();
     rows.forEach((row, i) => row.forEach((v, j) => {
       const r = r0 + i, c = c0 + j;
       if (r < ROWS && c < COLS) {
-        engine.put(sheetName, addr(r, c), parseInput(internal && v[0] === '=' ? shiftRefs(v, r0 - baseR, c0 - baseC) : v));
+        const isFormula = formulas[i]?.[j] ?? (typeof v === 'string' && v.startsWith('='));
+        engine.put(sheetName, addr(r, c), parseInput(internal && isFormula ? shiftRefs(v, r0 - baseR, c0 - baseC) : v));
       }
     }));
     return engine.recalculate();
