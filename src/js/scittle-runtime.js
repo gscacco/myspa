@@ -126,7 +126,9 @@ export function evaluateInNamespaceWithRaw(namespace, source) {
   const key = '__foglioScittleRawResult';
   globalThis[key] = { value: raw };
   try {
-    return { value: scittleEval(`(clj->js (.-value js/globalThis.${key}))`), raw };
+    const value = scittleEval(`(clj->js (.-value js/globalThis.${key}))`);
+    const display = scittleEval(`(let [v (.-value js/globalThis.${key})] (when (or (keyword? v) (coll? v)) (pr-str v)))`);
+    return { value, raw, display };
   } finally {
     delete globalThis[key];
   }

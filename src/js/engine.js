@@ -89,7 +89,7 @@ export function createEngine(workbook) {
       const [sh, a] = id.split('!');
       const s = sheetByName(wb, sh);
       if (!s) throw Error('#REF: foglio «' + sh + '» inesistente');
-      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, cljVal: null, err: null, fn: null, cljs: null, raw: undefined };
+      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, cljVal: null, display: null, err: null, fn: null, cljs: null, raw: undefined };
       nodes.set(id, n);
       setNode(n, s.cells[a]?.r);
     }
@@ -103,7 +103,7 @@ export function createEngine(workbook) {
   function setNode(n, raw) {
     n.deps.forEach(d => d.rd.delete(n));
     n.deps.clear();
-    n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null; n.cljVal = raw === undefined ? null : raw;
+    n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null; n.cljVal = raw === undefined ? null : raw; n.display = null;
     if (typeof raw === 'string') {
       try {
         const hasPrefix = raw[0] === '=';
@@ -149,9 +149,10 @@ export function createEngine(workbook) {
         : { cljs: false, value: n.fn($, $$, ENV) });
       n.val = result.value === undefined ? null : result.value;
       n.cljVal = result.cljs ? result.raw : n.val;
+      n.display = result.cljs ? result.display : null;
       n.err = null;
     }
-    catch (e) { n.err = toError(e, n.cljs || ''); n.val = null; n.cljVal = null; }
+    catch (e) { n.err = toError(e, n.cljs || ''); n.val = null; n.cljVal = null; n.display = null; }
     ctx = p; n.st = 0; changed.add(n);
   }
 

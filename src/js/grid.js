@@ -30,6 +30,7 @@ export function createGrid(ctx) {
   /** Testo mostrato per un nodo, in base al formato della cella. */
   function disp(n, f) {
     if (n.err) return n.err.message.startsWith('#') ? n.err.message.split(':')[0] : '#ERR';
+    if (n.display != null) return n.display;
     const v = n.val;
     if (v === null) return '';
     if (typeof v === 'number') return f.d != null ? v.toFixed(f.d) : String(+v.toPrecision(12));
