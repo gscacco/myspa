@@ -32,6 +32,20 @@ test('the standalone artifact embeds its favicon as an SVG data URL', () => {
   dom.window.close();
 });
 
+test('the shared code editor is a floating, resizable window', () => {
+  const { dom } = load();
+  const { document, getComputedStyle } = dom.window;
+  const editor = document.querySelector('#fn');
+  const style = getComputedStyle(editor);
+  assert.equal(editor.getAttribute('role'), 'dialog');
+  assert.equal(editor.getAttribute('aria-modal'), 'false');
+  assert.equal(style.position, 'fixed');
+  assert.equal(style.resize, 'both');
+  assert.equal(style.overflow, 'hidden');
+  assert.equal(document.querySelectorAll('#fn textarea').length, 1);
+  dom.window.close();
+});
+
 /** Return the zero-based cell at (r,c) on the current sheet. */
 const cell = (document, r, c) => document.querySelector('#g').rows[r + 1].cells[c + 1];
 
