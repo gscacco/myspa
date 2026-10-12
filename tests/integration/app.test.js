@@ -68,15 +68,30 @@ test('the formula panel applies edits with Ctrl+Enter', async () => {
   close();
 });
 
-test('typing = opens the formula editor without inserting the prefix', async () => {
+test('typing = does not open the formula editor as a formula prefix', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
   key(window, window, { key: '=' });
 
   const ed = document.querySelector('#code');
-  assert.equal(document.querySelector('#fn').hidden, false);
-  assert.equal(ed.value, '');
-  assert.equal(ed.dataset.formula, 'true');
+  assert.equal(document.querySelector('#fn').hidden, true);
+  assert.equal(ed.dataset.formula, undefined);
+  close();
+});
+
+test('opening delimiters start cell editing and insert a balanced pair', async () => {
+  const { document, window, app, close } = await mountApp();
+  const ed = document.querySelector('#code');
+  for (const [i, open] of ['(', '[', '{'].entries()) {
+    const pair = open + { '(': ')', '[': ']', '{': '}' }[open];
+    app.grid.sel(9 + i, 8);
+    key(window, window, { key: open });
+    assert.equal(document.querySelector('#fn').hidden, false);
+    assert.equal(ed.value, pair);
+    assert.equal(ed.selectionStart, 1);
+    key(window, ed, { key: 'Enter', ctrlKey: true });
+    assert.equal(document.querySelector('#fn').hidden, true);
+  }
   close();
 });
 
@@ -97,6 +112,8 @@ test('cell formulas and ClojureScript data forms need no equals prefix', async (
   assert.equal(app.session.engine.evaluate('Foglio1!I1'), 'pippo');
   assert.deepEqual(app.session.engine.evaluate('Foglio1!I2'), [1, 2, 3]);
   assert.deepEqual(app.session.engine.evaluate('Foglio1!I3'), { pippo: 12 });
+  assert.equal(cell(document, 1, 8).textContent, '[1 2 3]');
+  assert.equal(cell(document, 2, 8).textContent, '{:pippo 12}');
 
   app.grid.sel(9, 8);
   app.grid.edit();
@@ -121,7 +138,8 @@ test('cell formulas reuse the syntax-highlighted editor and its apply button', a
   assert.equal(document.querySelector('#fn').hidden, false);
   assert.equal(document.querySelector('#fn-title').textContent, 'Cell formula · D2');
   assert.equal(code.value, 'B2*C2');
-  assert.equal(document.querySelector('#apply-code').textContent, 'Apply formula');
+  assert.equal(document.querySelector('#apply-code').textContent, '✓');
+  assert.equal(document.querySelector('#apply-code').getAttribute('aria-label'), 'Apply this cell formula');
 
   code.value = '(SUM B2 C2)';
   code.dispatchEvent(new window.Event('input', { bubbles: true }));
