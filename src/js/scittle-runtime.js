@@ -4,8 +4,16 @@ const BRIDGE_KEY = '__foglioScittleBridge';
 let sheetCoreReady = false;
 
 export const SHEET_CORE_SOURCE = `(ns sheet.core)
-(def $ (fn [id] (js->clj ((.-read js/globalThis.__foglioScittleBridge) id) :keywordize-keys true)))
-(def $$ (fn [id] (js->clj ((.-range js/globalThis.__foglioScittleBridge) id) :keywordize-keys true)))
+(def $ (fn [id]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-readClj bridge)
+      (js->clj ((.-readClj bridge) id) :keywordize-keys true)
+      (js->clj ((.-read bridge) id) :keywordize-keys true)))))
+(def $$ (fn [id]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-rangeClj bridge)
+      (js->clj ((.-rangeClj bridge) id) :keywordize-keys true)
+      (js->clj ((.-range bridge) id) :keywordize-keys true)))))
 (def PI js/Math.PI)
 (def E js/Math.E)
 (def abs js/Math.abs)
@@ -74,6 +82,14 @@ export function ensureSheetCore() {
         if (!bridgeState.active) throw new Error('accesso a intervallo fuori da una valutazione');
         return bridgeState.active.range(id);
       },
+      readClj(id) {
+        if (!bridgeState.active) throw new Error('accesso a cella fuori da una valutazione');
+        return (bridgeState.active.readClj || bridgeState.active.read)(id);
+      },
+      rangeClj(id) {
+        if (!bridgeState.active) throw new Error('accesso a intervallo fuori da una valutazione');
+        return (bridgeState.active.rangeClj || bridgeState.active.range)(id);
+      },
     };
     globalThis[BRIDGE_KEY] = bridgeState;
   }
@@ -101,6 +117,19 @@ export function enterUserNamespace(namespace) {
 export function evaluateInNamespace(namespace, source) {
   enterUserNamespace(namespace);
   return scittleEval(`(clj->js (do ${source}))`);
+}
+
+/** Valuta una forma conservando sia il dato JavaScript sia il valore SCI originale. */
+export function evaluateInNamespaceWithRaw(namespace, source) {
+  enterUserNamespace(namespace);
+  const raw = scittleEval(`(do ${source})`);
+  const key = '__foglioScittleRawResult';
+  globalThis[key] = { value: raw };
+  try {
+    return { value: scittleEval(`(clj->js (.-value js/globalThis.${key}))`), raw };
+  } finally {
+    delete globalThis[key];
+  }
 }
 
 /** Recupera una var dal namespace, restituendone la rappresentazione JS. */

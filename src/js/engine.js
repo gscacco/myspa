@@ -24,7 +24,7 @@ import { sheetByName, setRaw } from './model.js';
 import { declarations, munge } from './cljs.js';
 import {
   ensureSheetCore, enterUserNamespace, evaluateInNamespace,
-  getNamespaceValue, getNamespaceCallable, scittleEval, withCellBridge, qualifyUserRefs,
+  evaluateInNamespaceWithRaw, getNamespaceValue, getNamespaceCallable, scittleEval, withCellBridge, qualifyUserRefs,
 } from './scittle-runtime.js';
 
 let nextEngineId = 1;
@@ -89,7 +89,7 @@ export function createEngine(workbook) {
       const [sh, a] = id.split('!');
       const s = sheetByName(wb, sh);
       if (!s) throw Error('#REF: foglio «' + sh + '» inesistente');
-      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, err: null, fn: null, cljs: null, raw: undefined };
+      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, cljVal: null, err: null, fn: null, cljs: null, raw: undefined };
       nodes.set(id, n);
       setNode(n, s.cells[a]?.r);
     }
@@ -103,7 +103,7 @@ export function createEngine(workbook) {
   function setNode(n, raw) {
     n.deps.forEach(d => d.rd.delete(n));
     n.deps.clear();
-    n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null;
+    n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null; n.cljVal = raw === undefined ? null : raw;
     if (typeof raw === 'string') {
       try {
         const hasPrefix = raw[0] === '=';
@@ -144,12 +144,14 @@ export function createEngine(workbook) {
     n.deps.clear();
     const p = ctx; ctx = n;
     try {
-      const v = withCellBridge({ read: $, range: $$ }, () => n.cljs != null
-        ? evaluateInNamespace(userNs, qualifyUserRefs(restoreMungedNames(n.cljs), userNs))
-        : n.fn($, $$, ENV));
-      n.val = v === undefined ? null : v; n.err = null;
+      const result = withCellBridge(cellBridge(), () => n.cljs != null
+        ? { cljs: true, ...evaluateInNamespaceWithRaw(userNs, qualifyUserRefs(restoreMungedNames(n.cljs), userNs)) }
+        : { cljs: false, value: n.fn($, $$, ENV) });
+      n.val = result.value === undefined ? null : result.value;
+      n.cljVal = result.cljs ? result.raw : n.val;
+      n.err = null;
     }
-    catch (e) { n.err = toError(e, n.cljs || ''); n.val = null; }
+    catch (e) { n.err = toError(e, n.cljs || ''); n.val = null; n.cljVal = null; }
     ctx = p; n.st = 0; changed.add(n);
   }
 
@@ -169,6 +171,24 @@ export function createEngine(workbook) {
     return out;
   };
 
+  /** Lettura interna ClojureScript, che conserva keyword e collezioni. */
+  const $clj = id => { const n = nd(id); val(n); return n.cljVal; };
+
+  /** Intervallo interno ClojureScript come matrice di valori originali. */
+  const $$clj = rg => {
+    const [sh, x] = rg.split('!');
+    const [p, q] = x.split(':').map(parseRef);
+    const out = [];
+    for (let r = Math.min(p.r, q.r); r <= Math.max(p.r, q.r); r++) {
+      const row = [];
+      for (let c = Math.min(p.c, q.c); c <= Math.max(p.c, q.c); c++) row.push($clj(sh + '!' + addr(r, c)));
+      out.push(row);
+    }
+    return out;
+  };
+
+  const cellBridge = () => ({ read: $, range: $$, readClj: $clj, rangeClj: $$clj });
+
   /** Crea un ENV JavaScript che espone le var ClojureScript del workbook. */
   function makeEnvironment() {
     return new Proxy(Object.create(null), {
@@ -176,7 +196,7 @@ export function createEngine(workbook) {
       get(_target, key) {
         if (key === Symbol.unscopables) return undefined;
         if (typeof key !== 'string' || !envNames.has(key)) return undefined;
-        try { return withCellBridge({ read: $, range: $$ }, () => getNamespaceValue(userNs, restoreMungedNames(key))); }
+        try { return withCellBridge(cellBridge(), () => getNamespaceValue(userNs, restoreMungedNames(key))); }
         catch { return undefined; }
       },
       ownKeys() { return [...envNames]; },
@@ -271,7 +291,7 @@ export function createEngine(workbook) {
     freshUserNamespace();
     refreshEnvironment(code || '');
     try {
-      withCellBridge({ read: $, range: $$ }, () => scittleEval(scopedCode(code || '')));
+      withCellBridge(cellBridge(), () => scittleEval(scopedCode(code || '')));
       return null;
     } catch (error) {
       return toError(error, code || '');
@@ -289,12 +309,12 @@ export function createEngine(workbook) {
    */
   function evalForm(code) {
     try {
-      let value = withCellBridge({ read: $, range: $$ }, () => evaluateInNamespace(userNs, scopedCode(restoreMungedNames(code))));
+      let value = withCellBridge(cellBridge(), () => evaluateInNamespace(userNs, scopedCode(restoreMungedNames(code))));
       const found = declarations(code);
       const definition = found[found.length - 1];
       const defs = {};
       if (definition) {
-        value = withCellBridge({ read: $, range: $$ }, () => getNamespaceValue(userNs, definition.n));
+        value = withCellBridge(cellBridge(), () => getNamespaceValue(userNs, definition.n));
         if (typeof value === 'function') value.cljsName = definition.n;
         defs[definition.n] = value;
         defs[munge(definition.n)] = value;
