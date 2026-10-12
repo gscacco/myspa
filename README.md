@@ -13,7 +13,7 @@ There is currently no schedule or timeline for future versions.
 - Edit workbooks with multiple sheets, each with a 100-row by 26-column grid.
 - Use cell references, ranges, absolute references, and references to other sheets in formulas.
 - Recalculate dependent cells and report formula errors, including circular references.
-- Write formulas using infix expressions such as `=B2*C2`, or ClojureScript forms such as `=(SUM B2:B5)`.
+- Write ClojureScript forms directly in cells, such as `(+ 1 2 3)`, `:pippo`, `[1 2 3]`, and `{:pippo 12}`. Existing infix formulas such as `=B2*C2` remain supported.
 - Define functions in the ClojureScript editor and call them from formulas.
 - Edit cell formulas in the same syntax-highlighted, line-numbered editor used for function definitions. Enter inserts a line; Ctrl+Enter applies a cell formula or evaluates the form before the cursor.
 - Apply basic formatting, including bold text, decimal places, and background colors. Copy and paste cell ranges, and undo or redo workbook changes.
