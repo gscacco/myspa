@@ -97,6 +97,15 @@ test('cell formulas and ClojureScript data forms need no equals prefix', async (
   assert.equal(app.session.engine.evaluate('Foglio1!I1'), 'pippo');
   assert.deepEqual(app.session.engine.evaluate('Foglio1!I2'), [1, 2, 3]);
   assert.deepEqual(app.session.engine.evaluate('Foglio1!I3'), { pippo: 12 });
+
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  code.value = '[1 ';
+  code.setSelectionRange(code.value.length, code.value.length);
+  mouse(window, 'mousedown', cell(document, 1, 1));
+  assert.equal(code.value, '[1 B2');
+  key(window, code, { key: 'Enter', ctrlKey: true });
+  assert.deepEqual(app.session.engine.evaluate('Foglio1!I10'), [1, 1.5]);
   close();
 });
 
@@ -120,7 +129,7 @@ test('cell formulas reuse the syntax-highlighted editor and its apply button', a
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.equal(code.value, originalCode);
   assert.equal(document.querySelector('#nb').value, 'D2');
-  assert.equal(document.querySelector('#fx').value, '=(SUM B2 C2)');
+  assert.equal(document.querySelector('#fx').value, '(SUM B2 C2)');
   assert.equal(document.querySelector('#g').rows[2].cells[4].textContent, '101.50');
   close();
 });
@@ -146,7 +155,7 @@ test('the formula editor stays open until Ctrl+Enter or the apply button', async
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.ok(ed.value.includes('(defn WITH_TAX'));
-  assert.equal(app.currentSheet().cells.I10.r.trim(), '=(+ 2 3)');
+  assert.equal(app.currentSheet().cells.I10.r.trim(), '(+ 2 3)');
   assert.equal(cell(document, 9, 8).textContent, '5');
   close();
 });
