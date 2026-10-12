@@ -17,25 +17,30 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const HTML_LINK = '<link rel="stylesheet" href="css/style.css">';
 const HTML_SCRIPT = '<script type="module" src="js/main.js"></script>';
+const HTML_VENDOR_SCRIPT = '<script src="../node_modules/scittle/dist/scittle.js"></script>';
 
 /** Inline del bundle e del CSS nel documento, con verifica di sicurezza. */
-export function inlineBundle(html, css, js) {
+export function inlineBundle(html, css, js, vendor = '') {
   if (!html.includes(HTML_LINK)) throw Error('build: nel documento manca il link al CSS atteso');
   if (!html.includes(HTML_SCRIPT)) throw Error('build: nel documento manca lo script del modulo atteso');
-  if (/<\/script/i.test(js)) throw Error('build: il bundle contiene la sequenza letterale "</script" e romperebbe il documento');
+  if (vendor && !html.includes(HTML_VENDOR_SCRIPT)) throw Error('build: nel documento manca lo script Scittle atteso');
+  const fullJS = (vendor ? vendor.trim() + '\n' : '') + js.trim();
+  if (/<\/script/i.test(fullJS)) throw Error('build: il bundle contiene la sequenza letterale "</script" e romperebbe il documento');
   // Le replacement string di String.replace interpretano sequenze `$` (es. `$$`
   // → `$`). Il bundle usa identificatori come `$$`, quindi si passa una funzione
   // di sostituzione, il cui valore di ritorno non subisce alcuna interpretazione.
   return html
     .replace(HTML_LINK, () => '<style>\n' + css + '\n</style>')
-    .replace(HTML_SCRIPT, () => '<script>\n' + js.trim() + '\n</script>');
+    .replace(HTML_VENDOR_SCRIPT, '')
+    .replace(HTML_SCRIPT, () => '<script>\n' + fullJS + '\n</script>');
 }
 
 /** Legge i sorgenti, produce il bundle e scrive l'artefatto. @returns {Promise<string>} */
 export async function buildArtifact({ minify = true } = {}) {
-  const [html, cssSrc, result] = await Promise.all([
+  const [html, cssSrc, vendor, result] = await Promise.all([
     readFile(join(ROOT, 'src/index.html'), 'utf8'),
     readFile(join(ROOT, 'src/css/style.css'), 'utf8'),
+    readFile(join(ROOT, 'node_modules/scittle/dist/scittle.js'), 'utf8'),
     build({
       entryPoints: [join(ROOT, 'src/js/main.js')],
       bundle: true,
@@ -49,7 +54,7 @@ export async function buildArtifact({ minify = true } = {}) {
     }),
   ]);
   const css = minify ? (await transform(cssSrc, { loader: 'css', minify: true, charset: 'utf8' })).code : cssSrc;
-  const out = inlineBundle(html, css, result.outputFiles[0].text);
+  const out = inlineBundle(html, css, result.outputFiles[0].text, vendor);
   await mkdir(join(ROOT, 'dist'), { recursive: true });
   await writeFile(join(ROOT, 'dist/foglio.html'), out, 'utf8');
   return out;

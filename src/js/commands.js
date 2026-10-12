@@ -182,6 +182,7 @@ export function createCommands(ctx) {
       if (m && e.code === 'KeyS') { e.preventDefault(); ctx.save(e.shiftKey); return; }
       if (t.id === 'code') return;
       if (/INPUT|TEXTAREA/.test(t.tagName)) return;
+      if (m && e.key === 'Enter') { e.preventDefault(); ctx.grid.edit(); return; }
       if (m && e.code === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
       else if (m && e.code === 'KeyY') { e.preventDefault(); doRedo(); }
       else if (m && e.code === 'KeyB') { e.preventDefault(); fmt('b'); }

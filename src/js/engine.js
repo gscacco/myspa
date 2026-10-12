@@ -8,7 +8,7 @@
  * Le dipendenze sono "dinamiche": vengono scoperte durante la valutazione,
  * quando una formula legge altre celle tramite `$` / `$$`.
  *
- * Le formule sono ClojureScript e vengono valutate da `cljs.js`:
+ * Le forme ClojureScript sono valutate da Scittle/SCI:
  *  - `(pippo A2)` è una forma ClojureScript, senza prefisso `=`;
  *  - `:keyword`, `[1 2 3]` e `{:key 12}` sono valori ClojureScript;
  *  - `pippo(A2)` è zucchero sintattico per `(pippo A2)`;
@@ -21,15 +21,46 @@
 
 import { colName, colIndex, addr, parseRef, mapRefs } from './references.js';
 import { sheetByName, setRaw } from './model.js';
-import { interpret, evaluateIn, readError, sheetCoreVars } from './cljs.js';
+import { declarations, munge } from './cljs.js';
+import {
+  ensureSheetCore, enterUserNamespace, evaluateInNamespace,
+  getNamespaceValue, getNamespaceCallable, scittleEval, withCellBridge, qualifyUserRefs,
+} from './scittle-runtime.js';
 
-/**
- * Funzioni del foglio (namespace ClojureScript `sheet.core`) come oggetto
- * piatto. Usato dal percorso JavaScript delle formule e dai test; la
- * definizione delle funzioni vive in `cljs.js` (`SHEET_CORE_SOURCE`).
- * @returns {object}
- */
-export function buildBuiltins() { return sheetCoreVars(); }
+let nextEngineId = 1;
+const SHEET_VARS = ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$'];
+const CORE_VARS = [
+  '+', '-', '*', '/', 'mod', 'rem', 'inc', 'dec', 'min', 'max', '=', 'not=', '<', '<=', '>', '>=',
+  'not', 'nil?', 'some?', 'number?', 'string?', 'boolean?', 'fn?', 'vector?', 'map?', 'empty?', 'zero?',
+  'pos?', 'neg?', 'even?', 'odd?', 'str', 'count', 'get', 'nth', 'first', 'second', 'last', 'rest', 'next',
+  'vec', 'vector', 'list', 'hash-map', 'conj', 'assoc', 'dissoc', 'merge', 'keys', 'vals', 'contains?',
+  'into', 'concat', 'flatten', 'map', 'filter', 'remove', 'reduce', 'apply', 'range', 'sort', 'sort-by',
+  'reverse', 'take', 'drop', 'some', 'every?', 'upper-case', 'lower-case', 'trim', 'subs', 'split', 'join',
+  'replace', 'abs', 'sqrt', 'pow', 'floor', 'ceil', 'round', 'trunc', 'exp', 'log', 'log10', 'sin', 'cos',
+  'tan', 'asin', 'acos', 'atan', 'atan2', 'sign', 'cbrt', 'hypot', 'log2', 'random', 'PI', 'E',
+];
+
+/** Funzioni del namespace `sheet.core`, restituite come oggetto per formule JS. */
+export function buildBuiltins() {
+  ensureSheetCore();
+  const fields = SHEET_VARS.filter(name => name !== '$' && name !== '$$').map(name => `"${name}" ${name}`).join(' ');
+  const builtins = scittleEval(`(ns sheet.core) (clj->js {${fields} "PI" js/Math.PI "E" js/Math.E})`);
+  for (const name of SHEET_VARS.filter(name => name !== '$' && name !== '$$')) builtins[name] = getNamespaceCallable('sheet.core', name);
+  return builtins;
+}
+
+function toError(error, source = '') {
+  let message = error?.message || String(error);
+  const unresolved = /(?:Could not|Unable to) resolve symbol:?\s*([^\s,]+)/i.exec(message);
+  if (unresolved) message = '#NAME: simbolo non definito «' + unresolved[1].replace(/["']/g, '') + '»';
+  const result = error instanceof Error ? error : new Error(message);
+  result.message = message;
+  if (!Number.isInteger(result.line)) {
+    const line = /(?:line|riga)\s+(\d+)/i.exec(message);
+    if (line) result.line = Math.max(1, Number(line[1]) - (source.startsWith('(ns ') ? 1 : 0));
+  }
+  return result;
+}
 
 /**
  * Crea un motore di calcolo per un workbook.
@@ -38,8 +69,13 @@ export function buildBuiltins() { return sheetCoreVars(); }
  */
 export function createEngine(workbook) {
   let wb = workbook;
-  let ENV = null;                       // variabili visibili (namespace uniti), per le formule JS
-  let rootScope = null;                 // scope del namespace `user`, riusato da evalForm
+  ensureSheetCore();
+  const engineId = nextEngineId++;
+  let userNsVersion = 0;
+  let userNs = `foglio.user${engineId}_v${++userNsVersion}`;
+  let userNames = [];
+  let envNames = makeEnvNames();
+  let ENV = makeEnvironment();          // nomi CLJS risolti dal percorso delle formule JS
   let ctx = null;                       // nodo in corso di valutazione
   const nodes = new Map();              // id "Foglio!A1" -> nodo
   const changed = new Set();            // nodi da ridisegnare
@@ -77,8 +113,6 @@ export function createEngine(workbook) {
           const src = mapRefs(cljs, x => x.b
             ? `($$ "${x.sh || n.sh}!${x.c}${x.r}:${x.b.c}${x.b.r}")`
             : `($ "${x.sh || n.sh}!${x.c}${x.r}")`);
-          const e = readError(src);
-          if (e) throw e;
           n.cljs = src;
           n.st = 1;
         } else if (hasPrefix) {
@@ -110,10 +144,12 @@ export function createEngine(workbook) {
     n.deps.clear();
     const p = ctx; ctx = n;
     try {
-      const v = n.cljs != null ? evaluateIn(rootScope, n.cljs) : n.fn($, $$, ENV);
+      const v = withCellBridge({ read: $, range: $$ }, () => n.cljs != null
+        ? evaluateInNamespace(userNs, qualifyUserRefs(restoreMungedNames(n.cljs), userNs))
+        : n.fn($, $$, ENV));
       n.val = v === undefined ? null : v; n.err = null;
     }
-    catch (e) { n.err = e instanceof Error ? e : new Error(String(e)); n.val = null; }
+    catch (e) { n.err = toError(e, n.cljs || ''); n.val = null; }
     ctx = p; n.st = 0; changed.add(n);
   }
 
@@ -133,15 +169,62 @@ export function createEngine(workbook) {
     return out;
   };
 
-  /** Ponte tra il motore e l'interprete ClojureScript (accesso alle celle). */
-  function bridge() { return { '$': $, '$$': $$ }; }
+  /** Crea un ENV JavaScript che espone le var ClojureScript del workbook. */
+  function makeEnvironment() {
+    return new Proxy(Object.create(null), {
+      has(_target, key) { return typeof key === 'string' && envNames.has(key); },
+      get(_target, key) {
+        if (key === Symbol.unscopables) return undefined;
+        if (typeof key !== 'string' || !envNames.has(key)) return undefined;
+        try { return withCellBridge({ read: $, range: $$ }, () => getNamespaceValue(userNs, restoreMungedNames(key))); }
+        catch { return undefined; }
+      },
+      ownKeys() { return [...envNames]; },
+      getOwnPropertyDescriptor(_target, key) {
+        return typeof key === 'string' && envNames.has(key) ? { configurable: true, enumerable: true } : undefined;
+      },
+    });
+  }
 
-  /** Installa scope (namespace) ed ENV restituiti da `interpret`. */
-  function installScope(r) { rootScope = r.scope; ENV = r.vars; }
+  function refreshEnvironment(code) {
+    envNames = makeEnvNames();
+    userNames = declarations(code).map(({ n }) => n);
+    for (const n of userNames) {
+      envNames.add(n);
+      envNames.add(munge(n));
+    }
+  }
 
-  // Scope iniziale (sheet.core + user vuoto): le formule sono valutabili anche
-  // senza aver mai chiamato `setCode`.
-  installScope(interpret('', bridge()));
+  function makeEnvNames() {
+    const names = new Set([...SHEET_VARS, ...CORE_VARS, 'true', 'false', 'nil']);
+    for (const name of [...names]) names.add(munge(name));
+    return names;
+  }
+
+  function restoreMungedNames(source) {
+    let result = source;
+    for (const name of envNames) {
+      const original = [...envNames].find(candidate => candidate !== name && munge(candidate) === name);
+      if (original) result = result.replace(new RegExp('(?<![\\w-])' + escapeRegExp(name) + '(?![\\w-])', 'g'), original);
+    }
+    return result;
+  }
+
+  function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function freshUserNamespace() {
+    userNs = `foglio.user${engineId}_v${++userNsVersion}`;
+    enterUserNamespace(userNs);
+  }
+
+  function scopedCode(code) {
+    const nsForm = `(ns ${userNs} (:require [sheet.core :refer :all]))`;
+    const body = qualifyUserRefs(String(code || ''), userNs).replace(/\(\s*ns\s+user\s*\)/g, nsForm);
+    return nsForm + '\n' + body;
+  }
+
+  // Namespace iniziale: il motore valuta formule anche prima di caricare codice utente.
+  enterUserNamespace(userNs);
 
   /** Propaga lo stato "da ricalcolare" lungo il grafo. */
   function dd(n) { if (n.st === 1) return; if (n.fn || n.cljs) n.st = 1; n.rd.forEach(dd); }
@@ -179,15 +262,20 @@ export function createEngine(workbook) {
   }
 
   /**
-   * Imposta il codice utente (ClojureScript, namespace `user`) e ricostruisce
-   * l'ambiente delle formule con le definizioni esposte dall'interprete. In
+   * Imposta il codice utente nel namespace isolato del workbook e aggiorna
+   * l'ambiente usato dalle formule infisse. In
    * caso di errore lo scope resta utilizzabile con le sole funzioni del foglio.
    * @returns {Error|null} errore di lettura/valutazione, oppure null
    */
   function setCode(code) {
-    const r = interpret(code || '', bridge());
-    installScope(r);
-    return r.error;
+    freshUserNamespace();
+    refreshEnvironment(code || '');
+    try {
+      withCellBridge({ read: $, range: $$ }, () => scittleEval(scopedCode(code || '')));
+      return null;
+    } catch (error) {
+      return toError(error, code || '');
+    }
   }
 
   /**
@@ -200,10 +288,23 @@ export function createEngine(workbook) {
    * @returns {{value:*, error:Error|null, defs:object}}
    */
   function evalForm(code) {
-    const r = interpret(code, null, rootScope);
-    if (r.error) return { value: null, error: r.error, defs: {} };
-    installScope(r);
-    return { value: r.value, error: null, defs: r.defs };
+    try {
+      let value = withCellBridge({ read: $, range: $$ }, () => evaluateInNamespace(userNs, scopedCode(restoreMungedNames(code))));
+      const found = declarations(code);
+      const definition = found[found.length - 1];
+      const defs = {};
+      if (definition) {
+        value = withCellBridge({ read: $, range: $$ }, () => getNamespaceValue(userNs, definition.n));
+        if (typeof value === 'function') value.cljsName = definition.n;
+        defs[definition.n] = value;
+        defs[munge(definition.n)] = value;
+      }
+      userNames.push(...found.map(x => x.n).filter(name => !userNames.includes(name)));
+      refreshEnvironment(userNames.map(name => `(def ${name})`).join('\n'));
+      return { value, error: null, defs };
+    } catch (error) {
+      return { value: null, error: toError(error, code), defs: {} };
+    }
   }
 
   /** Marca tutte le formule come da ricalcolare. */

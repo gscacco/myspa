@@ -11,8 +11,8 @@
     "build": "node tools/build.js",
     "dev": "node tools/serve.js",
     "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "node --test tests/unit/*.test.js",
-    "test:integration": "node --test tests/integration/*.test.js",
+    "test:unit": "node --import ./tools/load-scittle.js --test tests/unit/*.test.js",
+    "test:integration": "node --import ./tools/load-scittle.js --test tests/integration/*.test.js",
     "test:e2e": "node tools/build.js && node --test tests/e2e/*.test.js",
     "check": "npm run test:unit && npm run test:integration && npm run build && node tools/verify-artifact.js && node --test tests/e2e/*.test.js"
   },
@@ -21,6 +21,7 @@
     "jsdom": "^25.0.1"
   },
   "dependencies": {
-    "@openai/codex": "^0.162.1"
+    "@openai/codex": "^0.162.1",
+    "scittle": "0.8.33"
   }
 }
