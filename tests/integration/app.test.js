@@ -80,6 +80,26 @@ test('typing = opens the formula editor without inserting the prefix', async () 
   close();
 });
 
+test('cell formulas and ClojureScript data forms need no equals prefix', async () => {
+  const { app, document, window, close } = await mountApp();
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const code = document.querySelector('#code');
+  code.value = '(+ 1 2 3)';
+  key(window, code, { key: 'Enter', ctrlKey: true });
+  assert.equal(app.currentSheet().cells.I10.r, '(+ 1 2 3)');
+  assert.equal(document.querySelector('#fx').value, '(+ 1 2 3)');
+  assert.equal(cell(document, 9, 8).textContent, '6');
+
+  app.grid.setCellText(0, 8, ':pippo');
+  app.grid.setCellText(1, 8, '[1 2 3]');
+  app.grid.setCellText(2, 8, '{:pippo 12}');
+  assert.equal(app.session.engine.evaluate('Foglio1!I1'), 'pippo');
+  assert.deepEqual(app.session.engine.evaluate('Foglio1!I2'), [1, 2, 3]);
+  assert.deepEqual(app.session.engine.evaluate('Foglio1!I3'), { pippo: 12 });
+  close();
+});
+
 test('cell formulas reuse the syntax-highlighted editor and its apply button', async () => {
   const { document, app, close } = await mountApp();
   const code = document.querySelector('#code');
@@ -162,7 +182,7 @@ test('Enter inserts a newline and Ctrl+Enter applies the form', async () => {
   key(window, ed, { key: 'Enter', ctrlKey: true });
   assert.equal(document.querySelector('#fn').hidden, true);
   assert.equal(cell(document, 9, 8).textContent, '3');
-  assert.match(app.currentSheet().cells.I10.r, /^=\(\+ 1\n/);
+  assert.match(app.currentSheet().cells.I10.r, /^\(\+ 1\n/);
   close();
 });
 

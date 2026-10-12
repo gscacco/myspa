@@ -33,6 +33,30 @@ test('valori letterali e formule di base', () => {
   assert.equal(engine.evaluate('S!A3'), 6);
 });
 
+test('ClojureScript forms and literals work in cells without an equals prefix', () => {
+  const wb = createWorkbook({
+    code: '(def answer 42)',
+    sheets: [{ name: 'S', cells: {
+      A1: { r: '(+ 1 2 3)' }, A2: { r: ':pippo' }, A3: { r: '[1 2 3]' },
+      A4: { r: '{:pippo 12}' }, A5: { r: 'true' }, A6: { r: 'nil' },
+      A7: { r: 'answer' }, A8: { r: 'A1' }, A9: { r: 'plain text' },
+    } }],
+  });
+  const engine = createEngine(wb);
+  assert.equal(engine.setCode(wb.code), null);
+  engine.loadAll();
+  engine.recalculate();
+  assert.equal(engine.evaluate('S!A1'), 6);
+  assert.equal(engine.evaluate('S!A2'), 'pippo');
+  assert.deepEqual(engine.evaluate('S!A3'), [1, 2, 3]);
+  assert.deepEqual(engine.evaluate('S!A4'), { pippo: 12 });
+  assert.equal(engine.evaluate('S!A5'), true);
+  assert.equal(engine.evaluate('S!A6'), null);
+  assert.equal(engine.evaluate('S!A7'), 42);
+  assert.equal(engine.evaluate('S!A8'), 6);
+  assert.equal(engine.evaluate('S!A9'), 'plain text');
+});
+
 test('intervalli, SUM e riferimenti tra fogli', () => {
   const wb = createWorkbook({
     sheets: [
