@@ -10,8 +10,8 @@
  * vive il codice dell'utente. Le celle vedono entrambi anche senza prefisso.
  *
  * Sottoinsieme supportato:
- *  - forme speciali: def defonce defn fn let if when when-not cond and or do
- *    -> ->> quote comment ns;
+ *  - forme speciali: def defonce defn fn let loop recur if when when-not cond
+ *    and or do -> ->> quote comment ns;
  *  - arità multiple `(defn f ([x] ...) ([x y] ...))` e variadiche `[x & xs]`;
  *  - tipi: numeri, stringhe, booleani, nil, keyword, vettori, mappe, liste;
  *  - funzioni di base (namespace implicito `cljs.core`): aritmetica, confronti,
@@ -276,13 +276,36 @@ function makeFn(arities, scope, name, defs) {
   const fn = function (...args) {
     const a = arities.find(x => x.rest ? args.length >= x.params.length : x.params.length === args.length);
     if (!a) throw new CLJSError('#ARITY: «' + name + '» chiamata con ' + args.length + ' argomenti');
-    const s = makeScope(scope, null);
-    a.params.forEach((p, i) => s.vars.set(p, args[i]));
-    if (a.rest) s.vars.set(a.rest, args.slice(a.params.length));
-    return evalBody(a.body, s, defs);
+    const target = {};
+    let recurArgs = false;
+    for (;;) {
+      const s = makeScope(scope, null);
+      s.recurTarget = target;
+      a.params.forEach((p, i) => s.vars.set(p, args[i]));
+      if (a.rest) s.vars.set(a.rest, recurArgs ? args[a.params.length] : args.slice(a.params.length));
+      try { return evalBody(a.body, s, defs); }
+      catch (e) {
+        if (!(e instanceof RecurSignal) || e.target !== target) throw e;
+        if (e.args.length !== a.params.length + (a.rest ? 1 : 0)) {
+          throw new CLJSError('#ARITY: recur in «' + name + '» chiamata con ' + e.args.length + ' argomenti');
+        }
+        args = e.args;
+        recurArgs = true;
+      }
+    }
   };
   fn.cljsName = name;
   return fn;
+}
+
+class RecurSignal {
+  constructor(target, args) { this.target = target; this.args = args; }
+}
+
+/** Trova il target lessicale più vicino di `recur` (loop o funzione). */
+function recurTarget(scope) {
+  for (let s = scope; s; s = s.parent) if (s.recurTarget) return s.recurTarget;
+  return null;
 }
 
 function makeScope(parent, initial) {
@@ -328,6 +351,40 @@ const SPECIALS = {
     const s = makeScope(scope, null);
     for (let i = 0; i + 1 < binds.items.length; i += 2) s.vars.set(symName(binds.items[i]), evalForm(binds.items[i + 1], s, defs));
     return evalBody(it.slice(2), s, defs);
+  },
+  loop: (it, scope, defs) => {
+    const binds = it[1];
+    if (!(binds instanceof Vec)) throw new CLJSError('«loop» richiede un vettore di associazioni');
+    if (binds.items.length % 2) throw new CLJSError('«loop» richiede un numero pari di associazioni');
+    const names = [];
+    let values = [];
+    const initScope = makeScope(scope, null);
+    for (let i = 0; i < binds.items.length; i += 2) {
+      const name = symName(binds.items[i], 'associazione');
+      const value = evalForm(binds.items[i + 1], initScope, defs);
+      names.push(name);
+      values.push(value);
+      initScope.vars.set(name, value);
+    }
+    const target = {};
+    for (;;) {
+      const s = makeScope(scope, null);
+      s.recurTarget = target;
+      names.forEach((name, i) => s.vars.set(name, values[i]));
+      try { return evalBody(it.slice(2), s, defs); }
+      catch (e) {
+        if (!(e instanceof RecurSignal) || e.target !== target) throw e;
+        if (e.args.length !== names.length) {
+          throw new CLJSError('#ARITY: recur in «loop» chiamata con ' + e.args.length + ' argomenti');
+        }
+        values = e.args;
+      }
+    }
+  },
+  recur: (it, scope, defs) => {
+    const target = recurTarget(scope);
+    if (!target) throw new CLJSError('«recur» senza un «loop» o una funzione di destinazione', it[0] instanceof Sym ? it[0].line : 0);
+    throw new RecurSignal(target, it.slice(1).map(x => evalForm(x, scope, defs)));
   },
   if: (it, scope, defs) => truthy(evalForm(it[1], scope, defs)) ? evalForm(it[2], scope, defs) : (it.length > 3 ? evalForm(it[3], scope, defs) : null),
   when: (it, scope, defs) => truthy(evalForm(it[1], scope, defs)) ? evalBody(it.slice(2), scope, defs) : null,

@@ -21,10 +21,19 @@ export function createEditor(ctx) {
   const Q = s => document.querySelector(s);
   const E = (t, a = {}, ...k) => { const e = document.createElement(t); Object.assign(e, a); e.append(...k); return e; };
   const ta = Q('#code'), hl = Q('#hl'), ln = Q('#ln'), pop = Q('#pop'), cw = Q('#cw');
-  const fn = Q('#fn'), fnTitle = Q('#fn-title'), applyButton = Q('#apply-code');
+  const fn = Q('#fn'), fnTitle = Q('#fn-title'), applyButton = Q('#apply-code'), closeButton = Q('#close-code');
   const noteEl = Q('#note');
 
   let errLine = 0, bm = [], ac = null, cwid = 0, chk = 0, cellEdit = null;
+
+  function closePanel() {
+    if (cellEdit) ctx.grid.endEdit(0);
+    fn.hidden = true;
+    Q('#bfn').classList.remove('on');
+    hidePop();
+    ta.blur();
+    closeButton.blur();
+  }
 
   function highlight() {
     const code = ta.value, own = new Set(extractDeclarations(cellEdit ? cellEdit.code : code).map(x => x.n));
@@ -271,6 +280,10 @@ export function createEditor(ctx) {
 
   /** Collega gli eventi dell'editor. */
   function mount() {
+    closeButton.addEventListener('click', closePanel);
+    fn.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && cellEdit) { e.preventDefault(); closePanel(); }
+    });
     ta.addEventListener('input', () => {
       refresh();
       clearTimeout(chk);

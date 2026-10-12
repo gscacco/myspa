@@ -153,7 +153,7 @@ test('cell formulas reuse the syntax-highlighted editor and its apply button', a
   close();
 });
 
-test('the formula editor stays open until Ctrl+Enter or the apply button', async () => {
+test('the formula editor stays open on blur and grid click until Ctrl+Enter', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);
   app.grid.edit();
@@ -162,10 +162,6 @@ test('the formula editor stays open until Ctrl+Enter or the apply button', async
   ed.setSelectionRange(ed.value.length, ed.value.length);
 
   ed.dispatchEvent(new window.FocusEvent('blur'));
-  assert.equal(document.querySelector('#fn').hidden, false);
-  key(window, ed, { key: 'Escape' });
-  assert.equal(document.querySelector('#fn').hidden, false);
-  key(window, ed, { key: 'Tab' });
   assert.equal(document.querySelector('#fn').hidden, false);
   mouse(window, 'mousedown', cell(document, 1, 1));
   assert.equal(document.querySelector('#fn').hidden, false);
@@ -176,6 +172,24 @@ test('the formula editor stays open until Ctrl+Enter or the apply button', async
   assert.ok(ed.value.includes('(defn WITH_TAX'));
   assert.equal(app.currentSheet().cells.I10.r.trim(), '(+ 2 3)');
   assert.equal(cell(document, 9, 8).textContent, '5');
+  close();
+});
+
+test('Escape and the close button cancel an inline formula edit', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const ed = document.querySelector('#code');
+  ed.value = '(+ 2 3)';
+  key(window, ed, { key: 'Escape' });
+  assert.equal(document.querySelector('#fn').hidden, true);
+  assert.equal(app.currentSheet().cells.I10, undefined);
+
+  app.grid.edit();
+  ed.value = '(+ 3 4)';
+  document.querySelector('#close-code').click();
+  assert.equal(document.querySelector('#fn').hidden, true);
+  assert.equal(app.currentSheet().cells.I10, undefined);
   close();
 });
 
@@ -221,7 +235,7 @@ test('the editor has no duplicate textarea, help block, or paredit toolbar', asy
   assert.equal(document.querySelector('#help'), null);
   assert.equal(document.querySelector('#help-resize'), null);
   assert.equal(document.querySelectorAll('#fn [data-action^="paredit-"]').length, 0);
-  assert.deepEqual([...document.querySelectorAll('#fn button')].map(button => button.id), ['apply-code']);
+  assert.deepEqual([...document.querySelectorAll('#fn button')].map(button => button.id), ['apply-code', 'close-code']);
   assert.equal(document.querySelector('#note').getAttribute('role'), 'status');
   assert.ok(document.querySelector('#fe'));
   close();
