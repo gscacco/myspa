@@ -70,8 +70,9 @@ body.resizing-row,body.resizing-row *{cursor:row-resize!important;user-select:no
 .data-explorer-views{flex:1;min-height:0;overflow:auto;padding:2px 4px 8px}
 .explorer-empty{padding:24px;color:#647080;text-align:center}
 .tree-node{margin:4px 0 4px 10px;border-left:1px solid #dce2e8;padding-left:7px}
-.tree-node-summary{display:flex;align-items:center;gap:6px;min-height:28px;min-width:0}
-.tree-focus,.tree-copy{flex:none;font-size:10px!important;padding:3px 5px!important}
+.tree-node-summary{display:flex;align-items:center;gap:6px;min-height:28px;min-width:0;cursor:pointer}
+.tree-node-summary.selected{background:#eaf2fb;outline:1px solid #c4d9ee;border-radius:3px}
+.tree-focus{flex:none;font-size:10px!important;padding:3px 5px!important;cursor:default!important}
 .tree-label{flex:none;font:12px ui-monospace,monospace;color:#3c4652}
 .tree-type{flex:none;color:#66717e;font-size:10px}
 .tree-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px ui-monospace,monospace}

@@ -769,6 +769,49 @@ test('Explore Data only offers Use as root for structured values, including empt
   close();
 });
 
+test('Explore Data copies the selected tree value and its ClojureScript select expression from the toolbar', async () => {
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const copied = [];
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { clipboard: { writeText: async value => { copied.push(value); } } },
+  });
+  const { document, window, app, close } = await mountApp();
+  try {
+    app.grid.setCellText(0, 8, '{:person {:score 7} :tags [:alpha :beta]}');
+    app.grid.sel(0, 8);
+    document.querySelector('[data-action="explore-data"]').click();
+
+    const overlay = document.querySelector('#data-explorer');
+    const expand = details => {
+      details.open = true;
+      details.dispatchEvent(new window.Event('toggle'));
+    };
+    const nodeForLabel = label => [...overlay.querySelectorAll('.tree-label')]
+      .find(node => node.textContent === label)?.closest('.tree-node');
+    expand(overlay.querySelector('.tree-children'));
+    const person = nodeForLabel(':person');
+    expand(person.querySelector('.tree-children'));
+    const score = nodeForLabel(':score');
+    score.querySelector('.tree-node-summary').click();
+
+    assert.equal(score.querySelector('.tree-node-summary').getAttribute('aria-selected'), 'true');
+    assert.equal(overlay.querySelector('.tree-copy'), null, 'Copy EDN is no longer repeated on every tree item');
+    overlay.querySelector('[data-copy-selected-edn]').click();
+    overlay.querySelector('[data-copy-select-expression]').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(copied[0], '7');
+    assert.equal(copied[1], '(get (get ($ "Foglio1!I1") :person) :score)');
+    app.grid.setCellText(1, 8, copied[1]);
+    assert.equal(app.session.engine.evaluate('Foglio1!I2'), 7, 'the copied expression evaluates to the selected source value');
+  } finally {
+    close();
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+    else delete globalThis.navigator;
+  }
+});
+
 test('Explore Data applies a typed filter pipeline and evaluates ClojureScript expressions', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.setCellText(0, 8, '[{:status :active :budget 10} {:status :inactive :budget 3} {:budget 40 :note nil}]');

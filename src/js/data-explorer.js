@@ -235,6 +235,17 @@ function isStructuredType(type) {
   return ['map', 'vector', 'list', 'sequence', 'set'].includes(type);
 }
 
+function cellValueExpression(sheetName, address) {
+  return `($ ${JSON.stringify(`${sheetName}!${address}`)})`;
+}
+
+function childValueExpression(parentExpression, parentType, pathSegment) {
+  if (['list', 'sequence', 'set'].includes(parentType)) {
+    return `(nth (seq ${parentExpression}) ${pathSegment})`;
+  }
+  return `(get ${parentExpression} ${pathSegment})`;
+}
+
 function element(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -290,26 +301,66 @@ export function createDataExplorer(ctx) {
     if (!value.available) { ctx.flash(`Cell ${sheetName}!${address} is empty or has no evaluated value.`); return; }
     initializeRuntime();
     const rootId = register(value.value);
-    state = { sheetName, address, rootId, selectedId: rootId, selectedPath: [], operations: [], view: 'tree', result: value.value, expression: '', expressionResult: undefined, expressionError: '' };
+    state = {
+      sheetName, address, rootId, selectedId: rootId, selectedPath: [],
+      selectedNodeId: rootId, selectedNodePath: [], selectedNodeExpression: cellValueExpression(sheetName, address),
+      selectedNodeKey: cellValueExpression(sheetName, address),
+      operations: [], view: 'tree', result: value.value, expression: '', expressionResult: undefined, expressionError: '',
+    };
     render();
     overlay.hidden = false;
     overlay.querySelector('[data-explorer-close]').focus();
   }
 
   function activeResult() { return state.expressionResult === undefined ? state.result : state.expressionResult; }
-  function nodeFor(id, label, path, depth = 0) {
+  function selectNode(id, path, expression, summary) {
+    state.selectedNodeId = id;
+    state.selectedNodePath = path;
+    state.selectedNodeExpression = expression;
+    state.selectedNodeKey = expression || `node:${id}`;
+    views.querySelectorAll('.tree-node-summary.selected').forEach(node => {
+      node.classList.remove('selected');
+      node.setAttribute('aria-selected', 'false');
+    });
+    if (summary) {
+      summary.classList.add('selected');
+      summary.setAttribute('aria-selected', 'true');
+    }
+    const expressionButton = header.querySelector('[data-copy-select-expression]');
+    if (expressionButton) expressionButton.disabled = !expression;
+  }
+
+  function nodeFor(id, label, path, depth = 0, expression = null) {
     let meta;
     try { meta = descriptor(id); }
     catch (error) { return element('div', { class: 'explorer-error', text: `${label}: ${error.message}` }); }
-    const summary = element('div', { class: 'tree-node-summary' },
-      isStructuredType(meta.type) && element('button', { class: 'tree-focus', text: 'Use as root', title: 'Use this node as the current exploration root', onclick: () => { state.selectedId = id; state.selectedPath = path; state.expressionResult = undefined; applyAndRender(); } }),
+    const selectedExpression = expression;
+    const selectionKey = selectedExpression || `node:${id}`;
+    const summary = element('div', {
+      class: `tree-node-summary${state.selectedNodeKey === selectionKey ? ' selected' : ''}`,
+      tabindex: '0',
+      'aria-selected': state.selectedNodeKey === selectionKey ? 'true' : 'false',
+      onclick: event => {
+        if (event.target.closest('button')) return;
+        selectNode(id, path, selectedExpression, summary);
+      },
+      onkeydown: event => {
+        if ((event.key === 'Enter' || event.key === ' ') && !event.target.closest('button')) {
+          event.preventDefault();
+          selectNode(id, path, selectedExpression, summary);
+        }
+      },
+    },
+      isStructuredType(meta.type) && element('button', { class: 'tree-focus', text: 'Use as root', title: 'Use this node as the current exploration root', onclick: () => {
+        selectNode(id, path, selectedExpression, summary);
+        state.selectedId = id;
+        state.selectedPath = path;
+        state.expressionResult = undefined;
+        applyAndRender();
+      } }),
       element('span', { class: 'tree-label', text: label }),
       element('span', { class: 'tree-type', text: kindName(meta.type, meta.size) }),
-      element('code', { class: 'tree-value', text: meta.display }),
-      element('button', { class: 'tree-copy', text: 'Copy EDN', onclick: () => {
-        try { copyText(ednForExport(globalThis[REGISTRY].values[meta.id])).then(() => report('Subtree copied as EDN.')).catch(err => report(err.message, true)); }
-        catch (error) { report(error.message, true); }
-      } }));
+      element('code', { class: 'tree-value', text: meta.display }));
     const box = element('div', { class: `tree-node depth-${Math.min(depth, 5)}` }, summary);
     if (meta.children?.length) {
       const details = element('details', { class: 'tree-children' });
@@ -318,7 +369,13 @@ export function createDataExplorer(ctx) {
       const loadChildren = () => {
         if (!details.open || details.dataset.loaded) return;
         details.dataset.loaded = 'true';
-        for (const child of meta.children) details.append(nodeFor(child.valueid, child.label, [...path, child.pathsegment], depth + 1));
+        for (const child of meta.children) {
+          const childPath = [...path, child.pathsegment];
+          const childExpression = selectedExpression
+            ? childValueExpression(selectedExpression, meta.type, child.pathsegment)
+            : null;
+          details.append(nodeFor(child.valueid, child.label, childPath, depth + 1, childExpression));
+        }
       };
       details.addEventListener('toggle', loadChildren);
       summary.addEventListener('click', () => setTimeout(loadChildren, 0));
@@ -330,7 +387,7 @@ export function createDataExplorer(ctx) {
   function currentDescriptor() { return descriptor(register(activeResult())); }
 
   function renderTree() {
-    views.append(nodeFor(state.rootId, `${state.sheetName}!${state.address}`, [], 0));
+    views.append(nodeFor(state.rootId, `${state.sheetName}!${state.address}`, [], 0, cellValueExpression(state.sheetName, state.address)));
     const selected = descriptor(state.selectedId);
     if (state.selectedId !== state.rootId) views.prepend(element('div', { class: 'explorer-note', text: `Selected node path: ${state.selectedPath.join(' → ') || 'root'} · ${selected.display}` }));
   }
@@ -513,6 +570,14 @@ export function createDataExplorer(ctx) {
     header.replaceChildren(
       element('div', {}, element('b', { text: `Explore Data · ${state.sheetName}!${state.address}` }), element('div', { class: 'explorer-root-path', text: `Current root path: ${state.selectedPath.length ? `[${state.selectedPath.join(' ')}]` : '[]'} (cell value)` })),
       element('div', { class: 'explorer-header-actions' },
+        element('button', { text: 'Copy selected EDN', 'data-copy-selected-edn': '', onclick: () => {
+          try { copyText(ednForExport(globalThis[REGISTRY].values[state.selectedNodeId])).then(() => report('Selected value copied as EDN.')).catch(error => report(error.message, true)); }
+          catch (error) { report(error.message, true); }
+        } }),
+        element('button', { text: 'Copy select expression', title: 'Copy a ClojureScript expression that selects this item from the source cell', 'data-copy-select-expression': '', disabled: !state.selectedNodeExpression, onclick: () => {
+          if (!state.selectedNodeExpression) return;
+          copyText(state.selectedNodeExpression).then(() => report('Select expression copied.')).catch(error => report(error.message, true));
+        } }),
         element('button', { text: 'Copy path', onclick: () => copyText(state.selectedPath.length ? `[${state.selectedPath.join(' ')}]` : '[]').then(() => report('Current path copied.')).catch(error => report(error.message, true)) }),
         element('button', { text: 'Copy result EDN', onclick: () => {
           try { copyText(ednForExport(activeResult())).then(() => report('Current result copied as EDN.')).catch(error => report(error.message, true)); }
