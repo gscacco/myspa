@@ -308,6 +308,24 @@ test('clicking a cell completes the first argument of a ClojureScript formula', 
   close();
 });
 
+test('dragging across cells inserts a range reference while editing a formula', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.sel(9, 8);
+  app.grid.edit();
+  const ed = document.querySelector('#code');
+  ed.value = '(SUM';
+  ed.setSelectionRange(ed.value.length, ed.value.length);
+
+  mouse(window, 'mousedown', cell(document, 1, 1));
+  mouse(window, 'mouseover', cell(document, 3, 4));
+  assert.ok(cell(document, 2, 2).classList.contains('ref-range-target'));
+  mouse(window, 'mouseup', window);
+
+  assert.equal(ed.value, '(SUM B2:E4');
+  assert.equal(cell(document, 2, 2).classList.contains('ref-range-target'), false);
+  close();
+});
+
 test('clicking a cell after a function name inserts its argument in the existing space', async () => {
   const { document, window, app, close } = await mountApp();
   document.querySelector('#code').value = '(defn double-value [x] (* x 2))';
@@ -479,18 +497,23 @@ test('pasting a multiline ClojureScript map between sheets keeps it in one cell'
   app.grid.sel(0, 0);
   const copied = fakeClipboardEvent(document.body);
   app.commands.cp(copied, 0);
+  assert.equal(copied.store['text/plain'].includes('\n'), false);
 
   mouse(window, 'click', document.querySelectorAll('#tabs button')[1]);
   app.grid.setCellText(4, 2, '250');
   app.grid.sel(1, 1);
   const pasted = fakeClipboardEvent(document.body);
-  pasted.clipboardData.setData('text/plain', copied.store['text/plain'].replace(/\n/g, '\r\n'));
+  pasted.clipboardData.setData('text/plain', copied.store['text/plain']);
+  pasted.clipboardData.setData('application/x-foglio-cells', copied.store['application/x-foglio-cells']);
   app.commands.paste(pasted);
 
-  assert.equal(app.currentSheet().cells.B2.r, '{:name "Radar"\n :budget C5\n :status :active}');
-  assert.deepEqual(app.session.engine.evaluate('Foglio2!B2'), { name: 'Radar', budget: 250, status: 'active' });
+  assert.equal(app.currentSheet().cells.B2.r.includes('\n'), false);
+  assert.match(app.currentSheet().cells.B2.r, /:budget 100/);
+  assert.deepEqual(app.session.engine.evaluate('Foglio2!B2'), { name: 'Radar', budget: 100, status: 'active' });
   assert.equal(app.currentSheet().cells.B3, undefined);
   assert.equal(app.currentSheet().cells.B4, undefined);
+  app.grid.setCellText(2, 1, '(= (:status B2) :active)');
+  assert.equal(app.session.engine.evaluate('Foglio2!B3'), true);
   close();
 });
 

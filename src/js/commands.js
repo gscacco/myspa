@@ -8,6 +8,7 @@
 
 import { addr } from './references.js';
 import { syntaxError } from './editor-assistance.js';
+import { printCljsValue } from './scittle-runtime.js';
 
 /** Tasti che muovono la selezione. */
 const KEYS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0], Tab: [0, 1] };
@@ -19,7 +20,11 @@ const KEYS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRig
 export function createCommands(ctx) {
   const Q = s => document.querySelector(s);
   const E = (t, a = {}, ...k) => { const e = document.createElement(t); Object.assign(e, a); e.append(...k); return e; };
-  let CB = null;   // appunti interni: { tsv, r0, c0, rows }
+  let CB = null;   // appunti interni: { token, tsv, r0, c0, rows, values }
+  let clipboardSequence = 0;
+
+  const isCljsDataForm = raw => typeof raw === 'string'
+    && /^(?:\{|\[|:|"|'|`|\\|#\{|true(?:\s|$)|false(?:\s|$)|nil(?:\s|$))/.test(raw.trim());
 
   /* ===== Selezione ===== */
   function clearSel() {
@@ -46,19 +51,33 @@ export function createCommands(ctx) {
   /* ===== Appunti ===== */
   function cp(e, cut) {
     if (/INPUT|TEXTAREA/.test(e.target.tagName)) return;
-    const { r0, r1, c0, c1 } = ctx.grid.rect(), sheet = ctx.currentSheet(), rows = [], formulas = [];
+    const { r0, r1, c0, c1 } = ctx.grid.rect(), sheet = ctx.currentSheet(), rows = [], formulas = [], values = [], clipboardRows = [];
     for (let r = r0; r <= r1; r++) {
-      const row = [], formulaRow = [];
+      const row = [], formulaRow = [], valueRow = [], clipboardRow = [];
       for (let c = c0; c <= c1; c++) {
-        const address = addr(r, c), node = ctx.session.engine.nd(sheet.name + '!' + address);
-        row.push(String(sheet.cells[address]?.r ?? ''));
-        formulaRow.push(!!(node.fn || node.cljs));
+        const address = addr(r, c), raw = sheet.cells[address]?.r, id = sheet.name + '!' + address;
+        const node = ctx.session.engine.nd(id);
+        let copiedValue = null, valueSource = false;
+        if (node.cljs && isCljsDataForm(raw)) {
+          try {
+            ctx.session.engine.evaluate(id);
+            copiedValue = node.cljVal;
+            valueSource = true;
+          } catch { /* A formula with an error is copied as source text. */ }
+        }
+        const source = String(raw ?? '');
+        row.push(source);
+        valueRow.push(valueSource ? copiedValue : undefined);
+        formulaRow.push(!valueSource && !!(node.fn || node.cljs));
+        clipboardRow.push(valueSource ? printCljsValue(copiedValue) : source);
       }
-      rows.push(row); formulas.push(formulaRow);
+      rows.push(row); formulas.push(formulaRow); values.push(valueRow); clipboardRows.push(clipboardRow);
     }
-    const tsv = rows.map(x => x.join('\t')).join('\n');
-    CB = { tsv, r0, c0, rows, formulas };
+    const tsv = clipboardRows.map(x => x.join('\t')).join('\n');
+    const token = 'foglio-' + Date.now() + '-' + (++clipboardSequence);
+    CB = { token, tsv, r0, c0, rows, formulas, values };
     e.clipboardData.setData('text/plain', tsv);
+    try { e.clipboardData.setData('application/x-foglio-cells', token); } catch { /* The normalized text remains a fallback. */ }
     e.preventDefault();
     if (cut) clearSel();
   }
@@ -68,12 +87,13 @@ export function createCommands(ctx) {
     e.preventDefault();
     const t = e.clipboardData.getData('text/plain');
     if (!t) return;
-    // The OS/browser may normalize multiline clipboard text from LF to CRLF.
-    // Compare normalized text so an internal cell containing a multiline
-    // ClojureScript form is restored as one cell instead of parsed as TSV rows.
+    // Prefer the private clipboard token. Normalized text is a fallback for
+    // browsers that strip custom clipboard formats.
     const normalized = t.replace(/\r\n?/g, '\n');
-    const same = CB && CB.tsv.replace(/\r\n?/g, '\n') === normalized;
-    const rows = same ? CB.rows : normalized.replace(/\n$/, '').split('\n').map(l => l.split('\t'));
+    const token = e.clipboardData.getData('application/x-foglio-cells');
+    const same = CB && (token === CB.token || CB.tsv.replace(/\r\n?/g, '\n') === normalized);
+    const rows = same ? CB.rows.map((row, i) => row.map((raw, j) => CB.values[i][j] === undefined ? raw : printCljsValue(CB.values[i][j])))
+      : normalized.replace(/\n$/, '').split('\n').map(l => l.split('\t'));
     const targetRect = ctx.grid.rect(), { r0, c0 } = targetRect;
     const changed = ctx.session.pasteRows(ctx.currentSheet().name, r0, c0, rows, {
       internal: !!same, baseR: same ? CB.r0 : 0, baseC: same ? CB.c0 : 0,

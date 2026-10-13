@@ -134,6 +134,14 @@ export function evaluateInNamespaceWithRaw(namespace, source) {
   }
 }
 
+/** Stampa un valore SCI come una forma ClojureScript leggibile e persistibile. */
+export function printCljsValue(value) {
+  const key = '__foglioScittleClipboardValue';
+  globalThis[key] = { value };
+  try { return scittleEval(`(pr-str (.-value js/globalThis.${key}))`); }
+  finally { delete globalThis[key]; }
+}
+
 /** Recupera una var dal namespace, restituendone la rappresentazione JS. */
 export function getNamespaceValue(namespace, name) {
   enterUserNamespace(namespace);

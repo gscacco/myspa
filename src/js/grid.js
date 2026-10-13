@@ -26,12 +26,25 @@ export function createGrid(ctx) {
 
   let S = { a: { r: 0, c: 0 }, f: { r: 0, c: 0 } };
   let drag = 0;
+  let refDrag = null;
+  let refRangeCells = [];
   let fillDrag = null;
   let resizeDrag = null;
   let flowOn = true;
 
   const sheet = () => ctx.currentSheet();
   const rect = () => ({ r0: Math.min(S.a.r, S.f.r), r1: Math.max(S.a.r, S.f.r), c0: Math.min(S.a.c, S.f.c), c1: Math.max(S.a.c, S.f.c) });
+
+  function previewReferenceRange(start, end) {
+    refRangeCells.forEach(td => td.classList.remove('ref-range-target'));
+    refRangeCells = [];
+    for (let r = Math.min(start.r, end.r); r <= Math.max(start.r, end.r); r++) {
+      for (let c = Math.min(start.c, end.c); c <= Math.max(start.c, end.c); c++) {
+        const td = tdOf(r, c);
+        if (td) { td.classList.add('ref-range-target'); refRangeCells.push(td); }
+      }
+    }
+  }
 
   /** Testo mostrato per un nodo, in base al formato della cella. */
   function disp(n, f) {
@@ -246,8 +259,17 @@ export function createGrid(ctx) {
         const openFormSlot = /\s$/.test(prefix) && hasOpenCljsForm(prefix);
         if (formulaMode && (!prefix.trim() || /[=+\-*/(\[{},<>&|?:!%^]$/.test(prefix) || openFormSlot || pendingCljsHead)) {
           e.preventDefault();
+          if (e.button !== 0) { ed.focus(); return; }
           ed.dataset.formula = 'true';
-          ed.setRangeText((pendingCljsHead && !/\s$/.test(prefix) ? ' ' : '') + addr(r, c), p, ed.selectionEnd, 'end');
+          const insertSpace = pendingCljsHead && !/\s$/.test(prefix);
+          const reference = (insertSpace ? ' ' : '') + addr(r, c);
+          const selectionEnd = ed.selectionEnd;
+          ed.setRangeText(reference, p, selectionEnd, 'end');
+          refDrag = {
+            start: { r, c }, end: { r, c }, from: p, to: p + reference.length,
+            insertSpace,
+          };
+          previewReferenceRange(refDrag.start, refDrag.end);
           ctx.editor.refresh();
           ed.focus();
           return;
@@ -270,7 +292,10 @@ export function createGrid(ctx) {
       const td = e.target.closest('td');
       if (!td) return;
       const target = { r: td.parentNode.rowIndex - 1, c: td.cellIndex - 1 };
-      if (fillDrag) {
+      if (refDrag) {
+        refDrag.end = target;
+        previewReferenceRange(refDrag.start, target);
+      } else if (fillDrag) {
         fillDrag.target = target;
         const { source } = fillDrag;
         S = {
@@ -287,6 +312,21 @@ export function createGrid(ctx) {
     window.addEventListener('mousemove', applyResize);
     window.addEventListener('mouseup', () => {
       drag = 0;
+      if (refDrag) {
+        const selected = refDrag;
+        refDrag = null;
+        refRangeCells.forEach(td => td.classList.remove('ref-range-target'));
+        refRangeCells = [];
+        if (selected.start.r !== selected.end.r || selected.start.c !== selected.end.c) {
+          const r0 = Math.min(selected.start.r, selected.end.r), r1 = Math.max(selected.start.r, selected.end.r);
+          const c0 = Math.min(selected.start.c, selected.end.c), c1 = Math.max(selected.start.c, selected.end.c);
+          const range = addr(r0, c0) + ':' + addr(r1, c1);
+          ed.setRangeText((selected.insertSpace ? ' ' : '') + range, selected.from, selected.to, 'end');
+          ctx.editor.refresh();
+          ed.focus();
+        }
+        return;
+      }
       if (resizeDrag) {
         const changed = resizeDrag.changed;
         resizeDrag = null;

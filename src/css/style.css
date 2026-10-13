@@ -16,6 +16,7 @@ body{display:flex;flex-direction:column;font:13px system-ui,sans-serif;color:var
 table{border-collapse:collapse;table-layout:fixed;font-size:13px;user-select:none}
 col.row-head-col{width:46px}
 th,td{border:1px solid var(--ln);height:24px;padding:0 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;scroll-margin:30px 50px}
+#g td.ref-range-target{box-shadow:inset 0 0 0 1px var(--ac)}
 th{background:var(--ui);font-weight:400;color:#55606b;position:sticky;z-index:2}
 tr:first-child th{top:0}th:first-child{left:0;width:46px;z-index:3}
 td.n{text-align:right}td.e{color:#b00020}
