@@ -745,7 +745,27 @@ test('Explore Data reports empty cells and allows an explicit nil scalar', async
   document.querySelector('[data-action="explore-data"]').click();
   assert.equal(document.querySelector('#data-explorer').hidden, false);
   assert.equal(document.querySelector('.tree-value').textContent, 'nil');
+  assert.equal(document.querySelector('.tree-focus'), null, 'nil is atomic and cannot become an exploration root');
   document.querySelector('[data-explorer-close]').click();
+  close();
+});
+
+test('Explore Data only offers Use as root for structured values, including empty collections', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.setCellText(0, 8, '{:atom 42 :empty []}');
+  app.grid.sel(0, 8);
+  document.querySelector('[data-action="explore-data"]').click();
+
+  const overlay = document.querySelector('#data-explorer');
+  assert.equal(overlay.querySelector('.tree-focus')?.textContent, 'Use as root', 'the map root is structured');
+  const rootChildren = overlay.querySelector('.tree-children');
+  rootChildren.open = true;
+  rootChildren.dispatchEvent(new window.Event('toggle'));
+
+  const nodeForLabel = label => [...overlay.querySelectorAll('.tree-label')]
+    .find(node => node.textContent === label)?.closest('.tree-node');
+  assert.equal(nodeForLabel(':atom')?.querySelector('.tree-focus'), null, 'a numeric map value is atomic');
+  assert.equal(nodeForLabel(':empty')?.querySelector('.tree-focus')?.textContent, 'Use as root', 'an empty vector is still structured');
   close();
 });
 

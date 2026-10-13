@@ -231,6 +231,10 @@ function kindName(type, size) {
   return `${labels[type] || type}${size !== null && size !== undefined ? ` · ${size}` : ''}`;
 }
 
+function isStructuredType(type) {
+  return ['map', 'vector', 'list', 'sequence', 'set'].includes(type);
+}
+
 function element(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -298,7 +302,7 @@ export function createDataExplorer(ctx) {
     try { meta = descriptor(id); }
     catch (error) { return element('div', { class: 'explorer-error', text: `${label}: ${error.message}` }); }
     const summary = element('div', { class: 'tree-node-summary' },
-      element('button', { class: 'tree-focus', text: 'Use as root', title: 'Use this node as the current exploration root', onclick: () => { state.selectedId = id; state.selectedPath = path; state.expressionResult = undefined; applyAndRender(); } }),
+      isStructuredType(meta.type) && element('button', { class: 'tree-focus', text: 'Use as root', title: 'Use this node as the current exploration root', onclick: () => { state.selectedId = id; state.selectedPath = path; state.expressionResult = undefined; applyAndRender(); } }),
       element('span', { class: 'tree-label', text: label }),
       element('span', { class: 'tree-type', text: kindName(meta.type, meta.size) }),
       element('code', { class: 'tree-value', text: meta.display }),
