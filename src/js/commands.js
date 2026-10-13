@@ -68,8 +68,12 @@ export function createCommands(ctx) {
     e.preventDefault();
     const t = e.clipboardData.getData('text/plain');
     if (!t) return;
-    const same = CB && CB.tsv === t;
-    const rows = same ? CB.rows : t.replace(/\r/g, '').replace(/\n$/, '').split('\n').map(l => l.split('\t'));
+    // The OS/browser may normalize multiline clipboard text from LF to CRLF.
+    // Compare normalized text so an internal cell containing a multiline
+    // ClojureScript form is restored as one cell instead of parsed as TSV rows.
+    const normalized = t.replace(/\r\n?/g, '\n');
+    const same = CB && CB.tsv.replace(/\r\n?/g, '\n') === normalized;
+    const rows = same ? CB.rows : normalized.replace(/\n$/, '').split('\n').map(l => l.split('\t'));
     const targetRect = ctx.grid.rect(), { r0, c0 } = targetRect;
     const changed = ctx.session.pasteRows(ctx.currentSheet().name, r0, c0, rows, {
       internal: !!same, baseR: same ? CB.r0 : 0, baseC: same ? CB.c0 : 0,

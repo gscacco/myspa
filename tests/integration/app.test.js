@@ -472,6 +472,28 @@ test('copying a ClojureScript formula shifts relative rows and columns while kee
   close();
 });
 
+test('pasting a multiline ClojureScript map between sheets keeps it in one cell', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.setCellText(3, 1, '100');
+  app.grid.setCellText(0, 0, '{:name "Radar"\n :budget B4\n :status :active}');
+  app.grid.sel(0, 0);
+  const copied = fakeClipboardEvent(document.body);
+  app.commands.cp(copied, 0);
+
+  mouse(window, 'click', document.querySelectorAll('#tabs button')[1]);
+  app.grid.setCellText(4, 2, '250');
+  app.grid.sel(1, 1);
+  const pasted = fakeClipboardEvent(document.body);
+  pasted.clipboardData.setData('text/plain', copied.store['text/plain'].replace(/\n/g, '\r\n'));
+  app.commands.paste(pasted);
+
+  assert.equal(app.currentSheet().cells.B2.r, '{:name "Radar"\n :budget C5\n :status :active}');
+  assert.deepEqual(app.session.engine.evaluate('Foglio2!B2'), { name: 'Radar', budget: 250, status: 'active' });
+  assert.equal(app.currentSheet().cells.B3, undefined);
+  assert.equal(app.currentSheet().cells.B4, undefined);
+  close();
+});
+
 test('pasting into a selected range repeats the copied formula and shifts it per destination cell', async () => {
   const { document, app, close } = await mountApp();
   app.grid.setCellText(19, 0, '(+ B2 $C$2 C$2 $D2)');
