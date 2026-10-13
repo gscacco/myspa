@@ -353,6 +353,28 @@ test('the toolbar changes bold, decimal places, and background color', async () 
   close();
 });
 
+test('column and row header edges resize and retain their dimensions', async () => {
+  const { document, window, app, close } = await mountApp();
+  const colHandle = document.querySelector('.col-resizer[data-column="1"]');
+  colHandle.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, clientX: 84 }));
+  window.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 124 }));
+  window.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(app.currentSheet().widths['1'], 124);
+  assert.equal(document.querySelector('col[data-column="1"]').style.width, '124px');
+
+  const rowHandle = document.querySelector('.row-resizer[data-row="1"]');
+  rowHandle.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, clientY: 24 }));
+  window.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientY: 54 }));
+  window.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(app.currentSheet().heights['1'], 54);
+  assert.equal(document.querySelector('#g').rows[2].cells[0].style.height, '54px');
+
+  app.grid.render();
+  assert.equal(document.querySelector('col[data-column="1"]').style.width, '124px');
+  assert.equal(document.querySelector('#g').rows[2].cells[0].style.height, '54px');
+  close();
+});
+
 test('Delete clears a cell and Ctrl+Z undoes the change', async () => {
   const { document, window, app, close } = await mountApp();
   mouse(window, 'mousedown', cell(document, 0, 0));

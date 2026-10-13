@@ -30,6 +30,8 @@ export function createWorkbook(src = {}) {
     code: src.code ?? '',
     sheets: (src.sheets ?? [{ name: 'Foglio1', cells: {} }]).map(s => ({
       name: s.name,
+      ...(s.widths ? { widths: { ...s.widths } } : {}),
+      ...(s.heights ? { heights: { ...s.heights } } : {}),
       cells: Object.fromEntries(Object.entries(s.cells || {}).map(([a, c]) => [a, { ...c }])),
     })),
   };

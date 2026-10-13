@@ -25,6 +25,14 @@ test('createWorkbook copia le celle senza condividere i riferimenti', () => {
   assert.equal(src.sheets[0].cells.A1.r, 1);
 });
 
+test('createWorkbook conserva e copia le dimensioni personalizzate del foglio', () => {
+  const src = { sheets: [{ name: 'S', widths: { 1: 120 }, heights: { 4: 36 }, cells: {} }] };
+  const wb = createWorkbook(src);
+  wb.sheets[0].widths[1] = 140;
+  assert.equal(src.sheets[0].widths[1], 120);
+  assert.deepEqual(wb.sheets[0].heights, { 4: 36 });
+});
+
 test('sheetByName/getCell/getRaw leggono il modello', () => {
   const wb = createWorkbook({ sheets: [{ name: 'S', cells: { A1: { r: 'x', b: true } } }] });
   assert.equal(sheetByName(wb, 'S').name, 'S');

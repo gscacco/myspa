@@ -20,10 +20,13 @@ export function createGrid(ctx) {
   const ed = Q('#code');
   const fillHandle = Q('#fh');
   const tdOf = (r, c) => G.rows[r + 1]?.cells[c + 1];
+  const DEFAULT_COL_WIDTH = 84, DEFAULT_ROW_HEIGHT = 24;
+  const clampSize = (value, min, max) => Math.max(min, Math.min(max, value));
 
   let S = { a: { r: 0, c: 0 }, f: { r: 0, c: 0 } };
   let drag = 0;
   let fillDrag = null;
+  let resizeDrag = null;
   let flowOn = true;
 
   const sheet = () => ctx.currentSheet();
@@ -77,10 +80,32 @@ export function createGrid(ctx) {
 
   /** Costruisce l'intera tabella e ne popola le celle. */
   function render() {
-    let h = '<tr><th></th>' + [...Array(COLS)].map((_, c) => '<th>' + colName(c) + '</th>').join('') + '</tr>';
-    for (let r = 0; r < ROWS; r++) h += '<tr><th>' + (r + 1) + '</th>' + '<td></td>'.repeat(COLS) + '</tr>';
+    let h = '<colgroup><col class="row-head-col"><col data-column="0">' + [...Array(COLS - 1)].map((_, i) => '<col data-column="' + (i + 1) + '">').join('') + '</colgroup>';
+    h += '<tr><th></th>' + [...Array(COLS)].map((_, c) => '<th>' + colName(c) + '<div class="col-resizer" data-column="' + c + '" title="Resize column"></div></th>').join('') + '</tr>';
+    for (let r = 0; r < ROWS; r++) h += '<tr><th>' + (r + 1) + '<div class="row-resizer" data-row="' + r + '" title="Resize row"></div></th>' + '<td></td>'.repeat(COLS) + '</tr>';
     G.innerHTML = h;
+    applySizes();
     Object.keys(sheet().cells).forEach(a => paintCell(ctx.session.engine.nd(sheet().name + '!' + a)));
+  }
+
+  /** Applica le dimensioni personalizzate salvate nel foglio. */
+  function applySizes() {
+    const current = sheet();
+    let tableWidth = 46;
+    G.querySelectorAll('col[data-column]').forEach(col => {
+      const c = Number(col.dataset.column), width = clampSize(Number(current.widths?.[c]) || DEFAULT_COL_WIDTH, 40, 700);
+      col.style.width = width + 'px';
+      tableWidth += width;
+    });
+    G.querySelector('.row-head-col').style.width = '46px';
+    G.style.width = tableWidth + 'px';
+    for (let r = 0; r < ROWS; r++) {
+      const height = clampSize(Number(current.heights?.[r]) || DEFAULT_ROW_HEIGHT, 18, 500);
+      const row = G.rows[r + 1];
+      if (!row) continue;
+      row.style.height = height + 'px';
+      [...row.cells].forEach(cell => { cell.style.height = height + 'px'; });
+    }
   }
 
   /** Evidenzia i nodi da cui la cella attiva dipende (blu) e i dipendenti (arancio). */
@@ -159,6 +184,30 @@ export function createGrid(ctx) {
 
   function setFlow(on) { flowOn = !!on; flow(); }
 
+  function applyResize(e) {
+    if (!resizeDrag) return;
+    const { axis, index, start, size, sheetName } = resizeDrag;
+    const next = clampSize(size + (axis === 'column' ? e.clientX - start : e.clientY - start), axis === 'column' ? 40 : 18, axis === 'column' ? 700 : 500);
+    if (next === resizeDrag.current) return;
+    if (!resizeDrag.changed) { ctx.session.snapshot(); resizeDrag.changed = true; }
+    resizeDrag.current = next;
+    const targetSheet = sheetByName(ctx.session.workbook, sheetName);
+    if (axis === 'column') {
+      (targetSheet.widths ??= {})[index] = next;
+      const col = G.querySelector('col[data-column="' + index + '"]');
+      if (col) col.style.width = next + 'px';
+      G.style.width = 46 + [...G.querySelectorAll('col[data-column]')].reduce((sum, item) => sum + (parseFloat(item.style.width) || DEFAULT_COL_WIDTH), 0) + 'px';
+    } else {
+      (targetSheet.heights ??= {})[index] = next;
+      const row = G.rows[index + 1];
+      if (row) {
+        row.style.height = next + 'px';
+        [...row.cells].forEach(cell => { cell.style.height = next + 'px'; });
+      }
+    }
+    showCell();
+  }
+
   /** Collega gli eventi di editing (editor inline e barra della formula). */
   function mount() {
     Q('#fx').addEventListener('keydown', e => {
@@ -166,6 +215,24 @@ export function createGrid(ctx) {
       else if (e.key === 'Escape') { showCell(); e.target.blur(); }
     });
     G.addEventListener('mousedown', e => {
+      const colHandle = e.target.closest('.col-resizer');
+      const rowHandle = e.target.closest('.row-resizer');
+      if (colHandle || rowHandle) {
+        e.preventDefault();
+        e.stopPropagation();
+        const axis = colHandle ? 'column' : 'row';
+        const index = Number((colHandle || rowHandle).dataset[axis === 'column' ? 'column' : 'row']);
+        const sizes = axis === 'column' ? sheet().widths : sheet().heights;
+        resizeDrag = {
+          axis, index, sheetName: sheet().name,
+          start: axis === 'column' ? e.clientX : e.clientY,
+          size: Number(sizes?.[index]) || (axis === 'column' ? DEFAULT_COL_WIDTH : DEFAULT_ROW_HEIGHT),
+          current: Number(sizes?.[index]) || (axis === 'column' ? DEFAULT_COL_WIDTH : DEFAULT_ROW_HEIGHT),
+          changed: false,
+        };
+        document.body.classList.add(axis === 'column' ? 'resizing-column' : 'resizing-row');
+        return;
+      }
       const td = e.target.closest('td');
       if (!td) return;
       const r = td.parentNode.rowIndex - 1, c = td.cellIndex - 1;
@@ -215,8 +282,16 @@ export function createGrid(ctx) {
       }
     });
     G.addEventListener('dblclick', e => { if (e.target.closest('td')) edit(); });
+    window.addEventListener('mousemove', applyResize);
     window.addEventListener('mouseup', () => {
       drag = 0;
+      if (resizeDrag) {
+        const changed = resizeDrag.changed;
+        resizeDrag = null;
+        document.body.classList.remove('resizing-column', 'resizing-row');
+        if (changed) ctx.updateStatus();
+        return;
+      }
       if (!fillDrag) return;
       const { source, target } = fillDrag;
       fillDrag = null;

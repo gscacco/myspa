@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readEDN, writeEDN } from '../../src/js/edn.js';
+import { createWorkbook } from '../../src/js/model.js';
 import { modelEDN, workbook } from '../helpers/sample.js';
 
 test('readEDN legge scalari, nil e booleani', () => {
@@ -50,6 +51,13 @@ test('sample model round-trips through EDN serialization', () => {
   const wb = workbook();
   const again = readEDN(writeEDN(wb, 0));
   assert.equal(writeEDN(again, 0), writeEDN(wb, 0));
+});
+
+test('row heights and column widths round-trip through workbook EDN', () => {
+  const wb = createWorkbook({ sheets: [{ name: 'S', widths: { 1: 124 }, heights: { 3: 42 }, cells: {} }] });
+  const again = createWorkbook(readEDN(writeEDN(wb)));
+  assert.deepEqual(again.sheets[0].widths, { 1: 124 });
+  assert.deepEqual(again.sheets[0].heights, { 3: 42 });
 });
 
 test('the sample model contains sheets and user-defined code', () => {
