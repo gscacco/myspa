@@ -8,6 +8,7 @@
 
 import { ROWS, COLS, sheetByName } from './model.js';
 import { colName, addr, parseRef } from './references.js';
+import { highlightClojureScript } from './editor-assistance.js';
 
 /**
  * Crea la vista della griglia.
@@ -61,8 +62,9 @@ export function createGrid(ctx) {
     if (!td) return;
     const s = sheetByName(ctx.session.workbook, n.sh);
     const f = (s && s.cells[n.a]) || {};
-    td.textContent = disp(n, f);
-    td.className = (n.err ? 'e ' : '') + (typeof n.val === 'number' ? 'n' : '');
+    td.className = (n.err ? 'e ' : '') + (typeof n.val === 'number' ? 'n ' : '') + (n.display != null ? 'clj-value' : '');
+    if (n.display != null) td.innerHTML = highlightClojureScript(n.display, { declarationCode: ctx.session.workbook.code });
+    else td.textContent = disp(n, f);
     td.title = n.err ? n.err.message : '';
     td.style.fontWeight = f.b ? '700' : '';
     td.style.background = f.bg || '';

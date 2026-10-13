@@ -75,6 +75,23 @@ export const CLOSERS = new Set([')', ']', '}', '"']);
 /** Escape HTML usato dall'evidenziazione. @param {string} t */
 export const escapeHTML = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
+/** Restituisce HTML sicuro con la stessa evidenziazione usata dagli editor. */
+export function highlightClojureScript(code, { declarationCode = code, matches = [] } = {}) {
+  const own = new Set(extractDeclarations(declarationCode).map(x => x.n));
+  return String(code).replace(TOKEN_RE, (m, c, st, kw, n, id, other, off) => {
+    const t = escapeHTML(m);
+    if (c) return `<i class=c>${t}</i>`;
+    if (st) return `<i class=s>${t}</i>`;
+    if (kw) return `<i class=k>${t}</i>`;
+    if (n) return `<i class=n>${t}</i>`;
+    if (id) {
+      const x = KEYWORDS.has(id) ? 'k' : LITERALS.has(id) ? 'n' : own.has(id) ? 'u' : BUILTIN_SYMBOLS.has(id) ? 'b' : 0;
+      return x ? `<i class=${x}>${t}</i>` : t;
+    }
+    return matches.includes(off) ? `<i class=m>${t}</i>` : t;
+  });
+}
+
 /**
  * Estrae le dichiarazioni di primo livello (`def`, `defonce`, `defn`).
  * @param {string} code

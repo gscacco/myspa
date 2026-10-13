@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   KEYWORDS, LITERALS, SHEET_FUNCTIONS, CORE_FUNCTIONS, BUILTIN_SYMBOLS, PAIRS, CLOSERS,
-  escapeHTML, extractDeclarations, syntaxError, completionCandidates,
+  escapeHTML, highlightClojureScript, extractDeclarations, syntaxError, completionCandidates,
   computeSuggestions, completionInsertion,
 } from '../../src/js/editor-assistance.js';
 
@@ -39,6 +39,14 @@ test('extractDeclarations trova def, defonce e defn (anche multi-arità)', () =>
 
 test('extractDeclarations ignora il codice non leggibile', () => {
   assert.deepEqual(extractDeclarations('(defn rotta [x'), []);
+});
+
+test('highlightClojureScript riusa i token degli editor ed esegue escaping HTML', () => {
+  const html = highlightClojureScript('{:status :active :count 4 :label "<tag>"}', { declarationCode: '(defn my-fn [x] x)' });
+  assert.match(html, /class=k>:status<\/i>/);
+  assert.match(html, /class=n>4<\/i>/);
+  assert.match(html, /class=s>"&lt;tag>"<\/i>/);
+  assert.doesNotMatch(html, /<tag>/);
 });
 
 test('syntaxError riconosce il codice valido', () => {

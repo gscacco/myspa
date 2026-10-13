@@ -153,6 +153,19 @@ test('cell formulas reuse the syntax-highlighted editor and its apply button', a
   close();
 });
 
+test('ClojureScript values in cells share the editor syntax highlighting safely', async () => {
+  const { document, app, close } = await mountApp();
+  app.grid.setCellText(10, 8, '{:status :active :count 4 :label "<tag>"}');
+  const td = cell(document, 10, 8);
+  assert.ok(td.classList.contains('clj-value'));
+  assert.ok([...td.querySelectorAll('i.k')].some(token => token.textContent === ':active'));
+  assert.equal(td.querySelector('i.n')?.textContent, '4');
+  assert.equal(td.querySelector('i.s')?.textContent, '"<tag>"');
+  assert.ok(td.innerHTML.includes('&lt;tag'));
+  assert.equal(td.querySelector('tag'), null);
+  close();
+});
+
 test('the formula editor stays open on blur and grid click until Ctrl+Enter', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);

@@ -7,8 +7,7 @@
  */
 
 import {
-  TOKEN_RE, PAIRS, CLOSERS, KEYWORDS, LITERALS, BUILTIN_SYMBOLS,
-  escapeHTML, extractDeclarations, syntaxError, computeSuggestions, completionInsertion,
+  PAIRS, CLOSERS, highlightClojureScript, syntaxError, computeSuggestions, completionInsertion,
   indentFor, pareditNewline, pareditSlurp, pareditBarf, pareditSplice, pareditWrap,
   safeDeletion, formBefore,
 } from './editor-assistance.js';
@@ -36,16 +35,8 @@ export function createEditor(ctx) {
   }
 
   function highlight() {
-    const code = ta.value, own = new Set(extractDeclarations(cellEdit ? cellEdit.code : code).map(x => x.n));
-    hl.innerHTML = code.replace(TOKEN_RE, (m, c, st, kw, n, id, other, off) => {
-      const t = escapeHTML(m);
-      if (c) return `<i class=c>${t}</i>`;
-      if (st) return `<i class=s>${t}</i>`;
-      if (kw) return `<i class=k>${t}</i>`;
-      if (n) return `<i class=n>${t}</i>`;
-      if (id) { const x = KEYWORDS.has(id) ? 'k' : LITERALS.has(id) ? 'n' : own.has(id) ? 'u' : BUILTIN_SYMBOLS.has(id) ? 'b' : 0; return x ? `<i class=${x}>${t}</i>` : t; }
-      return bm.includes(off) ? `<i class=m>${t}</i>` : t;
-    }) + '\n ';
+    const code = ta.value;
+    hl.innerHTML = highlightClojureScript(code, { declarationCode: cellEdit ? cellEdit.code : code, matches: bm }) + '\n ';
     lines();
   }
 
