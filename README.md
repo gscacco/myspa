@@ -21,6 +21,61 @@ There is currently no schedule or timeline for future versions.
 
 The runtime is Scittle 0.8.33, which evaluates ClojureScript through SCI. It does not require Java or a JVM. SCI is an interpreter, not the official ClojureScript compiler, and it does not provide the complete ClojureScript build and library ecosystem. The spreadsheet functions and cell-reference bridge are defined in `src/js/scittle-runtime.js`; `src/js/cljs.js` contains the editor reader and compatibility wrappers that delegate evaluation to Scittle.
 
+## ClojureScript values and formulas in cells
+
+Cells can contain ClojureScript values and expressions directly; a leading `=` is not required. Common examples are:
+
+| Cell contents | Value |
+| --- | --- |
+| `:active` | Keyword |
+| `"active"` | String |
+| `42`, `true`, `false`, `nil` | Number, booleans, or nil |
+| `[1 2 3]` | Vector |
+| `{:name "Radar" :budget 1200000 :status :active}` | Map with keyword keys and a keyword value |
+| `(+ 1 2 3)` | ClojureScript expression, evaluates to `6` |
+
+Keywords and strings are different values: `:active` is not the same as `"active"`. Use ClojureScript's `=` to compare them. For example, if cells `C2:C4` contain one map each, this returns the maps whose `:status` is the keyword `:active`:
+
+```clojure
+(filter #(= (:status %) :active) (map first C2:C4))
+```
+
+The map lookup can also be written `(get % :status)`. A cell showing a map or vector is rendered in ClojureScript notation, so keywords keep their leading colon. Plain text that is not recognized as a ClojureScript value, expression, or cell reference remains text.
+
+Cell and range references can be used inside ClojureScript forms. A single-cell reference such as `A1` produces that cell's value; a range such as `A1:B3` produces a vector of row vectors. Thus `C2:C4` is a three-row, one-column value, and `(map first C2:C4)` turns it into a sequence of the three cell values. References can include a sheet name, for example `OtherSheet!B3`, and `$` can anchor a row or column when formulas are copied. Empty cells evaluate as `nil`.
+
+Examples of cell formulas:
+
+```clojure
+(+ A1 B1)                         ; add two cells
+(count A1:A3)                     ; count the values in a range
+(double-value A2)                 ; call a function defined in the code editor
+double-value(A2)                  ; equivalent function-call shorthand
+```
+
+The existing infix formula syntax is also supported, for example `=B2*C2`. In the `ƒ CLJS` code editor, define workbook functions with `defn`; those functions are available to cell formulas:
+
+```clojure
+(defn double-value [x]
+  (* x 2))
+```
+
+### Available functions
+
+The runtime includes the following spreadsheet functions in addition to the ClojureScript functions supplied by Scittle/SCI:
+
+| Function | Purpose |
+| --- | --- |
+| `SUM` | Sum numeric values, including values nested in ranges and collections. |
+| `COUNT` | Count numeric values. |
+| `MIN`, `MAX` | Return the smallest or largest numeric value. |
+| `AVG`, `AVERAGE` | Calculate the average of numeric values. |
+| `ROUND` | Round a number; an optional second argument gives the number of decimal places. |
+| `IF` | Choose a value based on a condition: `(IF (> A1 0) :positive :other)`. |
+| `$`, `$$` | Read a cell or a range explicitly; references such as `A1` and `A1:B3` are usually more convenient. |
+
+Common ClojureScript core functions include arithmetic and comparisons (`+`, `-`, `*`, `/`, `inc`, `dec`, `=`, `not=`, `<`, `<=`, `>`, `>=`), collection operations (`map`, `filter`, `reduce`, `flatten`, `count`, `get`, `nth`, `first`, `assoc`, `conj`, `merge`, `keys`, `vals`, `sort`, `take`, `drop`, `range`), and string helpers (`str`, `upper-case`, `lower-case`, `trim`, `subs`, `split`, `join`, `replace`). The runtime also exposes common math functions such as `abs`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, and the constants `PI` and `E`. Names are case-sensitive: ClojureScript core functions such as `count` are lowercase, while spreadsheet functions such as `COUNT` are uppercase.
+
 ## Try it locally
 
 Requirements: Node.js 20.19 or newer and npm.
