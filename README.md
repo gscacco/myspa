@@ -76,6 +76,21 @@ The runtime includes the following spreadsheet functions in addition to the Cloj
 
 Common ClojureScript core functions include arithmetic and comparisons (`+`, `-`, `*`, `/`, `inc`, `dec`, `=`, `not=`, `<`, `<=`, `>`, `>=`), collection operations (`map`, `filter`, `reduce`, `flatten`, `count`, `get`, `nth`, `first`, `assoc`, `conj`, `merge`, `keys`, `vals`, `sort`, `take`, `drop`, `range`), and string helpers (`str`, `upper-case`, `lower-case`, `trim`, `subs`, `split`, `join`, `replace`). The runtime also exposes common math functions such as `abs`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, and the constants `PI` and `E`. Names are case-sensitive: ClojureScript core functions such as `count` are lowercase, while spreadsheet functions such as `COUNT` are uppercase.
 
+## Explore Data
+
+Select a cell and click **Explore Data** in the toolbar to inspect its evaluated value. The explorer snapshots that cell when it opens; changing the grid selection will not change the data being explored. An empty cell or a cell with an evaluation error leaves the spreadsheet in place and reports the reason in the status bar. Closing the explorer returns to the existing workbook without changing the cell or its expression.
+
+The explorer provides:
+
+- A lazy, expandable tree with collection types, sizes, map keys, stable sequence indices, copyable subtree EDN, and a way to make any node the current exploration root.
+- A table for row collections. Map columns use the union of keys, so heterogeneous records are supported. Missing keys display as `— missing`; an explicit `nil` displays as `nil`. Nested paths can be selected and ordered with a **Project fields** pipeline step, for example `[:team :name]`. Nested row collections can be expanded while retaining their parent row reference.
+- A grouped view for one or more paths, with count or numeric sum, average, minimum, or maximum summaries.
+- An ordered visual pipeline with filters, projection, grouping, sorting, editable steps, and reset. Filter conditions support AND/OR, nested paths, keywords, strings, numbers, booleans, nil, missing-value checks, comparisons, and string matching.
+- An optional ClojureScript expression editor. It exposes `root` (the original cell value), `selected-node` and `records` (the current selected node), and `query-result` (the visual pipeline output). For example, `(->> records (filter #(= :active (:status %))) (group-by :category))`. Expressions run through the existing Scittle/SCI runtime in an explorer namespace; they do not update workbook functions or cells. The custom result is kept separate from the visual pipeline result.
+- **Copy path** and **Copy result EDN** controls. Copying an output never writes to the source cell.
+
+The explorer operates on the original Scittle values, so keywords remain different from strings, and maps, vectors, lists, and sets remain distinguishable. The table and grouping views derive new values and never mutate the source. Unsupported JavaScript interop objects may have limited inspection or EDN export. Lazy sequences are previewed up to 200 items; operations that need full realization and EDN export are refused when a sequence exceeds that preview limit. Materialize a finite result in a custom expression before sorting, grouping, or exporting it.
+
 ## Try it locally
 
 Requirements: Node.js 20.19 or newer and npm.

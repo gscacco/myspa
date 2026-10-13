@@ -9,6 +9,7 @@
 import { addr } from './references.js';
 import { syntaxError } from './editor-assistance.js';
 import { printCljsValue } from './scittle-runtime.js';
+import { createDataExplorer } from './data-explorer.js';
 
 /** Tasti che muovono la selezione. */
 const KEYS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0], Tab: [0, 1] };
@@ -22,6 +23,7 @@ export function createCommands(ctx) {
   const E = (t, a = {}, ...k) => { const e = document.createElement(t); Object.assign(e, a); e.append(...k); return e; };
   let CB = null;   // appunti interni: { token, tsv, r0, c0, rows, values }
   let clipboardSequence = 0;
+  const dataExplorer = createDataExplorer(ctx);
 
   const isCljsDataForm = raw => typeof raw === 'string'
     && /^(?:\{|\[|:|"|'|`|\\|#\{|true(?:\s|$)|false(?:\s|$)|nil(?:\s|$))/.test(raw.trim());
@@ -207,6 +209,11 @@ export function createCommands(ctx) {
       if (ctx.grid.isEditing()) return;
       Q('#fn').hidden = !Q('#fn').hidden;
       Q('#bfn').classList.toggle('on', !Q('#fn').hidden);
+    });
+    act('explore-data', () => {
+      if (ctx.grid.isEditing()) { ctx.flash('Finish editing the cell before exploring its evaluated value.'); return; }
+      const { r, c } = ctx.grid.cursor();
+      dataExplorer.open(ctx.currentSheet().name, addr(r, c));
     });
     Q('#apply-code').addEventListener('click', applyCode);
   }

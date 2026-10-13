@@ -15,7 +15,20 @@
   <input type="color" data-action="bg-color" value="#fff2a8" title="Colore di sfondo"><button data-action="bg-clear">senza sfondo</button><i></i>
   <button id="bflow" class="on" data-action="toggle-flow" title="Evidenzia sorgenti (blu) e dipendenti (arancio)">Flusso</button>
   <button id="bfn" data-action="toggle-functions">ƒ CLJS</button>
+  <button id="bexplore" data-action="explore-data">Explore Data</button>
   <span id="stat" data-dyn></span>
+</div>
+<div id="data-explorer" class="data-explorer-overlay" hidden>
+  <section class="data-explorer-panel" role="dialog" aria-modal="true" aria-labelledby="data-explorer-title">
+    <header class="data-explorer-header">
+      <div><b id="data-explorer-title">Explore Data</b><div class="explorer-root-path"></div></div>
+      <div class="explorer-header-actions"><button data-explorer-close type="button" aria-label="Close data explorer">×</button></div>
+    </header>
+    <div class="explorer-meta"><span class="explorer-location"></span><span class="explorer-count"></span></div>
+    <nav class="explorer-nav" aria-label="Data explorer views"></nav>
+    <div class="data-explorer-status" role="status" aria-live="polite"></div>
+    <main class="data-explorer-views"></main>
+  </section>
 </div>
 <div id="fb"><input id="nb" readonly><b>ƒx</b><input id="fx" spellcheck="false"><span id="vv" data-dyn></span></div>
 <div id="gw"><div id="gx"><table id="g" data-dyn></table><div id="ov"><div id="fh" title="Fill cells"></div></div></div></div>

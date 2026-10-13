@@ -146,6 +146,21 @@ test('put aggiorna il modello e il valore nullo per celle vuote', () => {
   assert.deepEqual(wb.sheets[0].cells, {});
 });
 
+test('evaluatedCell preserves SCI values and distinguishes empty cells from explicit nil', () => {
+  const wb = createWorkbook({ sheets: [{ name: 'S', cells: { A1: { r: '{:state :ready}' }, A2: { r: 'nil' }, A3: { r: '(+ 2 3)' } } }] });
+  const engine = engineWith(wb);
+  const empty = engine.evaluatedCell('S', 'A4');
+  const nil = engine.evaluatedCell('S', 'A2');
+  const keywordMap = engine.evaluatedCell('S', 'A1');
+  const calculated = engine.evaluatedCell('S', 'A3');
+  assert.equal(empty.available, false);
+  assert.equal(nil.available, true);
+  assert.equal(nil.value, null);
+  assert.equal(keywordMap.available, true);
+  assert.equal(keywordMap.display, '{:state :ready}');
+  assert.equal(calculated.value, 5);
+});
+
 test('the sample workbook calculates the expected values', () => {
   const engine = engineWith(sampleWorkbook());
   engine.setCode(sampleWorkbook().code);

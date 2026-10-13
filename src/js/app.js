@@ -46,7 +46,15 @@ export function createApp() {
     updateStatus() {
       document.querySelector('#stat').textContent = note || ((session.isModified() ? '● modificato · ' : '') + session.workbook.name);
     },
-    flash(t) { note = t; ctx.updateStatus(); setTimeout(() => { note = ''; ctx.updateStatus(); }, 2000); },
+    flash(t) {
+      note = t;
+      const statusElement = document.querySelector('#stat');
+      ctx.updateStatus();
+      setTimeout(() => {
+        note = '';
+        if (document.querySelector('#stat') === statusElement) ctx.updateStatus();
+      }, 2000);
+    },
   };
 
   /** Ricarica il codice utente nell'editor e ne mostra gli eventuali errori. */

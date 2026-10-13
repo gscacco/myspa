@@ -343,11 +343,29 @@ export function createEngine(workbook) {
   /** Valuta un id e ne restituisce il valore (utile nei test). */
   const evaluate = id => val(nd(id));
 
+  /**
+   * Returns the evaluated SCI value for a populated cell without converting it
+   * to JavaScript. `available` distinguishes an empty cell from an explicit nil.
+   */
+  function evaluatedCell(sheetName, a) {
+    const sheet = sheetByName(wb, sheetName);
+    if (!sheet) return { available: false, error: new Error('#REF: foglio «' + sheetName + '» inesistente') };
+    if (!Object.hasOwn(sheet.cells, a) || sheet.cells[a]?.r === undefined) return { available: false };
+    const n = nd(nodeId(sheetName, a));
+    try {
+      val(n);
+      if (n.err) return { available: false, error: n.err };
+      return { available: true, value: n.cljVal, display: n.display };
+    } catch (error) {
+      return { available: false, error };
+    }
+  }
+
   return {
     get workbook() { return wb; },
     get ENV() { return ENV; },
     nodeId, nd, put, dd, reset, loadAll, recalculate, setCode, evalForm, invalidateFormulas,
-    setWorkbook, getNode, touch, evaluate,
+    setWorkbook, getNode, touch, evaluate, evaluatedCell,
   };
 }
 
