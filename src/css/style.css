@@ -31,7 +31,7 @@ body.resizing-row,body.resizing-row *{cursor:row-resize!important;user-select:no
 #tabs button{border:1px solid var(--ln);border-radius:4px 4px 0 0;background:#fff;padding:4px 12px;cursor:pointer;font:inherit}
 #tabs button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
 #fn{position:fixed;top:82px;right:16px;width:min(680px,calc(100vw - 32px));height:min(68vh,620px);min-width:min(320px,calc(100vw - 32px));min-height:min(220px,calc(100vh - 96px));max-width:calc(100vw - 32px);max-height:calc(100vh - 96px);resize:both;overflow:hidden;background:var(--ui);border:1px solid var(--ln);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px;z-index:10;box-shadow:0 8px 28px #0004}
-#fn-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:28px}
+#fn-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:28px;cursor:move;user-select:none}
 #fn-actions{display:flex;gap:4px}
 #apply-code{width:30px;height:28px;border:1px solid var(--ln);border-radius:5px;background:#fff;color:var(--ac);padding:0;font:700 20px/1 system-ui,sans-serif;cursor:pointer}
 #apply-code:hover{background:#eef3f8;border-color:var(--ac)}

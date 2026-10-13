@@ -68,6 +68,40 @@ test('the formula panel applies edits with Ctrl+Enter', async () => {
   close();
 });
 
+test('the code panel can be dragged in sheet and cell editor modes', async () => {
+  const { document, window, app, close } = await mountApp();
+  const panel = document.querySelector('#fn');
+  const head = document.querySelector('#fn-head');
+  let left = 40, top = 50;
+  Object.defineProperty(panel, 'offsetWidth', { configurable: true, value: 400 });
+  Object.defineProperty(panel, 'offsetHeight', { configurable: true, value: 300 });
+  panel.getBoundingClientRect = () => ({ left, top, width: 400, height: 300, right: left + 400, bottom: top + 300 });
+
+  document.querySelector('#bfn').click();
+  head.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+  window.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 130, clientY: 140 }));
+  window.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(panel.style.left, '70px');
+  assert.equal(panel.style.top, '90px');
+  left = 70;
+  top = 90;
+
+  app.grid.sel(1, 2);
+  app.grid.edit();
+  head.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 200, clientY: 200 }));
+  window.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 180, clientY: 220 }));
+  window.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(panel.style.left, '50px');
+  assert.equal(panel.style.top, '110px');
+
+  const before = [panel.style.left, panel.style.top];
+  document.querySelector('#apply-code').dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 200, clientY: 200 }));
+  window.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 300 }));
+  window.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+  assert.deepEqual([panel.style.left, panel.style.top], before);
+  close();
+});
+
 test('typing = does not open the formula editor as a formula prefix', async () => {
   const { document, window, app, close } = await mountApp();
   app.grid.sel(9, 8);

@@ -20,7 +20,7 @@ export function createEditor(ctx) {
   const Q = s => document.querySelector(s);
   const E = (t, a = {}, ...k) => { const e = document.createElement(t); Object.assign(e, a); e.append(...k); return e; };
   const ta = Q('#code'), hl = Q('#hl'), ln = Q('#ln'), pop = Q('#pop'), cw = Q('#cw');
-  const fn = Q('#fn'), fnTitle = Q('#fn-title'), applyButton = Q('#apply-code'), closeButton = Q('#close-code');
+  const fn = Q('#fn'), fnHead = Q('#fn-head'), fnTitle = Q('#fn-title'), applyButton = Q('#apply-code'), closeButton = Q('#close-code');
   const noteEl = Q('#note');
 
   let errLine = 0, bm = [], ac = null, cwid = 0, chk = 0, cellEdit = null;
@@ -272,6 +272,24 @@ export function createEditor(ctx) {
   /** Collega gli eventi dell'editor. */
   function mount() {
     closeButton.addEventListener('click', closePanel);
+    let drag = null;
+    fnHead.addEventListener('mousedown', e => {
+      if (e.button !== 0 || e.target.closest('button')) return;
+      const rect = fn.getBoundingClientRect();
+      drag = { x: e.clientX, y: e.clientY, left: rect.left, top: rect.top };
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!drag) return;
+      const maxLeft = Math.max(0, window.innerWidth - fn.offsetWidth);
+      const maxTop = Math.max(0, window.innerHeight - fn.offsetHeight);
+      const left = Math.min(maxLeft, Math.max(0, drag.left + e.clientX - drag.x));
+      const top = Math.min(maxTop, Math.max(0, drag.top + e.clientY - drag.y));
+      fn.style.left = left + 'px';
+      fn.style.top = top + 'px';
+      fn.style.right = 'auto';
+    });
+    window.addEventListener('mouseup', () => { drag = null; });
     fn.addEventListener('keydown', e => {
       if (e.key === 'Escape' && cellEdit) { e.preventDefault(); closePanel(); }
     });
