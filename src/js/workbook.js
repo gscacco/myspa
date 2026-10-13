@@ -96,16 +96,56 @@ export function createSession(workbook) {
    * Se `internal` è vero i riferimenti relativi vengono spostati dell'offset
    * rispetto all'area di origine (come nell'applicazione originale).
    */
-  function pasteRows(sheetName, r0, c0, rows, { internal = false, baseR = 0, baseC = 0, formulas = [] } = {}) {
+  function pasteRows(sheetName, r0, c0, rows, {
+    internal = false, baseR = 0, baseC = 0, formulas = [], targetRect = null,
+    sourceRect = null, preserveSource = false,
+  } = {}) {
+    const sourceHeight = rows.length;
+    const sourceWidth = Math.max(0, ...rows.map(row => row.length));
+    if (!sourceHeight || !sourceWidth) return [];
+    const selectedHeight = targetRect ? targetRect.r1 - targetRect.r0 + 1 : 1;
+    const selectedWidth = targetRect ? targetRect.c1 - targetRect.c0 + 1 : 1;
+    const destR0 = targetRect?.r0 ?? r0, destC0 = targetRect?.c0 ?? c0;
+    const dest = preserveSource && targetRect ? targetRect : {
+      r0: destR0, c0: destC0,
+      r1: destR0 + Math.max(sourceHeight, selectedHeight) - 1,
+      c1: destC0 + Math.max(sourceWidth, selectedWidth) - 1,
+    };
+    const modulo = (value, size) => (value % size + size) % size;
     snapshot();
-    rows.forEach((row, i) => row.forEach((v, j) => {
-      const r = r0 + i, c = c0 + j;
-      if (r < ROWS && c < COLS) {
+    for (let r = Math.max(0, dest.r0); r <= Math.min(ROWS - 1, dest.r1); r++) {
+      for (let c = Math.max(0, dest.c0); c <= Math.min(COLS - 1, dest.c1); c++) {
+        if (preserveSource && sourceRect
+          && r >= sourceRect.r0 && r <= sourceRect.r1
+          && c >= sourceRect.c0 && c <= sourceRect.c1) continue;
+        const alignR = preserveSource ? baseR : r0;
+        const alignC = preserveSource ? baseC : c0;
+        const i = modulo(r - alignR, sourceHeight), j = modulo(c - alignC, sourceWidth);
+        const v = rows[i]?.[j] ?? '';
         const isFormula = formulas[i]?.[j] ?? (typeof v === 'string' && v.startsWith('='));
-        engine.put(sheetName, addr(r, c), parseInput(internal && isFormula ? shiftRefs(v, r0 - baseR, c0 - baseC) : v));
+        const sourceR = baseR + i, sourceC = baseC + j;
+        engine.put(sheetName, addr(r, c), parseInput(internal && isFormula ? shiftRefs(v, r - sourceR, c - sourceC) : v));
       }
-    }));
+    }
     return engine.recalculate();
+  }
+
+  /** Estende una selezione ripetendo un intervallo sorgente, come il fill handle. */
+  function fillRange(sheetName, sourceRect, targetRect) {
+    const rows = [], formulas = [];
+    for (let r = sourceRect.r0; r <= sourceRect.r1; r++) {
+      const row = [], formulaRow = [];
+      for (let c = sourceRect.c0; c <= sourceRect.c1; c++) {
+        const address = addr(r, c), node = engine.nd(sheetName + '!' + address);
+        row.push(String(getRaw(wb, sheetName, address) ?? ''));
+        formulaRow.push(!!(node.fn || node.cljs));
+      }
+      rows.push(row); formulas.push(formulaRow);
+    }
+    return pasteRows(sheetName, targetRect.r0, targetRect.c0, rows, {
+      internal: true, baseR: sourceRect.r0, baseC: sourceRect.c0,
+      formulas, targetRect, sourceRect, preserveSource: true,
+    });
   }
 
   /** Aggiunge un foglio con nome automatico. @returns {number} indice del nuovo foglio */
@@ -187,7 +227,7 @@ export function createSession(workbook) {
     isModified: () => modified,
     getHistorySize: () => undoStack.length,
     loadCode, rebuild, snapshot, setCell, clearRange, fillDown, formatRange,
-    pasteRows, addNewSheet, deleteSheet, applyCode, evalForm, restore, undo, redo, replace, markSaved,
+    pasteRows, fillRange, addNewSheet, deleteSheet, applyCode, evalForm, restore, undo, redo, replace, markSaved,
   };
 }
 

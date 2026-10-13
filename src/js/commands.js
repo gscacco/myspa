@@ -70,10 +70,11 @@ export function createCommands(ctx) {
     if (!t) return;
     const same = CB && CB.tsv === t;
     const rows = same ? CB.rows : t.replace(/\r/g, '').replace(/\n$/, '').split('\n').map(l => l.split('\t'));
-    const { r0, c0 } = ctx.grid.rect();
+    const targetRect = ctx.grid.rect(), { r0, c0 } = targetRect;
     const changed = ctx.session.pasteRows(ctx.currentSheet().name, r0, c0, rows, {
       internal: !!same, baseR: same ? CB.r0 : 0, baseC: same ? CB.c0 : 0,
       formulas: same ? CB.formulas : [],
+      targetRect,
     });
     ctx.grid.paint(changed);
     ctx.grid.showCell();

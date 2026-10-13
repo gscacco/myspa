@@ -372,10 +372,11 @@ test('copy and paste work with the internal clipboard', async () => {
   app.commands.cp(e1, 0);
   assert.equal(e1.store['text/plain'], 'Prodotto');
   app.grid.sel(6, 2);
+  app.grid.sel(7, 4, true);
   const e2 = fakeClipboardEvent(document.body);
   e2.clipboardData.setData('text/plain', e1.store['text/plain']);
   app.commands.paste(e2);
-  assert.equal(cell(document, 6, 2).textContent, 'Prodotto');
+  for (let r = 6; r <= 7; r++) for (let c = 2; c <= 4; c++) assert.equal(cell(document, r, c).textContent, 'Prodotto');
   close();
 });
 
@@ -399,6 +400,43 @@ test('copying a ClojureScript formula shifts relative rows and columns while kee
 
   assert.equal(app.currentSheet().cells.B21.r, '(+ C3 $C$2 D$2 $D3)');
   assert.equal(app.session.engine.evaluate('Foglio1!B21'), 14);
+  close();
+});
+
+test('pasting into a selected range repeats the copied formula and shifts it per destination cell', async () => {
+  const { document, app, close } = await mountApp();
+  app.grid.setCellText(19, 0, '(+ B2 $C$2 C$2 $D2)');
+  app.grid.sel(19, 0);
+  const copied = fakeClipboardEvent(document.body);
+  app.commands.cp(copied, 0);
+  app.grid.sel(20, 1);
+  app.grid.sel(21, 2, true);
+  const pasted = fakeClipboardEvent(document.body);
+  pasted.clipboardData.setData('text/plain', copied.store['text/plain']);
+  app.commands.paste(pasted);
+
+  assert.equal(app.currentSheet().cells.B21.r, '(+ C3 $C$2 D$2 $D3)');
+  assert.equal(app.currentSheet().cells.C21.r, '(+ D3 $C$2 E$2 $D3)');
+  assert.equal(app.currentSheet().cells.B22.r, '(+ C4 $C$2 D$2 $D4)');
+  assert.equal(app.currentSheet().cells.C22.r, '(+ D4 $C$2 E$2 $D4)');
+  close();
+});
+
+test('the fill handle copies a cell through the dragged-to range', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.setCellText(19, 0, '(str B2)');
+  app.grid.sel(19, 0);
+  const handle = document.querySelector('#fh');
+  mouse(window, 'mousedown', handle);
+  mouse(window, 'mouseover', cell(document, 21, 2));
+  mouse(window, 'mouseup', window);
+
+  assert.equal(app.currentSheet().cells.A20.r, '(str B2)');
+  assert.equal(app.currentSheet().cells.B20.r, '(str C2)');
+  assert.equal(app.currentSheet().cells.C20.r, '(str D2)');
+  assert.equal(app.currentSheet().cells.A21.r, '(str B3)');
+  assert.equal(app.currentSheet().cells.C22.r, '(str D4)');
+  assert.deepEqual(app.grid.rect(), { r0: 19, r1: 21, c0: 0, c1: 2 });
   close();
 });
 

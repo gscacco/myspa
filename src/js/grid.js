@@ -18,10 +18,12 @@ export function createGrid(ctx) {
   const Q = s => document.querySelector(s);
   const G = Q('#g');
   const ed = Q('#code');
+  const fillHandle = Q('#fh');
   const tdOf = (r, c) => G.rows[r + 1]?.cells[c + 1];
 
   let S = { a: { r: 0, c: 0 }, f: { r: 0, c: 0 } };
   let drag = 0;
+  let fillDrag = null;
   let flowOn = true;
 
   const sheet = () => ctx.currentSheet();
@@ -188,9 +190,50 @@ export function createGrid(ctx) {
       sel(r, c, e.shiftKey);
       drag = 1;
     });
-    G.addEventListener('mouseover', e => { if (!drag) return; const td = e.target.closest('td'); if (td) { S.f = { r: td.parentNode.rowIndex - 1, c: td.cellIndex - 1 }; showCell(); } });
+    fillHandle.addEventListener('mousedown', e => {
+      if (ctx.editor.isCellEditing()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const source = rect();
+      fillDrag = { source, target: { r: source.r1, c: source.c1 } };
+    });
+    G.addEventListener('mouseover', e => {
+      const td = e.target.closest('td');
+      if (!td) return;
+      const target = { r: td.parentNode.rowIndex - 1, c: td.cellIndex - 1 };
+      if (fillDrag) {
+        fillDrag.target = target;
+        const { source } = fillDrag;
+        S = {
+          a: { r: Math.min(source.r0, target.r), c: Math.min(source.c0, target.c) },
+          f: { r: Math.max(source.r1, target.r), c: Math.max(source.c1, target.c) },
+        };
+        showCell();
+      } else if (drag) {
+        S.f = target;
+        showCell();
+      }
+    });
     G.addEventListener('dblclick', e => { if (e.target.closest('td')) edit(); });
-    window.addEventListener('mouseup', () => drag = 0);
+    window.addEventListener('mouseup', () => {
+      drag = 0;
+      if (!fillDrag) return;
+      const { source, target } = fillDrag;
+      fillDrag = null;
+      const targetRect = {
+        r0: Math.min(source.r0, target.r), r1: Math.max(source.r1, target.r),
+        c0: Math.min(source.c0, target.c), c1: Math.max(source.c1, target.c),
+      };
+      const extendsSource = targetRect.r0 < source.r0 || targetRect.r1 > source.r1
+        || targetRect.c0 < source.c0 || targetRect.c1 > source.c1;
+      if (extendsSource) {
+        const changed = ctx.session.fillRange(sheet().name, source, targetRect);
+        paint(changed);
+        ctx.updateStatus();
+      }
+      S = { a: { r: targetRect.r0, c: targetRect.c0 }, f: { r: targetRect.r1, c: targetRect.c1 } };
+      showCell();
+    });
   }
 
   function hasImplicitCljsSyntax(source) {
