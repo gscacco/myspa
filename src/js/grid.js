@@ -21,7 +21,14 @@ export function createGrid(ctx) {
   const ed = Q('#code');
   const fillHandle = Q('#fh');
   const INITIAL_FULL_ROWS = 100;
+  const MAX_HIGHLIGHTED_CELL_LENGTH = 2000;
+  const CELL_VALUE_PREVIEW_LENGTH = 160;
+  const FLOW_HIGHLIGHT_LIMIT = 256;
   const tdOf = (r, c) => materializeRow(r)?.cells[c + 1];
+  const existingTdOf = (r, c) => {
+    const td = G.rows[r + 1]?.cells[c + 1];
+    return td && !td.classList.contains('grid-placeholder') ? td : null;
+  };
   const DEFAULT_COL_WIDTH = 84, DEFAULT_ROW_HEIGHT = 24;
   const clampSize = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -32,6 +39,7 @@ export function createGrid(ctx) {
   let fillDrag = null;
   let resizeDrag = null;
   let flowOn = true;
+  const flowCells = new Set();
 
   const sheet = () => ctx.currentSheet();
   const rect = () => ({ r0: Math.min(S.a.r, S.f.r), r1: Math.max(S.a.r, S.f.r), c0: Math.min(S.a.c, S.f.c), c1: Math.max(S.a.c, S.f.c) });
@@ -42,7 +50,12 @@ export function createGrid(ctx) {
     const placeholder = row?.cells[1];
     if (!placeholder || !placeholder.classList.contains('grid-placeholder')) return row;
     const cells = document.createDocumentFragment();
-    for (let c = 0; c < COLS; c++) cells.appendChild(document.createElement('td'));
+    const height = Number(row.style.height.replace('px', '')) || DEFAULT_ROW_HEIGHT;
+    for (let c = 0; c < COLS; c++) {
+      const td = document.createElement('td');
+      td.style.height = height + 'px';
+      cells.appendChild(td);
+    }
     row.replaceChild(cells, placeholder);
     return row;
   }
@@ -113,9 +126,11 @@ export function createGrid(ctx) {
     const s = sheetByName(ctx.session.workbook, n.sh);
     const f = (s && s.cells[n.a]) || {};
     td.className = (n.err ? 'e ' : '') + (typeof n.val === 'number' ? 'n ' : '') + (n.display != null ? 'clj-value' : '');
-    if (n.display != null) td.innerHTML = highlightClojureScript(n.display, { declarationCode: ctx.session.workbook.code });
+    const largeCljsValue = n.display != null && n.display.length > MAX_HIGHLIGHTED_CELL_LENGTH;
+    if (largeCljsValue) td.textContent = n.display.slice(0, CELL_VALUE_PREVIEW_LENGTH) + '…';
+    else if (n.display != null) td.innerHTML = highlightClojureScript(n.display, { declarationCode: ctx.session.workbook.code });
     else td.textContent = disp(n, f);
-    td.title = n.err ? n.err.message : '';
+    td.title = n.err ? n.err.message : largeCljsValue ? 'Large ClojureScript value; inspect the complete value with Explore Data.' : '';
     td.style.fontWeight = f.b ? '700' : '';
     td.style.background = f.bg || '';
   }
@@ -140,6 +155,7 @@ export function createGrid(ctx) {
       const cells = compact ? '<td class="grid-placeholder" colspan="' + COLS + '"></td>' : '<td></td>'.repeat(COLS);
       h += '<tr><th>' + (r + 1) + '<div class="row-resizer" data-row="' + r + '" title="Resize row"></div></th>' + cells + '</tr>';
     }
+    clearFlowMarks();
     G.innerHTML = h;
     applySizes();
     Object.keys(sheet().cells).forEach(a => paintCell(ctx.session.engine.nd(sheet().name + '!' + a)));
@@ -167,12 +183,21 @@ export function createGrid(ctx) {
   }
 
   /** Evidenzia i nodi da cui la cella attiva dipende (blu) e i dipendenti (arancio). */
+  function clearFlowMarks() {
+    flowCells.forEach(td => td.classList.remove('pre', 'post'));
+    flowCells.clear();
+  }
+
   function flow() {
-    document.querySelectorAll('.pre,.post').forEach(e => e.classList.remove('pre', 'post'));
+    clearFlowMarks();
     if (!flowOn) return;
     const n = ctx.session.engine.getNode(sheet().name + '!' + addr(S.a.r, S.a.c));
-    if (!n) return;
-    const mk = (d, k) => { if (d.sh !== sheet().name) return; const p = parseRef(d.a); tdOf(p.r, p.c)?.classList.add(k); };
+    if (!n || n.deps.size + n.rd.size > FLOW_HIGHLIGHT_LIMIT) return;
+    const mk = (d, k) => {
+      if (d.sh !== sheet().name) return;
+      const p = parseRef(d.a), td = existingTdOf(p.r, p.c);
+      if (td) { td.classList.add(k); flowCells.add(td); }
+    };
     n.deps.forEach(d => mk(d, 'pre'));
     n.rd.forEach(d => mk(d, 'post'));
   }

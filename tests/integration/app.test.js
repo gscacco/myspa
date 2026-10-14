@@ -205,6 +205,10 @@ test('ClojureScript values in cells share the editor syntax highlighting safely'
   assert.equal(td.querySelector('i.s')?.textContent, '"<tag>"');
   assert.ok(td.innerHTML.includes('&lt;tag'));
   assert.equal(td.querySelector('tag'), null);
+  app.grid.setCellText(10, 8, '(vec (range 1000))');
+  assert.equal(app.session.engine.evaluate('Foglio1!I11').length, 1000, 'the complete value remains available to the workbook');
+  assert.ok(td.textContent.endsWith('…'), 'large values are previewed in the grid');
+  assert.equal(td.querySelector('i'), null, 'large values do not create syntax-highlight spans');
   close();
 });
 
@@ -646,11 +650,28 @@ test('the functions panel can be opened and closed', async () => {
 });
 
 test('the dependency-flow toggle highlights sources and dependents', async () => {
-  const { document, window, close } = await mountApp();
+  const { document, window, app, close } = await mountApp();
   mouse(window, 'mousedown', cell(document, 5, 3));
   assert.ok(document.querySelectorAll('#g td.pre').length > 0);
   mouse(window, 'click', document.querySelector('[data-action="toggle-flow"]'));
   assert.equal(document.querySelectorAll('#g td.pre').length, 0);
+
+  const querySelectorAll = document.querySelectorAll.bind(document);
+  let fullFlowScans = 0;
+  document.querySelectorAll = selector => {
+    if (selector === '.pre,.post') fullFlowScans++;
+    return querySelectorAll(selector);
+  };
+  app.grid.sel(0, 0);
+  assert.equal(fullFlowScans, 0, 'turning flow off avoids document-wide scans on cell selection');
+
+  mouse(window, 'click', document.querySelector('[data-action="toggle-flow"]'));
+  const changed = app.session.pasteRows('Foglio1', 0, 0, Array.from({ length: 277 }, (_, i) => [i + 1]));
+  app.grid.paint(changed);
+  app.grid.setCellText(0, 25, '=SUM(A1:A277)');
+  app.grid.sel(0, 25);
+  assert.equal(app.session.engine.evaluate('Foglio1!Z1'), 277 * 278 / 2);
+  assert.equal(document.querySelectorAll('#g td.pre').length, 0, 'very large dependency sets are not highlighted');
   close();
 });
 
