@@ -10,7 +10,7 @@ There is currently no schedule or timeline for future versions.
 
 ## What it can do
 
-- Edit workbooks with multiple sheets, each with a 100-row by 26-column grid.
+- Edit workbooks with multiple sheets, each with a 1024-row by 26-column grid.
 - Use cell references, ranges, absolute references, and references to other sheets in formulas.
 - Recalculate dependent cells and report formula errors, including circular references.
 - Write ClojureScript forms directly in cells, such as `(+ 1 2 3)`, `:pippo`, `[1 2 3]`, and `{:pippo 12}`. Existing infix formulas such as `=B2*C2` remain supported.

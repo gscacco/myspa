@@ -52,7 +52,7 @@ const cell = (document, r, c) => document.querySelector('#g').rows[r + 1].cells[
 test('the artifact starts and calculates the sample workbook values', () => {
   const { dom } = load();
   const { document } = dom.window;
-  assert.equal(document.querySelector('#g').rows.length, 101);
+  assert.equal(document.querySelector('#g').rows.length, 1025);
   assert.equal(cell(document, 1, 1).textContent, '1.50');
   assert.equal(cell(document, 1, 3).textContent, '150.00');
   assert.equal(cell(document, 1, 4).textContent, '183.00');

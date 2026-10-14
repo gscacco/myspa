@@ -14,7 +14,7 @@
  */
 
 /** Numero di righe della griglia. */
-export const ROWS = 100;
+export const ROWS = 1024;
 /** Numero di colonne della griglia. */
 export const COLS = 26;
 

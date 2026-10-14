@@ -20,7 +20,8 @@ export function createGrid(ctx) {
   const G = Q('#g');
   const ed = Q('#code');
   const fillHandle = Q('#fh');
-  const tdOf = (r, c) => G.rows[r + 1]?.cells[c + 1];
+  const INITIAL_FULL_ROWS = 100;
+  const tdOf = (r, c) => materializeRow(r)?.cells[c + 1];
   const DEFAULT_COL_WIDTH = 84, DEFAULT_ROW_HEIGHT = 24;
   const clampSize = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -34,6 +35,42 @@ export function createGrid(ctx) {
 
   const sheet = () => ctx.currentSheet();
   const rect = () => ({ r0: Math.min(S.a.r, S.f.r), r1: Math.max(S.a.r, S.f.r), c0: Math.min(S.a.c, S.f.c), c1: Math.max(S.a.c, S.f.c) });
+
+  /** Expand a compact blank row when a cell in it is accessed. */
+  function materializeRow(r) {
+    const row = G.rows[r + 1];
+    const placeholder = row?.cells[1];
+    if (!placeholder || !placeholder.classList.contains('grid-placeholder')) return row;
+    const cells = document.createDocumentFragment();
+    for (let c = 0; c < COLS; c++) cells.appendChild(document.createElement('td'));
+    row.replaceChild(cells, placeholder);
+    return row;
+  }
+
+  /** Resolve a click on a compact row to the column under the pointer. */
+  function columnAt(e, td) {
+    if (td.colSpan <= 1) return td.cellIndex - 1;
+    const x = Math.max(0, e.clientX - td.getBoundingClientRect().left);
+    let edge = 0;
+    const widths = [...G.querySelectorAll('col[data-column]')].map(col => Number(col.style.width.replace('px', '')) || DEFAULT_COL_WIDTH);
+    for (let c = 0; c < COLS; c++) {
+      edge += widths[c];
+      if (x < edge) return c;
+    }
+    return COLS - 1;
+  }
+
+  /** Grid lines for compact blank rows, including custom column widths. */
+  function compactRowGridlines() {
+    let edge = 0;
+    const stops = ['var(--ln) 0px', 'var(--ln) 1px'];
+    const widths = [...G.querySelectorAll('col[data-column]')].map(col => Number(col.style.width.replace('px', '')) || DEFAULT_COL_WIDTH);
+    for (let c = 0; c < COLS; c++) {
+      edge += widths[c];
+      stops.push('transparent ' + (edge - 1) + 'px', 'var(--ln) ' + edge + 'px', 'transparent ' + (edge + 1) + 'px');
+    }
+    return 'linear-gradient(to right, ' + stops.join(',') + ')';
+  }
 
   function previewReferenceRange(start, end) {
     refRangeCells.forEach(td => td.classList.remove('ref-range-target'));
@@ -97,7 +134,12 @@ export function createGrid(ctx) {
   function render() {
     let h = '<colgroup><col class="row-head-col"><col data-column="0">' + [...Array(COLS - 1)].map((_, i) => '<col data-column="' + (i + 1) + '">').join('') + '</colgroup>';
     h += '<tr><th></th>' + [...Array(COLS)].map((_, c) => '<th>' + colName(c) + '<div class="col-resizer" data-column="' + c + '" title="Resize column"></div></th>').join('') + '</tr>';
-    for (let r = 0; r < ROWS; r++) h += '<tr><th>' + (r + 1) + '<div class="row-resizer" data-row="' + r + '" title="Resize row"></div></th>' + '<td></td>'.repeat(COLS) + '</tr>';
+    const populatedRows = new Set(Object.keys(sheet().cells).map(a => parseRef(a).r));
+    for (let r = 0; r < ROWS; r++) {
+      const compact = r >= INITIAL_FULL_ROWS && !populatedRows.has(r);
+      const cells = compact ? '<td class="grid-placeholder" colspan="' + COLS + '"></td>' : '<td></td>'.repeat(COLS);
+      h += '<tr><th>' + (r + 1) + '<div class="row-resizer" data-row="' + r + '" title="Resize row"></div></th>' + cells + '</tr>';
+    }
     G.innerHTML = h;
     applySizes();
     Object.keys(sheet().cells).forEach(a => paintCell(ctx.session.engine.nd(sheet().name + '!' + a)));
@@ -114,6 +156,7 @@ export function createGrid(ctx) {
     });
     G.querySelector('.row-head-col').style.width = '46px';
     G.style.width = tableWidth + 'px';
+    G.style.setProperty('--compact-gridlines', compactRowGridlines());
     for (let r = 0; r < ROWS; r++) {
       const height = clampSize(Number(current.heights?.[r]) || DEFAULT_ROW_HEIGHT, 18, 500);
       const row = G.rows[r + 1];
@@ -250,7 +293,7 @@ export function createGrid(ctx) {
       }
       const td = e.target.closest('td');
       if (!td) return;
-      const r = td.parentNode.rowIndex - 1, c = td.cellIndex - 1;
+      const r = td.parentNode.rowIndex - 1, c = columnAt(e, td);
       if (ctx.editor.isCellEditing()) {
         const v = ed.value, p = ed.selectionStart;
         const prefix = v.slice(0, p);
@@ -291,7 +334,7 @@ export function createGrid(ctx) {
     G.addEventListener('mouseover', e => {
       const td = e.target.closest('td');
       if (!td) return;
-      const target = { r: td.parentNode.rowIndex - 1, c: td.cellIndex - 1 };
+      const target = { r: td.parentNode.rowIndex - 1, c: columnAt(e, td) };
       if (refDrag) {
         refDrag.end = target;
         previewReferenceRange(refDrag.start, target);

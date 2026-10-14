@@ -5,8 +5,8 @@ import {
   addSheet, removeSheet, uniqueSheetName, parseInput,
 } from '../../src/js/model.js';
 
-test('le dimensioni della griglia sono quelle storiche', () => {
-  assert.equal(ROWS, 100);
+test('la griglia contiene 1024 righe e 26 colonne', () => {
+  assert.equal(ROWS, 1024);
   assert.equal(COLS, 26);
 });
 

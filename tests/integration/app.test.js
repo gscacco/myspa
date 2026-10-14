@@ -8,12 +8,16 @@ const mouse = (window, type, el) => el.dispatchEvent(new window.MouseEvent(type,
 const key = (window, el, init) => el.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, ...init }));
 
 test('startup builds the grid and calculates cell values', async () => {
-  const { document, close } = await mountApp();
+  const { document, window, app, close } = await mountApp();
   const G = document.querySelector('#g');
-  assert.equal(G.rows.length, 101);
+  assert.equal(G.rows.length, 1025);
   assert.equal(G.rows[0].cells.length, 27);
   assert.equal(G.rows[0].cells[1].textContent, 'A');
   assert.equal(G.rows[0].cells[26].textContent, 'Z');
+  assert.equal(G.rows[1024].cells[0].textContent, '1024');
+  assert.equal(G.rows[1024].cells[1].colSpan, 26);
+  G.rows[101].cells[1].dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100 }));
+  assert.equal(document.querySelector('#nb').value, 'B101');
   assert.equal(G.rows[1].cells[1].textContent, 'Prodotto');
   assert.equal(cell(document, 1, 1).textContent, '1.50');
   assert.equal(cell(document, 1, 3).textContent, '150.00');
@@ -21,6 +25,10 @@ test('startup builds the grid and calculates cell values', async () => {
   assert.equal(cell(document, 5, 3).textContent, '843.80');
   assert.equal(cell(document, 5, 4).textContent, '1029.44');
   assert.equal(cell(document, 8, 3).textContent, 'Bassa');
+  app.grid.sel(1023, 0);
+  assert.equal(document.querySelector('#nb').value, 'A1024');
+  app.grid.setCellText(1023, 0, 'Ultima riga');
+  assert.equal(cell(document, 1023, 0).textContent, 'Ultima riga');
   close();
 });
 
