@@ -196,7 +196,7 @@ export function coreBuiltins() {
 
 export function sheetCoreVars(extra = null) {
   ensureSheetCore();
-  const names = ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF'];
+  const names = ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', 'style-range!', 'clear-range-style!'];
   const vars = Object.fromEntries(names.map(name => [name, jsCallable('sheet.core', name)]));
   return Object.assign(Object.create(null), vars, extra || {});
 }

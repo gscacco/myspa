@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorkbook, getCell, getRaw } from '../../src/js/model.js';
+import { readEDN, writeEDN } from '../../src/js/edn.js';
 import { createSession } from '../../src/js/workbook.js';
 
 /** Sessione su un foglio vuoto con qualche valore. */
@@ -72,6 +73,53 @@ test('formatRange restituisce gli indirizzi toccati', () => {
   const s = makeSession();
   const list = s.formatRange('S', { r0: 0, r1: 1, c0: 0, c1: 1 }, 'b', '');
   assert.deepEqual(list, ['A1', 'B1', 'A2', 'B2']);
+});
+
+test('setRangeStyle applies validated styles to ranges and clearRangeStyle removes them', () => {
+  const s = makeSession();
+  const rect = { r0: 0, r1: 1, c0: 0, c1: 1 };
+  const styles = {
+    background: '#fff2a8', color: 'navy', bold: true, italic: true, underline: true,
+    'font-size': 14, 'font-family': 'Arial, sans-serif',
+    'border-color': '#1d6f42', 'border-width': 2, 'border-style': 'dashed',
+  };
+  assert.deepEqual(s.setRangeStyle('S', rect, styles), ['A1', 'B1', 'A2', 'B2']);
+  assert.deepEqual(getCell(s.workbook, 'S', 'B2').style, styles);
+  assert.deepEqual(s.setRangeStyle('S', rect, { italic: false, color: null }), ['A1', 'B1', 'A2', 'B2']);
+  assert.equal(getCell(s.workbook, 'S', 'A1').style.italic, false);
+  assert.equal(Object.hasOwn(getCell(s.workbook, 'S', 'A1').style, 'color'), false);
+  assert.deepEqual(s.setRangeStyle('S', rect, null), ['A1', 'B1', 'A2', 'B2']);
+  assert.equal(getCell(s.workbook, 'S', 'A1').style, undefined);
+  assert.equal(s.isModified(), true);
+});
+
+test('setRangeStyle rejects unsupported properties and invalid style values', () => {
+  const s = makeSession();
+  const rect = { r0: 0, r1: 0, c0: 0, c1: 0 };
+  assert.throws(() => s.setRangeStyle('S', rect, { opacity: 0.5 }), /Unknown cell style/);
+  assert.throws(() => s.setRangeStyle('S', rect, { 'border-width': 99 }), /between 0 and 12/);
+  assert.equal(getCell(s.workbook, 'S', 'A1').style, undefined);
+});
+
+test('setRangeStyle clear also removes legacy toolbar bold and background but keeps decimal formatting', () => {
+  const s = makeSession();
+  const cell = getCell(s.workbook, 'S', 'A1');
+  cell.b = true;
+  cell.bg = '#fff';
+  cell.d = 2;
+  s.setRangeStyle('S', { r0: 0, r1: 0, c0: 0, c1: 0 }, null);
+  assert.equal(cell.b, undefined);
+  assert.equal(cell.bg, undefined);
+  assert.equal(cell.d, 2);
+});
+
+test('range styles survive workbook EDN serialization and can be undone', () => {
+  const s = makeSession();
+  s.setRangeStyle('S', { r0: 0, r1: 0, c0: 0, c1: 0 }, { background: '#fff2a8', 'border-width': 2 });
+  const reopened = createWorkbook(readEDN(writeEDN(s.workbook)));
+  assert.deepEqual(getCell(reopened, 'S', 'A1').style, { background: '#fff2a8', 'border-width': 2 });
+  s.undo();
+  assert.equal(getCell(s.workbook, 'S', 'A1').style, undefined);
 });
 
 test('pasteRows con appunti interni sposta i riferimenti', () => {

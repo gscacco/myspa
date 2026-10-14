@@ -14,6 +14,16 @@ export const SHEET_CORE_SOURCE = `(ns sheet.core)
     (if (.-rangeClj bridge)
       (js->clj ((.-rangeClj bridge) id) :keywordize-keys true)
       (js->clj ((.-range bridge) id) :keywordize-keys true)))))
+(def style-range! (fn [reference styles]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-styleRange bridge)
+      ((.-styleRange bridge) reference (when styles (clj->js styles)))
+      0))))
+(def clear-range-style! (fn [reference]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-styleRange bridge)
+      ((.-styleRange bridge) reference nil)
+      0))))
 (def log! (fn
   ([level message] (log! level message nil))
   ([level message metadata]
@@ -145,6 +155,10 @@ export function ensureSheetCore() {
       rangeClj(id) {
         if (!bridgeState.active) throw new Error('accesso a intervallo fuori da una valutazione');
         return (bridgeState.active.rangeClj || bridgeState.active.range)(id);
+      },
+      styleRange(reference, style) {
+        if (!bridgeState.active?.styleRange) throw new Error('cell styling is unavailable outside an application evaluation');
+        return bridgeState.active.styleRange(reference, style);
       },
       log(level, message, metadata) {
         if (!bridgeState.active?.log) return null;

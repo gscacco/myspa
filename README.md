@@ -17,6 +17,7 @@ There is currently no schedule or timeline for future versions.
 - Define functions in the ClojureScript editor and call them from formulas.
 - Open the selected cell in the syntax-highlighted, line-numbered editor with Ctrl+Enter. In the editor, Enter inserts a line and Ctrl+Enter applies a cell formula or evaluates the form before the cursor.
 - Apply basic formatting, including bold text, decimal places, and background colors. Copy and paste cell ranges, and undo or redo workbook changes.
+- Use ClojureScript functions to format one cell or a range, including text and border styles.
 - Save and reopen a workbook as a standalone HTML file containing the application and workbook data.
 
 The runtime is Scittle 0.8.33, which evaluates ClojureScript through SCI. It does not require Java or a JVM. SCI is an interpreter, not the official ClojureScript compiler, and it does not provide the complete ClojureScript build and library ecosystem. The spreadsheet functions and cell-reference bridge are defined in `src/js/scittle-runtime.js`; `src/js/cljs.js` contains the editor reader and compatibility wrappers that delegate evaluation to Scittle.
@@ -81,6 +82,40 @@ Common ClojureScript core functions include arithmetic and comparisons (`+`, `-`
 Click **Help** in the toolbar to open the searchable ClojureScript reference. It documents the functions exposed by Foglio's runtime, spreadsheet functions, special forms such as `defn`, `loop`, and `recur`, important values and system keywords, and examples for cell references, Messages, and event hooks. The same descriptions are available in the editor's inline completion suggestions.
 
 Choose an entry to read its description and example. **Copy example** places the example on the clipboard. **Insert into editor** adds it at the current cursor position in the `ƒ CLJS` editor, opening that editor if needed; it does not run the code or change a cell. Review the inserted code, then use Ctrl+Enter to evaluate the form at the cursor or apply the editor code as appropriate. Examples that refer to names such as `records`, `record`, or `event` expect those values to exist in the workbook or calling context.
+
+### Styling cells from ClojureScript
+
+Use `style-range!` to style a single cell or range by its text reference. An unqualified reference uses the sheet containing the running cell, or the currently selected sheet when evaluated from the `ƒ CLJS` editor. Add `SheetName!` to target a specific sheet. The function merges the supplied options with existing styles, returns the number of cells changed, records the change for undo, and does not change cell values or recalculate formulas.
+
+```clojure
+(style-range! "A1:B3"
+  {:background "#fff2a8"
+   :color "#243447"
+   :bold true
+   :italic true
+   :underline false
+   :font-size 14
+   :font-family "Arial, sans-serif"
+   :border-color "#1d6f42"
+   :border-width 2
+   :border-style :solid})
+```
+
+Supported style keys are `:background`, `:color`, `:bold`, `:italic`, `:underline`, `:font-size`, `:font-family`, `:border-color`, `:border-width`, and `:border-style`. Font sizes are 8–72 pixels; border widths are 0–12 pixels. Border styles include `:none`, `:solid`, `:dashed`, `:dotted`, and `:double` (as well as the standard groove, ridge, inset, and outset styles). Set an individual option to `nil` to remove that override. `clear-range-style!` removes all styles set through this API and legacy toolbar bold/background styles, while preserving cell values and decimal formatting.
+
+Style operations can run in an event hook. This example highlights the current selection and works for both a cell and a range:
+
+```clojure
+(defn highlight-selection [event]
+  (let [selection (get-in event [:data :selection])]
+    (style-range! (str (:sheet selection) "!" (:range selection))
+      {:background "#fff2a8" :bold true
+       :border-color "#b7791f" :border-width 2 :border-style :solid})))
+
+(add-hook :on-selection-change highlight-selection)
+```
+
+Use `(clear-hook :on-selection-change)` to remove selection hooks, and `(clear-range-style! "A1:B3")` to reset the example's styles.
 
 ## Explore Data
 

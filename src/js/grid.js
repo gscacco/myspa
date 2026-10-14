@@ -86,6 +86,7 @@ export function createGrid(ctx) {
       cells.appendChild(td);
     }
     row.replaceChild(cells, placeholder);
+    for (let c = 0; c < COLS; c++) paintCell(ctx.session.engine.nd(sheet().name + '!' + addr(r, c)));
     return row;
   }
 
@@ -160,8 +161,17 @@ export function createGrid(ctx) {
     else if (n.display != null) td.innerHTML = highlightClojureScript(n.display, { declarationCode: ctx.session.workbook.code });
     else td.textContent = disp(n, f);
     td.title = n.err ? n.err.message : largeCljsValue ? 'Large ClojureScript value; inspect the complete value with Explore Data.' : '';
-    td.style.fontWeight = f.b ? '700' : '';
-    td.style.background = f.bg || '';
+    const style = f.style || {};
+    td.style.fontWeight = style.bold === undefined ? (f.b ? '700' : '') : (style.bold ? '700' : '400');
+    td.style.fontStyle = style.italic ? 'italic' : '';
+    td.style.textDecoration = style.underline ? 'underline' : '';
+    td.style.color = style.color || '';
+    td.style.backgroundColor = style.background || f.bg || '';
+    td.style.fontSize = style['font-size'] == null ? '' : `${style['font-size']}px`;
+    td.style.fontFamily = style['font-family'] || '';
+    td.style.borderColor = style['border-color'] || '';
+    td.style.borderWidth = style['border-width'] == null ? '' : `${style['border-width']}px`;
+    td.style.borderStyle = style['border-style'] || '';
   }
 
   /** Ridisegna i nodi indicati che appartengono al foglio corrente. */
@@ -171,7 +181,11 @@ export function createGrid(ctx) {
 
   /** Ridisegna le celle di un elenco di indirizzi del foglio corrente. */
   function paintAddresses(list) {
-    list.forEach(a => paintCell(ctx.session.engine.nd(sheet().name + '!' + a)));
+    const currentSheet = sheet().name;
+    list.forEach(a => {
+      const { r, c } = parseRef(a);
+      if (existingTdOf(r, c)) paintCell(ctx.session.engine.nd(currentSheet + '!' + a));
+    });
   }
 
   /** Costruisce l'intera tabella e ne popola le celle. */

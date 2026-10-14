@@ -29,7 +29,7 @@ import {
 } from './scittle-runtime.js';
 
 let nextEngineId = 1;
-const SHEET_VARS = ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$'];
+const SHEET_VARS = ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$', 'style-range!', 'clear-range-style!'];
 const CORE_VARS = [
   '+', '-', '*', '/', 'mod', 'rem', 'inc', 'dec', 'min', 'max', '=', 'not=', '<', '<=', '>', '>=',
   'not', 'nil?', 'some?', 'number?', 'string?', 'boolean?', 'fn?', 'vector?', 'map?', 'empty?', 'zero?',
@@ -68,7 +68,7 @@ function toError(error, source = '') {
  *
  * @param {object} workbook
  */
-export function createEngine(workbook, { log = null, hooks = null } = {}) {
+export function createEngine(workbook, { log = null, hooks = null, styleRange: applyStyleRange = null } = {}) {
   let wb = workbook;
   const report = (level, message, metadata) => {
     try { if (typeof log === 'function') log(level, message, metadata); }
@@ -225,6 +225,10 @@ export function createEngine(workbook, { log = null, hooks = null } = {}) {
 
   const cellBridge = () => ({
     read: $, range: $$, readClj: $clj, rangeClj: $$clj,
+    styleRange(reference, style) {
+      if (typeof applyStyleRange !== 'function') throw new Error('Cell styling is unavailable in this evaluation context');
+      return applyStyleRange(reference, style, ctx?.sh);
+    },
     addHook(event, callback) { return hooks?.add(event, callback) ?? false; },
     removeHook(event, callback) { return hooks?.remove(event, callback) ?? false; },
     clearHook(event) { return hooks?.clear(event) ?? 0; },

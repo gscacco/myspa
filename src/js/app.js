@@ -26,9 +26,15 @@ export function createApp() {
   const modelEl = document.querySelector('#model');
   const messages = createMessagesStore();
   const hooks = createEventHooks();
-  const session = createSession(createWorkbook(readEDN(modelEl.textContent)), { log: messages.log, hooks });
-
   let ci = 0;
+  const initialWorkbook = createWorkbook(readEDN(modelEl.textContent));
+  let session;
+  session = createSession(initialWorkbook, {
+    log: messages.log,
+    hooks,
+    getCurrentSheet: () => session?.workbook.sheets[ci]?.name || initialWorkbook.sheets[0]?.name,
+  });
+
   let note = '';
 
   /** Contesto condiviso fra i moduli della vista. */
@@ -98,6 +104,10 @@ export function createApp() {
   const editor = createEditor(ctx);
   ctx.grid = grid;
   ctx.editor = editor;
+  session.setStyleListener(({ sheetName, addresses }) => {
+    if (ctx.currentSheet().name === sheetName) grid.paintAddresses(addresses);
+    ctx.updateStatus();
+  });
 
   const persistence = createPersistence(ctx);
   ctx.save = as => persistence.save(as);

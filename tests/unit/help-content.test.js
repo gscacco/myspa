@@ -16,7 +16,7 @@ test('every help entry has a unique id, explanation, and copyable example', () =
 test('the help catalog covers every function exposed by the ClojureScript runtime', () => {
   const documented = new Set(HELP_ENTRIES.filter(entry => entry.kind === 'function').map(entry => entry.name));
   for (const name of Object.keys(coreBuiltins())) assert.ok(documented.has(name), `${name} is documented`);
-  for (const name of ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$', 'log!', 'add-hook', 'remove-hook', 'run-hook', 'clear-hook', 'list-hooks']) {
+  for (const name of ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$', 'log!', 'add-hook', 'remove-hook', 'run-hook', 'clear-hook', 'list-hooks', 'style-range!', 'clear-range-style!']) {
     assert.ok(documented.has(name), `${name} is documented`);
   }
 });
@@ -35,6 +35,8 @@ test('the reference documents selection hooks, event payload keywords, and all k
     'loop', 'recur', 'get-in', 'group-by', 'log!', 'add-hook', 'remove-hook',
     'run-hook', 'clear-hook', 'list-hooks', ':on-selection-change', ':info',
     ':warn', ':error', ':debug', ':category', ':details', ':exception',
-    ':previous-selection', ':selection', ':range', 'case', 'as->', 'finally',
+    ':previous-selection', ':selection', ':range', ':background', ':color', ':bold',
+    ':italic', ':underline', ':font-size', ':font-family', ':border-color', ':border-width', ':border-style',
+    'case', 'as->', 'finally',
   ]) assert.ok(names.has(name), `${name} is documented`);
 });

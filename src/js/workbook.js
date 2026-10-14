@@ -10,11 +10,74 @@
  */
 
 import { createEngine } from './engine.js';
-import { addr, shiftRefs } from './references.js';
+import { addr, colIndex, shiftRefs } from './references.js';
 import { ROWS, COLS, sheetByName, getRaw, parseInput, addSheet, removeSheet, uniqueSheetName } from './model.js';
 
 /** Numero massimo di passi conservati nella cronologia "annulla". */
 const HISTORY_LIMIT = 100;
+
+const STYLE_TYPES = Object.freeze({
+  background: 'color', color: 'color', bold: 'boolean', italic: 'boolean', underline: 'boolean',
+  'font-size': 'fontSize', 'font-family': 'fontFamily',
+  'border-color': 'color', 'border-width': 'borderWidth', 'border-style': 'borderStyle',
+});
+const BORDER_STYLES = new Set(['none', 'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset']);
+
+function isColor(value) {
+  return typeof value === 'string' && value.length <= 64 && (
+    /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(value)
+    || /^[a-z]{1,24}$/i.test(value)
+    || /^(?:rgb|rgba|hsl|hsla)\([\d\s,.%/-]+\)$/i.test(value)
+    || /^var\(--[\w-]+\)$/i.test(value)
+  );
+}
+
+function normalizeStyle(style) {
+  if (style == null) return null;
+  if (typeof style !== 'object' || Array.isArray(style)) throw new TypeError('Cell style must be a ClojureScript map');
+  const result = {};
+  for (const [rawKey, value] of Object.entries(style)) {
+    const key = rawKey.replace(/^:/, '');
+    const type = STYLE_TYPES[key];
+    if (!type) throw new Error(`Unknown cell style :${key}`);
+    if (value == null) { result[key] = null; continue; }
+    if (type === 'color') {
+      if (!isColor(value)) throw new TypeError(`:${key} must be a CSS color`);
+    } else if (type === 'boolean') {
+      if (typeof value !== 'boolean') throw new TypeError(`:${key} must be true or false`);
+    } else if (type === 'fontSize') {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 8 || value > 72) throw new RangeError(':font-size must be between 8 and 72 pixels');
+    } else if (type === 'fontFamily') {
+      if (typeof value !== 'string' || !value.trim() || value.length > 80 || !/^[\w\s,'"-]+$/.test(value)) throw new TypeError(':font-family must be a plain font-family name');
+    } else if (type === 'borderWidth') {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 12) throw new RangeError(':border-width must be between 0 and 12 pixels');
+    } else if (type === 'borderStyle') {
+      const border = String(value).replace(/^:/, '');
+      if (!BORDER_STYLES.has(border)) throw new TypeError(`Unsupported :border-style ${border}`);
+      result[key] = border;
+      continue;
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+function parseStyleTarget(target, defaultSheet) {
+  const match = /^(?:([A-Za-z_]\w*)!)?\$?([A-Z]{1,2})\$?(\d+)(?::\$?([A-Z]{1,2})\$?(\d+))?$/.exec(String(target ?? '').trim());
+  if (!match) throw new Error(`Invalid cell or range reference: ${target}`);
+  const sheetName = match[1] || defaultSheet;
+  if (!sheetName) throw new Error('No current sheet is available for this style operation');
+  const start = { r: Number(match[3]) - 1, c: colIndex(match[2]) };
+  const end = match[4] ? { r: Number(match[5]) - 1, c: colIndex(match[4]) } : start;
+  if ([start.r, end.r].some(row => row < 0 || row >= ROWS)
+    || [start.c, end.c].some(column => column < 0 || column >= COLS)) {
+    throw new RangeError(`Cell or range is outside the grid: ${target}`);
+  }
+  return {
+    sheetName,
+    rect: { r0: Math.min(start.r, end.r), r1: Math.max(start.r, end.r), c0: Math.min(start.c, end.c), c1: Math.max(start.c, end.c) },
+  };
+}
 
 /**
  * Crea una sessione di lavoro su un workbook.
@@ -22,7 +85,17 @@ const HISTORY_LIMIT = 100;
  */
 export function createSession(workbook, options = {}) {
   let wb = workbook;
-  const engine = createEngine(wb, options);
+  let styleListener = options.onStyle || null;
+  const engine = createEngine(wb, {
+    ...options,
+    styleRange: (target, style, sourceSheet) => {
+      const currentSheet = sourceSheet || options.getCurrentSheet?.() || wb.sheets[0]?.name;
+      const { sheetName, rect } = parseStyleTarget(target, currentSheet);
+      const addresses = setRangeStyle(sheetName, rect, style);
+      if (addresses.length) styleListener?.({ sheetName, addresses });
+      return addresses.length;
+    },
+  });
   const undoStack = [];
   const redoStack = [];
   let modified = false;
@@ -89,6 +162,43 @@ export function createSession(workbook, options = {}) {
       if (!Object.keys(cell).length) delete s.cells[a];
     });
     return list;
+  }
+
+  /** Apply supported presentation styles to a cell range without recalculating values. */
+  function setRangeStyle(sheetName, rect, style) {
+    const normalized = normalizeStyle(style);
+    const sheet = sheetByName(wb, sheetName);
+    if (!sheet) throw new Error(`Unknown sheet: ${sheetName}`);
+    const plans = [];
+    for (let r = rect.r0; r <= rect.r1; r++) for (let c = rect.c0; c <= rect.c1; c++) {
+      const address = addr(r, c), cell = sheet.cells[address];
+      const next = normalized === null ? {} : { ...(cell?.style || {}) };
+      if (normalized !== null) {
+        for (const [key, value] of Object.entries(normalized)) {
+          if (value === null) delete next[key];
+          else next[key] = value;
+        }
+      }
+      const previous = cell?.style || {};
+      const changed = normalized === null
+        ? Object.keys(previous).length > 0 || cell?.b !== undefined || cell?.bg !== undefined
+        : Object.keys(previous).length !== Object.keys(next).length
+          || Object.entries(next).some(([key, value]) => previous[key] !== value);
+      if (changed) plans.push({ address, next });
+    }
+    if (!plans.length) return [];
+    snapshot();
+    for (const { address, next } of plans) {
+      const cell = (sheet.cells[address] ??= {});
+      if (normalized === null) {
+        delete cell.style;
+        delete cell.b;
+        delete cell.bg;
+      } else if (Object.keys(next).length) cell.style = next;
+      else delete cell.style;
+      if (!Object.keys(cell).length) delete sheet.cells[address];
+    }
+    return plans.map(plan => plan.address);
   }
 
   /**
@@ -227,6 +337,7 @@ export function createSession(workbook, options = {}) {
     isModified: () => modified,
     getHistorySize: () => undoStack.length,
     loadCode, rebuild, snapshot, setCell, clearRange, fillDown, formatRange,
+    setRangeStyle, setStyleListener: listener => { styleListener = typeof listener === 'function' ? listener : null; },
     pasteRows, fillRange, addNewSheet, deleteSheet, applyCode, evalForm, restore, undo, redo, replace, markSaved,
   };
 }

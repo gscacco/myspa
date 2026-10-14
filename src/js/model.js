@@ -11,6 +11,7 @@
  *   d  numero di decimali da mostrare
  *   b  grassetto (true)
  *   bg colore di sfondo
+ *   style mappa degli stili applicati dall'API ClojureScript
  */
 
 /** Numero di righe della griglia. */
@@ -32,7 +33,10 @@ export function createWorkbook(src = {}) {
       name: s.name,
       ...(s.widths ? { widths: { ...s.widths } } : {}),
       ...(s.heights ? { heights: { ...s.heights } } : {}),
-      cells: Object.fromEntries(Object.entries(s.cells || {}).map(([a, c]) => [a, { ...c }])),
+      cells: Object.fromEntries(Object.entries(s.cells || {}).map(([a, c]) => [a, {
+        ...c,
+        ...(c.style ? { style: { ...c.style } } : {}),
+      }])),
     })),
   };
 }
