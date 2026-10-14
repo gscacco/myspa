@@ -16,6 +16,7 @@ test('startup builds the grid and calculates cell values', async () => {
   assert.equal(G.rows[0].cells[26].textContent, 'Z');
   assert.equal(G.rows[1024].cells[0].textContent, '1024');
   assert.equal(G.rows[1024].cells[1].colSpan, 26);
+  assert.match(G.style.getPropertyValue('--compact-gridlines'), /transparent 83px,\s*var\(--ln\) 83px,\s*var\(--ln\) 84px,\s*transparent 84px/);
   G.rows[101].cells[1].dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100 }));
   assert.equal(document.querySelector('#nb').value, 'B101');
   assert.equal(G.rows[1].cells[1].textContent, 'Prodotto');

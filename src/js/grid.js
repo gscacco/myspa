@@ -76,11 +76,11 @@ export function createGrid(ctx) {
   /** Grid lines for compact blank rows, including custom column widths. */
   function compactRowGridlines() {
     let edge = 0;
-    const stops = ['var(--ln) 0px', 'var(--ln) 1px'];
+    const stops = ['transparent 0px', 'transparent 1px'];
     const widths = [...G.querySelectorAll('col[data-column]')].map(col => Number(col.style.width.replace('px', '')) || DEFAULT_COL_WIDTH);
     for (let c = 0; c < COLS; c++) {
       edge += widths[c];
-      stops.push('transparent ' + (edge - 1) + 'px', 'var(--ln) ' + edge + 'px', 'transparent ' + (edge + 1) + 'px');
+      stops.push('transparent ' + (edge - 1) + 'px', 'var(--ln) ' + (edge - 1) + 'px', 'var(--ln) ' + edge + 'px', 'transparent ' + edge + 'px');
     }
     return 'linear-gradient(to right, ' + stops.join(',') + ')';
   }
