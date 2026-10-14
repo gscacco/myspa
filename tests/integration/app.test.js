@@ -467,6 +467,33 @@ test('copy and paste work with the internal clipboard', async () => {
   close();
 });
 
+test('pasting preserves newlines inside a quoted or HTML clipboard cell', async () => {
+  const { document, app, close } = await mountApp();
+
+  app.grid.sel(9, 8);
+  const quoted = fakeClipboardEvent(document.body);
+  quoted.clipboardData.setData('text/plain', '"Uno\r\nDue"');
+  app.commands.paste(quoted);
+  assert.equal(app.currentSheet().cells.I10.r, 'Uno\nDue');
+  assert.equal(app.currentSheet().cells.I11, undefined, 'an embedded line break stays in one cell');
+
+  app.grid.sel(9, 9);
+  const fromExcel = fakeClipboardEvent(document.body);
+  fromExcel.clipboardData.setData('text/plain', 'Uno\nDue');
+  fromExcel.clipboardData.setData('text/html', '<table><tr><td>Uno<br>Due</td></tr></table>');
+  app.commands.paste(fromExcel);
+  assert.equal(app.currentSheet().cells.J10.r, 'Uno\nDue');
+  assert.equal(app.currentSheet().cells.J11, undefined, 'HTML cell boundaries disambiguate an unquoted Excel line break');
+
+  app.grid.sel(9, 10);
+  const rows = fakeClipboardEvent(document.body);
+  rows.clipboardData.setData('text/plain', 'Uno\nDue');
+  app.commands.paste(rows);
+  assert.equal(app.currentSheet().cells.K10.r, 'Uno');
+  assert.equal(app.currentSheet().cells.K11.r, 'Due', 'ordinary unquoted multiline text still pastes as rows');
+  close();
+});
+
 test('copying a ClojureScript formula shifts relative rows and columns while keeping dollar anchors', async () => {
   const { document, app, close } = await mountApp();
   app.grid.setCellText(1, 1, '1');

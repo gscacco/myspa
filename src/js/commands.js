@@ -14,6 +14,52 @@ import { createDataExplorer } from './data-explorer.js';
 /** Tasti che muovono la selezione. */
 const KEYS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0], Tab: [0, 1] };
 
+function quoteTsvCell(value) {
+  const text = String(value ?? '');
+  return /[\t\n\r"]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function parseTsv(text) {
+  const source = String(text || '').replace(/\r\n?/g, '\n');
+  if (!source) return [];
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < source.length; i++) {
+    const character = source[i];
+    if (quoted) {
+      if (character === '"' && source[i + 1] === '"') { field += '"'; i++; }
+      else if (character === '"') quoted = false;
+      else field += character;
+    } else if (character === '"' && field === '') quoted = true;
+    else if (character === '\t') { row.push(field); field = ''; }
+    else if (character === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else field += character;
+  }
+  if (field !== '' || row.length || !source.endsWith('\n')) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function parseHtmlClipboard(html) {
+  if (!html || !/<table\b/i.test(html) || !document.defaultView?.DOMParser) return null;
+  const parsed = new document.defaultView.DOMParser().parseFromString(html, 'text/html');
+  const table = parsed.querySelector('table');
+  if (!table) return null;
+  const cells = [...table.querySelectorAll('td, th')];
+  const hasCellBreak = cells.some(cell => cell.querySelector('br'));
+  const rows = [...table.querySelectorAll('tr')].map(tr => [...tr.children]
+    .filter(child => child.matches('td, th'))
+    .map(cell => {
+      const copy = cell.cloneNode(true);
+      copy.querySelectorAll('br').forEach(br => br.replaceWith(parsed.createTextNode('\n')));
+      return copy.textContent.replace(/\u00a0/g, ' ');
+    })).filter(row => row.length);
+  return rows.length ? { rows, hasCellBreak } : null;
+}
+
+function sameTableShape(left, right) {
+  return left.length === right.length && left.every((row, index) => row.length === right[index].length);
+}
+
 /**
  * Crea e collega i comandi dell'applicazione.
  * @param {object} ctx contesto applicativo
@@ -75,7 +121,7 @@ export function createCommands(ctx) {
       }
       rows.push(row); formulas.push(formulaRow); values.push(valueRow); clipboardRows.push(clipboardRow);
     }
-    const tsv = clipboardRows.map(x => x.join('\t')).join('\n');
+    const tsv = clipboardRows.map(row => row.map(quoteTsvCell).join('\t')).join('\n');
     const token = 'foglio-' + Date.now() + '-' + (++clipboardSequence);
     CB = { token, tsv, r0, c0, rows, formulas, values };
     e.clipboardData.setData('text/plain', tsv);
@@ -88,14 +134,17 @@ export function createCommands(ctx) {
     if (/INPUT|TEXTAREA/.test(e.target.tagName)) return;
     e.preventDefault();
     const t = e.clipboardData.getData('text/plain');
-    if (!t) return;
+    const html = parseHtmlClipboard(e.clipboardData.getData('text/html'));
+    if (!t && !html) return;
     // Prefer the private clipboard token. Normalized text is a fallback for
     // browsers that strip custom clipboard formats.
     const normalized = t.replace(/\r\n?/g, '\n');
     const token = e.clipboardData.getData('application/x-foglio-cells');
-    const same = CB && (token === CB.token || CB.tsv.replace(/\r\n?/g, '\n') === normalized);
-    const rows = same ? CB.rows.map((row, i) => row.map((raw, j) => CB.values[i][j] === undefined ? raw : printCljsValue(CB.values[i][j])))
-      : normalized.replace(/\n$/, '').split('\n').map(l => l.split('\t'));
+    const same = CB && (token === CB.token || (normalized && CB.tsv.replace(/\r\n?/g, '\n') === normalized));
+    let rows = same ? CB.rows.map((row, i) => row.map((raw, j) => CB.values[i][j] === undefined ? raw : printCljsValue(CB.values[i][j])))
+      : parseTsv(normalized);
+    if (!same && html?.hasCellBreak && !sameTableShape(rows, html.rows)) rows = html.rows;
+    if (!rows.length && html) rows = html.rows;
     const targetRect = ctx.grid.rect(), { r0, c0 } = targetRect;
     const changed = ctx.session.pasteRows(ctx.currentSheet().name, r0, c0, rows, {
       internal: !!same, baseR: same ? CB.r0 : 0, baseC: same ? CB.c0 : 0,
