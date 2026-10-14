@@ -398,7 +398,7 @@ function implicitCljsSource(source, env) {
     || /^(?:true|false|nil)$/.test(s)) return s;
   if (!/^[A-Za-z_*+!?<>=./-][\w*+!?<>=./-]*$/.test(s)) return null;
   const isCellRef = /^(?:[A-Za-z_]\w*!)?\$?[A-Z]{1,2}\$?\d+$/.test(s);
-  return isCellRef || s.includes('/') || Object.prototype.hasOwnProperty.call(env, s) ? s : null;
+  return isCellRef || Object.prototype.hasOwnProperty.call(env, s) ? s : null;
 }
 
 /** Indice della `)` che chiude la `(` in posizione `open`, ignorando le stringhe. */

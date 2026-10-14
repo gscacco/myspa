@@ -40,7 +40,7 @@ test('ClojureScript forms and literals work in cells without an equals prefix', 
       A1: { r: '(+ 1 2 3)' }, A2: { r: ':pippo' }, A3: { r: '[1 2 3]' },
       A4: { r: '{:pippo 12}' }, A5: { r: 'true' }, A6: { r: 'nil' },
       A7: { r: 'answer' }, A8: { r: 'A1' }, A9: { r: 'plain text' },
-      A10: { r: '{:status :active}' },
+      A10: { r: '{:status :active}' }, A11: { r: 'DevOps/asdas' },
     } }],
   });
   const engine = createEngine(wb);
@@ -56,6 +56,8 @@ test('ClojureScript forms and literals work in cells without an equals prefix', 
   assert.equal(engine.evaluate('S!A7'), 42);
   assert.equal(engine.evaluate('S!A8'), 6);
   assert.equal(engine.evaluate('S!A9'), 'plain text');
+  assert.equal(engine.evaluate('S!A11'), 'DevOps/asdas');
+  assert.equal(engine.nd('S!A11').err, null);
   assert.equal(engine.nd('S!A2').display, ':pippo');
   assert.equal(engine.nd('S!A10').display, '{:status :active}');
 });
