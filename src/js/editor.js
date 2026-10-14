@@ -377,6 +377,18 @@ export function createEditor(ctx) {
       // barf, or splice when the structure prevents a deletion.
       if (e.key === 'Backspace' || e.key === 'Delete') {
         const empty = a === b;
+        if (e.key === 'Backspace' && empty && CLOSERS.has(v[a - 1]) && v[a - 1] !== '"') {
+          e.preventDefault();
+          ta.setSelectionRange(a - 1, a - 1);
+          refresh();
+          return;
+        }
+        if (e.key === 'Delete' && empty && PAIRS[v[a]] && v[a] !== '"') {
+          e.preventDefault();
+          ta.setSelectionRange(a + 1, a + 1);
+          refresh();
+          return;
+        }
         if (e.key === 'Backspace' && empty && PAIRS[v[a - 1]] && PAIRS[v[a - 1]] === v[a]) { e.preventDefault(); ins('', a - 1, a + 1); return; }
         const from = empty ? (e.key === 'Backspace' ? a - 1 : a) : a;
         const to = empty ? (e.key === 'Backspace' ? a : a + 1) : b;
