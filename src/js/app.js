@@ -114,7 +114,10 @@ export function createApp() {
   });
 
   const persistence = createPersistence(ctx);
-  ctx.save = as => persistence.save(as);
+  ctx.save = as => {
+    if (!ctx.grid.isEditing()) session.setCodeSource(ctx.editor.value());
+    return persistence.save(as);
+  };
   ctx.open = () => persistence.open();
 
   const commands = createCommands(ctx);

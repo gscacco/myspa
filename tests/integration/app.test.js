@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mountApp, fakeClipboardEvent } from '../helpers/dom.js';
+import { extractModel } from '../../src/js/persistence.js';
+import { readEDN } from '../../src/js/edn.js';
 
 /** Shortcut: zero-based cell coordinates (r,c). */
 const cell = (document, r, c) => document.querySelector('#g').rows[r + 1].cells[c + 1];
@@ -613,6 +615,40 @@ test('ClojureScript code can be applied from the editor', async () => {
   mouse(window, 'click', document.querySelector('#apply-code'));
   app.grid.setCellText(0, 8, '=TRIPLE(4)');
   assert.equal(cell(document, 0, 8).textContent, '12');
+  close();
+});
+
+test('repeated standalone saves include the latest general ClojureScript editor source', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.flash = () => {};
+  const editor = document.querySelector('#code');
+  editor.value = '(defn SAVE_VERSION [x] (+ x 1))';
+  document.querySelector('#apply-code').click();
+
+  const files = [];
+  let pickerCalls = 0;
+  window.showSaveFilePicker = async () => {
+    pickerCalls++;
+    return {
+      createWritable: async () => ({
+        write: async html => files.push(html),
+        close: async () => {},
+      }),
+    };
+  };
+
+  const saveAndReadCode = async expected => {
+    editor.value = expected;
+    await app.save();
+    const savedWorkbook = readEDN(extractModel(files.at(-1)));
+    assert.equal(savedWorkbook.code, expected);
+    assert.equal(app.session.workbook.code, expected);
+  };
+
+  await saveAndReadCode('(defn SAVE_VERSION [x] (+ x 2))');
+  await saveAndReadCode('(defn SAVE_VERSION [x] (+ x 3))');
+  assert.equal(pickerCalls, 1, 'subsequent saves reuse the selected file');
+  assert.equal(files.length, 2);
   close();
 });
 

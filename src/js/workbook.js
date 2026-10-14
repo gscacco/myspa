@@ -111,6 +111,15 @@ export function createSession(workbook, options = {}) {
   /** Applica un codice funzioni utente al workbook (senza invalidare i nodi). */
   function loadCode() { return engine.setCode(wb.code || ''); }
 
+  /** Aggiorna la sorgente del codice utente senza eseguirla. */
+  function setCodeSource(code) {
+    const source = String(code ?? '');
+    if ((wb.code || '') === source) return false;
+    snapshot();
+    wb.code = source;
+    return true;
+  }
+
   /** Ricostruisce il grafo e ricalcola tutto. */
   function rebuild() {
     engine.reset();
@@ -336,7 +345,7 @@ export function createSession(workbook, options = {}) {
     canRedo: () => redoStack.length > 0,
     isModified: () => modified,
     getHistorySize: () => undoStack.length,
-    loadCode, rebuild, snapshot, setCell, clearRange, fillDown, formatRange,
+    loadCode, setCodeSource, rebuild, snapshot, setCell, clearRange, fillDown, formatRange,
     setRangeStyle, setStyleListener: listener => { styleListener = typeof listener === 'function' ? listener : null; },
     pasteRows, fillRange, addNewSheet, deleteSheet, applyCode, evalForm, restore, undo, redo, replace, markSaved,
   };
