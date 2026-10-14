@@ -33,6 +33,53 @@ test('valori letterali e formule di base', () => {
   assert.equal(engine.evaluate('S!A3'), 6);
 });
 
+test('cell hooks report committed source changes and effective dependency-driven value changes', () => {
+  const events = [];
+  const hooks = { list: () => [true], run: (event, payload) => { events.push({ event, payload }); return 0; } };
+  const wb = createWorkbook({ sheets: [{ name: 'S', cells: { A1: { r: 10 }, B1: { r: '(+ A1 1)' } } }] });
+  const engine = createEngine(wb, { hooks });
+  engine.loadAll();
+  engine.recalculate();
+  const initialValue = events.find(item => item.event === 'on-cell-value-change' && item.payload.data.cell === 'S!B1');
+  assert.equal(initialValue.payload.data['previous-value-available?'], false);
+  assert.equal(Object.hasOwn(initialValue.payload.data, 'old-value'), false);
+
+  events.length = 0;
+  engine.put('S', 'A1', 10);
+  engine.recalculate();
+  assert.equal(events.some(item => item.event === 'on-cell-source-change'), false, 'an unchanged source is ignored');
+  assert.equal(events.some(item => item.event === 'on-cell-value-change'), false, 'an unchanged effective value is ignored');
+
+  engine.put('S', 'A1', 15);
+  engine.put('S', 'A1', 20);
+  engine.recalculate();
+  const sourceChange = events.filter(item => item.event === 'on-cell-source-change');
+  assert.equal(sourceChange.length, 1);
+  assert.equal(sourceChange[0].payload.source, 'cell');
+  assert.match(sourceChange[0].payload.timestamp, /^\d{4}-\d\d-\d\dT/);
+  assert.equal(sourceChange[0].payload.data.cell, 'S!A1');
+  const valueChanges = events.filter(item => item.event === 'on-cell-value-change');
+  assert.deepEqual(valueChanges.map(item => item.payload.data.cell), ['S!A1', 'S!B1']);
+  assert.equal(valueChanges[0].payload.data['previous-value-available?'], true);
+  assert.equal(valueChanges[1].payload.data['previous-value-available?'], true);
+  assert.equal(engine.evaluate('S!B1'), 21);
+});
+
+test('failed cell evaluation emits one origin error and no successful value-change event', () => {
+  const events = [];
+  const hooks = { list: () => [true], run: (event, payload) => { events.push({ event, payload }); return 0; } };
+  const wb = createWorkbook({ sheets: [{ name: 'S', cells: { A1: { r: '(throw (js/Error. "broken"))' }, B1: { r: '(+ A1 1)' } } }] });
+  const engine = createEngine(wb, { hooks });
+  engine.loadAll();
+  engine.recalculate();
+  const errors = events.filter(item => item.event === 'on-cell-evaluation-error');
+  assert.equal(errors.length, 1, 'the dependent error is attributed to the original failing cell');
+  assert.equal(errors[0].payload.data.cell, 'S!A1');
+  assert.equal(errors[0].payload.data.expression, '(throw (js/Error. "broken"))');
+  assert.match(errors[0].payload.data.error.message, /broken/);
+  assert.equal(events.some(item => item.event === 'on-cell-value-change' && item.payload.data.cell === 'S!A1'), false);
+});
+
 test('ClojureScript forms and literals work in cells without an equals prefix', () => {
   const wb = createWorkbook({
     code: '(def answer 42)',

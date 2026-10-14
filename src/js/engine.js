@@ -85,8 +85,100 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
   let ctx = null;                       // nodo in corso di valutazione
   const nodes = new Map();              // id "Foglio!A1" -> nodo
   const changed = new Set();            // nodi da ridisegnare
+  const pendingSourceChanges = new Map();
+  const pendingCellErrors = [];
 
   const nodeId = (sheetName, a) => sheetName + '!' + a;
+
+  function queueCellError(n, error) {
+    const errorInfo = {
+      name: String(error?.name || 'Error'),
+      message: String(error?.message || error || 'Cell evaluation failed'),
+    };
+    if (Number.isInteger(error?.line)) errorInfo.line = error.line;
+    if (typeof error?.stack === 'string' && error.stack) errorInfo.stack = error.stack.slice(0, 8000);
+    pendingCellErrors.push({
+      node: n,
+      error,
+      event: 'on-cell-evaluation-error',
+      data: {
+        cell: n.id,
+        ...(typeof n.raw === 'string' ? { expression: n.raw } : {}),
+        error: errorInfo,
+      },
+    });
+  }
+
+  /** Compare evaluated values with ClojureScript equality on the original SCI values. */
+  function cljsEquals(left, right) {
+    if (left === right) return true;
+    if (left == null || right == null || typeof left !== 'object' || typeof right !== 'object') return false;
+    const key = `__foglioCellEquality${engineId}`;
+    globalThis[key] = { left, right };
+    try {
+      return !!evaluateInNamespace(userNs,
+        `(= (.-left js/globalThis.${key}) (.-right js/globalThis.${key}))`);
+    } catch {
+      return Object.is(left, right);
+    } finally {
+      delete globalThis[key];
+    }
+  }
+
+  function dispatchHook(eventName, data, cljsValues = null, source = 'cell') {
+    if (!hooks) return 0;
+    const payload = { event: eventName, timestamp: new Date().toISOString(), source, data };
+    return hooks.run(eventName, payload,
+      (callback, value) => withCellBridge(cellBridge(), () => invokeCljsHook(callback, value, cljsValues)),
+      (error, context) => report('error', `Hook for :${context.event} failed: ${error?.message || String(error)}`, {
+        category: 'hooks', source: { event: context.event },
+        details: { hook: context.callback?.cljsName || context.callback?.name || 'anonymous' }, exception: error,
+      }));
+  }
+
+  /** Deliver accumulated cell events only after the current recalculation settles. */
+  function settleCellEvents() {
+    const events = [];
+    const observeValues = typeof hooks?.list === 'function' && hooks.list('on-cell-value-change').length > 0;
+    for (const [id, change] of pendingSourceChanges) {
+      if (!Object.is(change.oldSource, change.newSource)) {
+        events.push({
+          event: 'on-cell-source-change',
+          data: { cell: id, 'old-source': null, 'new-source': null },
+          cljsValues: { 'old-source': change.oldSource ?? null, 'new-source': change.newSource ?? null },
+        });
+      }
+    }
+    pendingSourceChanges.clear();
+    events.push(...pendingCellErrors.splice(0)
+      .filter(item => item.node.err === item.error && item.node.errorOrigin === item.node)
+      .map(({ event, data }) => ({ event, data })));
+
+    for (const n of changed) {
+      if (n.err || (n.raw === undefined && !n.hasSuccessfulValue)) continue;
+      const hasPrevious = n.hasSuccessfulValue;
+      const nextValue = n.cljVal;
+      if (observeValues && (!hasPrevious || !cljsEquals(n.lastSuccessfulCljVal, nextValue))) {
+        events.push({
+          event: 'on-cell-value-change',
+          data: {
+            cell: n.id,
+            'previous-value-available?': hasPrevious,
+            ...(hasPrevious ? { 'old-value': null } : {}),
+            'new-value': null,
+          },
+          cljsValues: {
+            ...(hasPrevious ? { 'old-value': n.lastSuccessfulCljVal } : {}),
+            'new-value': nextValue,
+          },
+        });
+      }
+      n.lastSuccessfulCljVal = nextValue;
+      n.hasSuccessfulValue = true;
+    }
+
+    for (const item of events) dispatchHook(item.event, item.data, item.cljsValues || null);
+  }
 
   /** Nodo del grafo per un id, creato (e collegato al valore grezzo) al bisogno. */
   function nd(id) {
@@ -95,9 +187,13 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
       const [sh, a] = id.split('!');
       const s = sheetByName(wb, sh);
       if (!s) throw Error('#REF: foglio «' + sh + '» inesistente');
-      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, cljVal: null, display: null, err: null, fn: null, cljs: null, raw: undefined, lastLoggedError: null, loggedMessages: new Set(), errorOrigin: null, propagatedError: null };
+      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, cljVal: null, display: null, err: null, fn: null, cljs: null, raw: undefined, lastLoggedError: null, loggedMessages: new Set(), errorOrigin: null, propagatedError: null, hasSuccessfulValue: false, lastSuccessfulCljVal: undefined };
       nodes.set(id, n);
       setNode(n, s.cells[a]?.r);
+      if (!n.err && n.st === 0 && n.raw !== undefined) {
+        n.lastSuccessfulCljVal = n.cljVal;
+        n.hasSuccessfulValue = true;
+      }
     }
     return n;
   }
@@ -133,6 +229,7 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
       } catch (e) {
         n.err = toError(e, String(raw));
         n.errorOrigin = n;
+        queueCellError(n, n.err);
         n.lastLoggedError = `${n.err.name}:${n.err.message}`;
         report('error', n.err.message, {
           category: 'exec', source: { cell: `${n.sh}!${n.a}` }, details: { expression: String(raw) }, exception: n.err,
@@ -177,6 +274,7 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
       n.val = null; n.cljVal = null; n.display = null;
       const signature = `${n.err.name}:${n.err.message}`;
       const propagatedFrom = n.propagatedError;
+      if (!propagatedFrom) queueCellError(n, n.err);
       if (!propagatedFrom && !reportedErrors.has(n.err) && n.lastLoggedError !== signature) {
         report('error', n.err.message, {
           category: 'exec', source: { cell: `${n.sh}!${n.a}` },
@@ -332,8 +430,14 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
    * @returns {object} il nodo aggiornato
    */
   function put(sheetName, a, raw) {
-    setRaw(wb, sheetName, a, raw);
     const n = nd(nodeId(sheetName, a));
+    const oldSource = n.raw;
+    setRaw(wb, sheetName, a, raw);
+    if (!Object.is(oldSource, raw)) {
+      const pending = pendingSourceChanges.get(n.id);
+      if (pending) pending.newSource = raw;
+      else pendingSourceChanges.set(n.id, { oldSource, newSource: raw });
+    }
     setNode(n, raw);
     n.rd.forEach(dd);
     if (!n.st) changed.add(n);
@@ -341,7 +445,12 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
   }
 
   /** Svuota il grafo (dopo un cambio di workbook). */
-  function reset() { nodes.clear(); changed.clear(); }
+  function reset() {
+    nodes.clear();
+    changed.clear();
+    pendingSourceChanges.clear();
+    pendingCellErrors.length = 0;
+  }
 
   /** Ricrea i nodi per tutte le celle del workbook corrente. */
   function loadAll() {
@@ -354,6 +463,7 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
    */
   function recalculate() {
     for (const n of nodes.values()) if (n.st === 1) ev(n);
+    settleCellEvents();
     const out = [...changed];
     changed.clear();
     return out;
@@ -428,7 +538,10 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
   function touch(sheetName, a) { const n = nd(nodeId(sheetName, a)); changed.add(n); return n; }
 
   /** Valuta un id e ne restituisce il valore (utile nei test). */
-  const evaluate = id => val(nd(id));
+  const evaluate = id => {
+    try { return val(nd(id)); }
+    finally { settleCellEvents(); }
+  };
 
   /**
    * Returns the evaluated SCI value for a populated cell without converting it
@@ -445,6 +558,8 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
       return { available: true, value: n.cljVal, display: n.display };
     } catch (error) {
       return { available: false, error };
+    } finally {
+      settleCellEvents();
     }
   }
 

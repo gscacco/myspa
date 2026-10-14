@@ -33,7 +33,9 @@ test('the reference documents selection hooks, event payload keywords, and all k
   const names = new Set(HELP_ENTRIES.map(entry => entry.name));
   for (const name of [
     'loop', 'recur', 'get-in', 'group-by', 'log!', 'add-hook', 'remove-hook',
-    'run-hook', 'clear-hook', 'list-hooks', ':on-selection-change', ':info',
+    'run-hook', 'clear-hook', 'list-hooks', ':on-selection-change', ':on-cell-source-change',
+    ':on-cell-value-change', ':on-cell-evaluation-error', ':cell', ':old-source', ':new-source',
+    ':old-value', ':new-value', ':previous-value-available?', ':expression', ':error', ':info',
     ':warn', ':error', ':debug', ':category', ':details', ':exception',
     ':previous-selection', ':selection', ':range', ':background', ':color', ':bold',
     ':italic', ':underline', ':font-size', ':font-family', ':border-color', ':border-width', ':border-style',

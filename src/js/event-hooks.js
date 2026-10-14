@@ -1,6 +1,11 @@
 /** Small ordered registry for the application's supported ClojureScript hooks. */
 
-const SUPPORTED_EVENTS = new Set(['on-selection-change']);
+const SUPPORTED_EVENTS = new Set([
+  'on-selection-change',
+  'on-cell-source-change',
+  'on-cell-value-change',
+  'on-cell-evaluation-error',
+]);
 
 function eventName(event) {
   const name = String(event ?? '').replace(/^:/, '');

@@ -118,13 +118,20 @@ export function scittleEval(source) { return evaluator()(source); }
 let nextHookCallId = 1;
 
 /** Invoke an SCI function with an event converted back into ClojureScript data. */
-export function invokeCljsHook(callback, event) {
+export function invokeCljsHook(callback, event, cljsValues = null) {
   const key = `__foglioHookCall${nextHookCallId++}`;
-  globalThis[key] = { callback, event };
+  globalThis[key] = { callback, event, cljsValues };
   try {
     return scittleEval(`(let [call js/globalThis.${key}
                               raw-event (.-event call)
                               event-data (js->clj raw-event :keywordize-keys true)
+                              cljs-values (.-cljsValues call)
+                              event-data (if cljs-values
+                                           (reduce (fn [data key]
+                                                     (assoc-in data [:data (keyword key)] (aget cljs-values key)))
+                                                   event-data
+                                                   (array-seq (js/Object.keys cljs-values)))
+                                           event-data)
                               event-data (assoc event-data
                                                 :event (keyword (.-event raw-event))
                                                 :source (keyword (.-source raw-event)))]

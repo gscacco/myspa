@@ -34,6 +34,9 @@ test('removing and clearing hooks report whether registrations existed', () => {
 test('unsupported events and non-function hooks fail predictably', () => {
   const hooks = createEventHooks();
   assert.throws(() => hooks.add(':on-cell-edit', () => {}), /Unsupported hook event/);
+  for (const event of [':on-cell-source-change', ':on-cell-value-change', ':on-cell-evaluation-error']) {
+    assert.equal(hooks.add(event, () => {}), true, `${event} is supported`);
+  }
   assert.throws(() => hooks.add(EVENT, null), /must be a function/);
 });
 

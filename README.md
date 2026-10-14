@@ -153,22 +153,44 @@ The supported severities are `:info`, `:warn`, `:error`, and `:debug`. If omitte
 
 ## Event hooks
 
-The first supported event is `:on-selection-change`. Hooks run synchronously after the grid commits a genuinely different selection. The initial A1 selection at startup does not emit an event. Cell and range selections include the sheet name and A1 references for the anchor, focus, and normalized range. Switching sheets is a selection change as well.
+Hooks run synchronously after the relevant state has been committed and recalculated. The supported events are `:on-selection-change`, `:on-cell-source-change`, `:on-cell-value-change`, and `:on-cell-evaluation-error`. The initial A1 selection at startup does not emit a selection event. Selection changes include the previous and current descriptors (`:sheet`, `:anchor`, `:focus`, and normalized `:range`); switching sheets counts as a change.
 
-The Help reference documents the hook functions and payload keywords. It also documents the Messages levels (`:info`, `:warn`, `:error`, `:debug`) and metadata keys such as `:category`, `:details`, and `:exception`.
+Cell events use `:source :cell` and identify a cell with its sheet-qualified A1 address, such as `"Foglio1!C2"`. `:on-cell-source-change` fires once when a committed raw source changes. Intermediate typing and identical source commits are ignored. Source values preserve the stored representation; clearing a source is represented by `nil`. Multiple writes to one cell before recalculation are coalesced from the original to the final source.
 
-Register a ClojureScript function to log each selection change to Messages:
+`:on-cell-value-change` fires only when a successful evaluated value differs under ClojureScript `=` semantics. It includes changes caused by dependency recalculation, even when the dependent cell's source did not change. Values remain ClojureScript values, preserving distinctions such as keywords versus strings and vectors versus lists. For a cell without a previous successful value, the event sets `:previous-value-available?` to `false` and omits `:old-value`; otherwise it sets the flag to `true` and provides both `:old-value` and `:new-value`. A failed evaluation never emits a value-change event.
+
+`:on-cell-evaluation-error` fires for a failed cell evaluation. Its `:data` contains `:cell`, the string `:expression` when the source is text, and an `:error` map with `:name`, `:message`, and available `:line` or `:stack` information. Stack text is limited to 8,000 characters. Errors propagated from a failing cell to dependent formulas are reported only for the originating cell.
+
+For example, these hooks write source, value, and failure feedback to Messages:
 
 ```clojure
-(defn report-selection [event]
-  (log! :info
-    (str "Selection changed to "
-         (get-in event [:data :selection :range]))))
+(add-hook :on-cell-source-change
+  (fn [event]
+    (let [data (:data event)]
+      (log! :info
+        (str "Source changed in " (:cell data) ": "
+             (pr-str (:old-source data)) " → " (pr-str (:new-source data)))
+        {:category :data}))))
 
-(add-hook :on-selection-change report-selection)
+(add-hook :on-cell-value-change
+  (fn [event]
+    (let [data (:data event)]
+      (log! :info
+        (str "Value changed in " (:cell data) ": "
+             (if (:previous-value-available? data)
+               (str (pr-str (:old-value data)) " → " (pr-str (:new-value data)))
+               (str "initial value " (pr-str (:new-value data)))))
+        {:category :data}))))
+
+(add-hook :on-cell-evaluation-error
+  (fn [event]
+    (log! :error
+      (str "Evaluation failed in " (get-in event [:data :cell]) ": "
+           (get-in event [:data :error :message]))
+      {:category :exec})))
 ```
 
-The payload has the form `{:event :on-selection-change, :timestamp "…", :source :ui, :data {:previous-selection …, :selection …}}`. Each selection descriptor contains `:sheet`, `:anchor`, `:focus`, and `:range`. Registering the same function twice is ignored. `remove-hook` returns `false` if the function was not registered; `clear-hook` removes all hooks for the event; and `list-hooks` returns the registered functions, optionally for a specified event. `run-hook` manually dispatches an event and returns the number of hooks attempted. Only `:on-selection-change` is supported; unsupported events raise an error. Each dispatch uses a stable listener snapshot, and a failing hook is reported in Messages while later hooks still run.
+The Help reference documents the hook functions, event names, and payload keys. Registering the same function twice is ignored. `remove-hook` returns `false` if the function was not registered; `clear-hook` removes all hooks for an event; and `list-hooks` returns the registered functions, optionally for a specified event. `run-hook` manually dispatches an event and returns the number of hooks attempted. Unsupported events raise an error. Each dispatch uses a stable listener snapshot, and a failing hook is reported in Messages while later hooks still run. The existing `:on-selection-change` payload and behavior remain unchanged.
 
 Remove a hook when it is no longer needed:
 
