@@ -110,6 +110,29 @@ Formula evaluation failures are recorded with their cell, expression, exception,
 
 The supported severities are `:info`, `:warn`, `:error`, and `:debug`. If omitted, the category is `:exec` for messages from ClojureScript. A formula that calls `log!` repeatedly with the same severity, category, and text is deduplicated until its source expression changes; messages with changing text can still produce new entries, so avoid logging routine recalculation output.
 
+## Event hooks
+
+The first supported event is `:on-selection-change`. Hooks run synchronously after the grid commits a genuinely different selection. The initial A1 selection at startup does not emit an event. Cell and range selections include the sheet name and A1 references for the anchor, focus, and normalized range. Switching sheets is a selection change as well.
+
+Register a ClojureScript function to log each selection change to Messages:
+
+```clojure
+(defn report-selection [event]
+  (log! :info
+    (str "Selection changed to "
+         (get-in event [:data :selection :range]))))
+
+(add-hook :on-selection-change report-selection)
+```
+
+The payload has the form `{:event :on-selection-change, :timestamp "…", :source :ui, :data {:previous-selection …, :selection …}}`. Each selection descriptor contains `:sheet`, `:anchor`, `:focus`, and `:range`. Registering the same function twice is ignored. `remove-hook` returns `false` if the function was not registered; `clear-hook` removes all hooks for the event; and `list-hooks` returns the registered functions, optionally for a specified event. `run-hook` manually dispatches an event and returns the number of hooks attempted. Only `:on-selection-change` is supported; unsupported events raise an error. Each dispatch uses a stable listener snapshot, and a failing hook is reported in Messages while later hooks still run.
+
+Remove a hook when it is no longer needed:
+
+```clojure
+(remove-hook :on-selection-change report-selection)
+```
+
 ## Try it locally
 
 Requirements: Node.js 20.19 or newer and npm.

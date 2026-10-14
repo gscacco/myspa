@@ -996,4 +996,3 @@ test('Messages filters, expands and copies details, exports retained JSON, and c
     else delete globalThis.navigator;
   }
 });
-

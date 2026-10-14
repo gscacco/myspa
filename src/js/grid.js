@@ -43,6 +43,35 @@ export function createGrid(ctx) {
 
   const sheet = () => ctx.currentSheet();
   const rect = () => ({ r0: Math.min(S.a.r, S.f.r), r1: Math.max(S.a.r, S.f.r), c0: Math.min(S.a.c, S.f.c), c1: Math.max(S.a.c, S.f.c) });
+  const selectionData = () => {
+    const { r0, r1, c0, c1 } = rect();
+    const rangeStart = addr(r0, c0), rangeEnd = addr(r1, c1);
+    return {
+      sheet: sheet().name,
+      anchor: addr(S.a.r, S.a.c),
+      focus: addr(S.f.r, S.f.c),
+      range: rangeStart === rangeEnd ? rangeStart : rangeStart + ':' + rangeEnd,
+    };
+  };
+  let lastSelection = selectionData();
+
+  /** Commit a selection update before synchronously notifying user hooks. */
+  function updateSelection(next, scroll = false) {
+    const previous = lastSelection;
+    S = next;
+    showCell();
+    if (scroll) {
+      const td = tdOf(S.f.r, S.f.c);
+      if (td && typeof td.scrollIntoView === 'function') td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+    const selection = selectionData();
+    if (JSON.stringify(selection) === JSON.stringify(previous)) return;
+    lastSelection = selection;
+    ctx.session.engine.runHook('on-selection-change', {
+      event: 'on-selection-change', timestamp: new Date().toISOString(), source: 'ui',
+      data: { 'previous-selection': previous, selection },
+    });
+  }
 
   /** Expand a compact blank row when a cell in it is accessed. */
   function materializeRow(r) {
@@ -219,10 +248,10 @@ export function createGrid(ctx) {
   function sel(r, c, ext) {
     r = Math.max(0, Math.min(ROWS - 1, r));
     c = Math.max(0, Math.min(COLS - 1, c));
-    ext ? S.f = { r, c } : S.a = S.f = { r, c };
-    showCell();
-    const td = tdOf(r, c);
-    if (td && typeof td.scrollIntoView === 'function') td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const next = ext
+      ? { a: { ...S.a }, f: { r, c } }
+      : { a: { r, c }, f: { r, c } };
+    updateSelection(next, true);
   }
 
   /** Applica il testo di una cella e ridisegna le celle cambiate. */
@@ -366,14 +395,12 @@ export function createGrid(ctx) {
       } else if (fillDrag) {
         fillDrag.target = target;
         const { source } = fillDrag;
-        S = {
+        updateSelection({
           a: { r: Math.min(source.r0, target.r), c: Math.min(source.c0, target.c) },
           f: { r: Math.max(source.r1, target.r), c: Math.max(source.c1, target.c) },
-        };
-        showCell();
+        });
       } else if (drag) {
-        S.f = target;
-        showCell();
+        updateSelection({ a: { ...S.a }, f: target });
       }
     });
     G.addEventListener('dblclick', e => { if (e.target.closest('td')) edit(); });
@@ -416,8 +443,7 @@ export function createGrid(ctx) {
         paint(changed);
         ctx.updateStatus();
       }
-      S = { a: { r: targetRect.r0, c: targetRect.c0 }, f: { r: targetRect.r1, c: targetRect.c1 } };
-      showCell();
+      updateSelection({ a: { r: targetRect.r0, c: targetRect.c0 }, f: { r: targetRect.r1, c: targetRect.c1 } });
     });
   }
 

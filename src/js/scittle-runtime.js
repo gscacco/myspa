@@ -22,6 +22,35 @@ export const SHEET_CORE_SOURCE = `(ns sheet.core)
      (when (.-log bridge)
        ((.-log bridge) (if (keyword? level) (name level) (str level)) (str message) options))
      nil))))
+(def add-hook (fn [event callback]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-addHook bridge)
+      ((.-addHook bridge) (if (keyword? event) (name event) (str event)) callback)
+      false))))
+(def remove-hook (fn [event callback]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-removeHook bridge)
+      ((.-removeHook bridge) (if (keyword? event) (name event) (str event)) callback)
+      false))))
+(def run-hook (fn
+  ([event] (run-hook event nil))
+  ([event payload]
+   (let [bridge js/globalThis.__foglioScittleBridge]
+     (if (.-runHook bridge)
+       ((.-runHook bridge) (if (keyword? event) (name event) (str event)) (when payload (clj->js payload)))
+       0)))))
+(def clear-hook (fn [event]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-clearHook bridge)
+      ((.-clearHook bridge) (if (keyword? event) (name event) (str event)))
+      0))))
+(def list-hooks (fn
+  ([] (list-hooks :on-selection-change))
+  ([event]
+   (let [bridge js/globalThis.__foglioScittleBridge]
+     (if (.-listHooks bridge)
+       (vec (array-seq ((.-listHooks bridge) (if (keyword? event) (name event) (str event)))))
+       [])))))
 (def PI js/Math.PI)
 (def E js/Math.E)
 (def abs js/Math.abs)
@@ -76,6 +105,25 @@ function evaluator() {
 /** Esegue sorgente nel contesto persistente di Scittle. */
 export function scittleEval(source) { return evaluator()(source); }
 
+let nextHookCallId = 1;
+
+/** Invoke an SCI function with an event converted back into ClojureScript data. */
+export function invokeCljsHook(callback, event) {
+  const key = `__foglioHookCall${nextHookCallId++}`;
+  globalThis[key] = { callback, event };
+  try {
+    return scittleEval(`(let [call js/globalThis.${key}
+                              raw-event (.-event call)
+                              event-data (js->clj raw-event :keywordize-keys true)
+                              event-data (assoc event-data
+                                                :event (keyword (.-event raw-event))
+                                                :source (keyword (.-source raw-event)))]
+                        ((.-callback call) event-data))`);
+  } finally {
+    delete globalThis[key];
+  }
+}
+
 /** Inizializza una sola volta il namespace condiviso con le funzioni del foglio. */
 export function ensureSheetCore() {
   if (sheetCoreReady) return;
@@ -102,6 +150,11 @@ export function ensureSheetCore() {
         if (!bridgeState.active?.log) return null;
         return bridgeState.active.log(level, message, metadata);
       },
+      addHook(event, callback) { return bridgeState.active?.addHook?.(event, callback) ?? false; },
+      removeHook(event, callback) { return bridgeState.active?.removeHook?.(event, callback) ?? false; },
+      runHook(event, payload) { return bridgeState.active?.runHook?.(event, payload) ?? 0; },
+      clearHook(event) { return bridgeState.active?.clearHook?.(event) ?? 0; },
+      listHooks(event) { return bridgeState.active?.listHooks?.(event) ?? []; },
     };
     globalThis[BRIDGE_KEY] = bridgeState;
   }

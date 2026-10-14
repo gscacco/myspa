@@ -25,6 +25,7 @@ import { declarations, munge } from './cljs.js';
 import {
   ensureSheetCore, enterUserNamespace, evaluateInNamespace,
   evaluateInNamespaceWithRaw, getNamespaceValue, getNamespaceCallable, scittleEval, withCellBridge, qualifyUserRefs,
+  invokeCljsHook,
 } from './scittle-runtime.js';
 
 let nextEngineId = 1;
@@ -67,7 +68,7 @@ function toError(error, source = '') {
  *
  * @param {object} workbook
  */
-export function createEngine(workbook, { log = null } = {}) {
+export function createEngine(workbook, { log = null, hooks = null } = {}) {
   let wb = workbook;
   const report = (level, message, metadata) => {
     try { if (typeof log === 'function') log(level, message, metadata); }
@@ -224,6 +225,27 @@ export function createEngine(workbook, { log = null } = {}) {
 
   const cellBridge = () => ({
     read: $, range: $$, readClj: $clj, rangeClj: $$clj,
+    addHook(event, callback) { return hooks?.add(event, callback) ?? false; },
+    removeHook(event, callback) { return hooks?.remove(event, callback) ?? false; },
+    clearHook(event) { return hooks?.clear(event) ?? 0; },
+    listHooks(event) { return hooks?.list(event) ?? []; },
+    runHook(event, payload = null) {
+      if (!hooks) return 0;
+      const eventName = String(event ?? '').replace(/^:/, '');
+      const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
+      const eventPayload = {
+        event: eventName,
+        timestamp: payload?.timestamp || new Date().toISOString(),
+        source: payload?.source || 'manual',
+        data,
+      };
+      return hooks.run(eventName, eventPayload,
+        (callback, value) => withCellBridge(cellBridge(), () => invokeCljsHook(callback, value)),
+        (error, context) => report('error', `Hook for :${context.event} failed: ${error?.message || String(error)}`, {
+          category: 'hooks', source: { event: context.event },
+          details: { hook: context.callback?.cljsName || context.callback?.name || 'anonymous' }, exception: error,
+        }));
+    },
     log(level, message, metadata) {
       const options = metadata && typeof metadata === 'object' ? metadata : {};
       const source = options.source ?? (ctx ? { cell: `${ctx.sh}!${ctx.a}` } : undefined);
@@ -427,6 +449,7 @@ export function createEngine(workbook, { log = null } = {}) {
     get ENV() { return ENV; },
     nodeId, nd, put, dd, reset, loadAll, recalculate, setCode, evalForm, invalidateFormulas,
     setWorkbook, getNode, touch, evaluate, evaluatedCell,
+    runHook(event, payload = null) { return cellBridge().runHook(event, payload); },
   };
 }
 

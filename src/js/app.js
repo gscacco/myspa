@@ -16,6 +16,7 @@ import { createCommands } from './commands.js';
 import { createPersistence } from './persistence.js';
 import { syntaxError } from './editor-assistance.js';
 import { createMessagesStore } from './messages.js';
+import { createEventHooks } from './event-hooks.js';
 
 /**
  * Monta l'applicazione sul documento corrente.
@@ -24,7 +25,8 @@ import { createMessagesStore } from './messages.js';
 export function createApp() {
   const modelEl = document.querySelector('#model');
   const messages = createMessagesStore();
-  const session = createSession(createWorkbook(readEDN(modelEl.textContent)), { log: messages.log });
+  const hooks = createEventHooks();
+  const session = createSession(createWorkbook(readEDN(modelEl.textContent)), { log: messages.log, hooks });
 
   let ci = 0;
   let note = '';
@@ -33,6 +35,7 @@ export function createApp() {
   const ctx = {
     session,
     messages,
+    hooks,
     grid: null,
     editor: null,
     commands: null,
