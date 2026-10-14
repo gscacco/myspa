@@ -12,6 +12,18 @@ import {
   safeDeletion, formBefore,
 } from './editor-assistance.js';
 
+/** Reports whether a position is inside a Clojure string, respecting escapes and comments. */
+function insideStringAt(text, end) {
+  let inside = false;
+  for (let i = 0; i < end; i++) {
+    const ch = text[i];
+    if (inside && ch === '\\') { i++; continue; }
+    if (!inside && ch === ';') { while (i < end && text[i] !== '\n') i++; continue; }
+    if (ch === '"') inside = !inside;
+  }
+  return inside;
+}
+
 /**
  * Crea e collega l'editor ClojureScript.
  * @param {object} ctx contesto applicativo con `applyCode()` e `save(as)`
@@ -377,13 +389,15 @@ export function createEditor(ctx) {
       // barf, or splice when the structure prevents a deletion.
       if (e.key === 'Backspace' || e.key === 'Delete') {
         const empty = a === b;
-        if (e.key === 'Backspace' && empty && CLOSERS.has(v[a - 1]) && v[a - 1] !== '"') {
+        if (e.key === 'Backspace' && empty && CLOSERS.has(v[a - 1])
+          && (v[a - 1] !== '"' || insideStringAt(v, a - 1))) {
           e.preventDefault();
           ta.setSelectionRange(a - 1, a - 1);
           refresh();
           return;
         }
-        if (e.key === 'Delete' && empty && PAIRS[v[a]] && v[a] !== '"') {
+        if (e.key === 'Delete' && empty && PAIRS[v[a]]
+          && (v[a] !== '"' || !insideStringAt(v, a))) {
           e.preventDefault();
           ta.setSelectionRange(a + 1, a + 1);
           refresh();

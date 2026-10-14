@@ -721,6 +721,15 @@ test('paredit: Backspace and Delete keep delimiters balanced', async () => {
   assert.equal(pressKey({ key: 'Delete' }).defaultPrevented, true, 'Delete steps over the opening «(»');
   assert.equal(ta.value, '(+ 1 2 3)');
   assert.equal(ta.selectionStart, 1);
+  ta.value = '"stringa"';
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  assert.equal(pressKey({ key: 'Backspace' }).defaultPrevented, true, 'Backspace steps over the closing quote');
+  assert.equal(ta.value, '"stringa"');
+  assert.equal(ta.selectionStart, 8);
+  ta.setSelectionRange(0, 0);
+  assert.equal(pressKey({ key: 'Delete' }).defaultPrevented, true, 'Delete steps over the opening quote');
+  assert.equal(ta.value, '"stringa"');
+  assert.equal(ta.selectionStart, 1);
   ta.value = '(a b)';
   ta.setSelectionRange(2, 2);
   assert.equal(pressKey({ key: 'Backspace' }).defaultPrevented, false, 'ordinary text can be deleted');
@@ -736,6 +745,10 @@ test('paredit: Backspace and Delete keep delimiters balanced', async () => {
   ta.setSelectionRange(1, 1);
   pressKey({ key: 'Backspace' });
   assert.equal(ta.value, '');
+  ta.value = '""';
+  ta.setSelectionRange(1, 1);
+  pressKey({ key: 'Backspace' });
+  assert.equal(ta.value, '', 'Backspace still removes an empty string pair');
   await new Promise(r => setTimeout(r, 450));
   close();
 });
