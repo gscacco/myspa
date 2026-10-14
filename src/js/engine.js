@@ -383,7 +383,9 @@ function toCljsSource(body) {
   if (['(', '[', '{', ':', '"', "'", '`', '\\'].includes(s[0])
     || s.startsWith('#{') || s.startsWith('#_')
     || /^(?:true|false|nil)$/.test(s)) return s;
-  const m = /^([^\s()]+)\s*\(/.exec(s);
+  // Keep prose such as `pippo/pluto (asdasd)` as text; shorthand calls have
+  // the opening parenthesis immediately after the function name.
+  const m = /^([^\s()]+)\(/.exec(s);
   if (!m) return null;
   const open = m[0].length - 1;
   if (closingParen(s, open) !== s.length - 1) return null;   // la chiamata non è tutta l'espressione
