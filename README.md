@@ -16,6 +16,7 @@ There is currently no schedule or timeline for future versions.
 - Write ClojureScript forms directly in cells, such as `(+ 1 2 3)`, `:pippo`, `[1 2 3]`, and `{:pippo 12}`. Existing infix formulas such as `=B2*C2` remain supported.
 - Define functions in the ClojureScript editor and call them from formulas.
 - Open the selected cell in the syntax-highlighted, line-numbered editor with Ctrl+Enter. In the editor, Enter inserts a line and Ctrl+Enter applies a cell formula or evaluates the form before the cursor.
+- In either mode of the ClojureScript editor, use `Alt`+`+` to increase the code font and `Alt`+`-` to decrease it. The size is bounded between 9 and 28 pixels.
 - Apply basic formatting, including bold text, decimal places, and background colors. Copy and paste cell ranges, and undo or redo workbook changes.
 - Use ClojureScript functions to format one cell or a range, including text and border styles.
 - Save and reopen a workbook as a standalone HTML file containing the application and workbook data.

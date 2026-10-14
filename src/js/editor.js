@@ -24,6 +24,20 @@ export function createEditor(ctx) {
   const noteEl = Q('#note');
 
   let errLine = 0, bm = [], ac = null, cwid = 0, chk = 0, cellEdit = null;
+  let codeFontSize = 12.5;
+
+  function adjustCodeFontSize(delta) {
+    const nextSize = Math.max(9, Math.min(28, codeFontSize + delta));
+    if (nextSize === codeFontSize) return false;
+    codeFontSize = nextSize;
+    const lineHeight = Math.round(codeFontSize * 1.52);
+    document.documentElement.style.setProperty('--code-editor-font-size', `${codeFontSize}px`);
+    document.documentElement.style.setProperty('--code-editor-line-height', `${lineHeight}px`);
+    cwid = 0;
+    refresh();
+    if (ac) popDraw();
+    return true;
+  }
 
   function closePanel() {
     if (cellEdit) ctx.grid.endEdit(0);
@@ -276,7 +290,8 @@ export function createEditor(ctx) {
     const before = ta.value.slice(0, ta.selectionStart), ls = before.lastIndexOf('\n') + 1;
     const row = before.split('\n').length - 1, col = before.slice(ls).replace(/\t/g, '  ').length - ac.w.length;
     pop.replaceChildren(...ac.L.map((c, i) => E('div', { className: i === ac.i ? 'on' : '', onmousedown: ev => { ev.preventDefault(); ac.i = i; accept(); } }, c.n, E('small', { textContent: ' ' + c.d }))));
-    Object.assign(pop.style, { left: Math.max(0, 8 + col * cwidth() - ta.scrollLeft) + 'px', top: 8 + (row + 1) * 19 - ta.scrollTop + 'px' });
+    const lineHeight = parseFloat(window.getComputedStyle(ta).lineHeight) || 19;
+    Object.assign(pop.style, { left: Math.max(0, 8 + col * cwidth() - ta.scrollLeft) + 'px', top: 8 + (row + 1) * lineHeight - ta.scrollTop + 'px' });
     pop.hidden = false;
   }
 
@@ -323,6 +338,12 @@ export function createEditor(ctx) {
     ['mouseup', 'focus'].forEach(v => ta.addEventListener(v, refresh));
     ta.addEventListener('blur', hidePop);
     ta.addEventListener('keydown', e => {
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const delta = e.key === '+' || e.code === 'NumpadAdd' || (e.code === 'Equal' && e.shiftKey)
+          ? 1
+          : e.key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract' ? -1 : 0;
+        if (delta) { e.preventDefault(); adjustCodeFontSize(delta); return; }
+      }
       const m = e.ctrlKey || e.metaKey, v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
       if (ac) {
         if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !m) { e.preventDefault(); ac.i = (ac.i + (e.key === 'ArrowDown' ? 1 : ac.L.length - 1)) % ac.L.length; popDraw(); return; }

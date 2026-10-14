@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { coreBuiltins } from '../../src/js/cljs.js';
+import { coreBuiltins, sheetCoreVars } from '../../src/js/cljs.js';
 import { HELP_ENTRIES } from '../../src/js/help-content.js';
 import { completionCandidates } from '../../src/js/editor-assistance.js';
 
@@ -16,8 +16,23 @@ test('every help entry has a unique id, explanation, and copyable example', () =
 test('the help catalog covers every function exposed by the ClojureScript runtime', () => {
   const documented = new Set(HELP_ENTRIES.filter(entry => entry.kind === 'function').map(entry => entry.name));
   for (const name of Object.keys(coreBuiltins())) assert.ok(documented.has(name), `${name} is documented`);
-  for (const name of ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$', 'log!', 'add-hook', 'remove-hook', 'run-hook', 'clear-hook', 'list-hooks', 'style-range!', 'clear-range-style!', 'set-status!', 'clear-status!']) {
+  for (const name of [
+    ...Object.keys(sheetCoreVars()), '$', '$$', 'upper-case', 'lower-case', 'trim', 'subs', 'split', 'join', 'replace',
+    'random', 'println', 'prn', 'log!', 'add-hook', 'remove-hook', 'run-hook', 'clear-hook', 'list-hooks', 'set-status!', 'clear-status!',
+  ]) {
     assert.ok(documented.has(name), `${name} is documented`);
+  }
+});
+
+test('every supported special form has a help entry with an example', () => {
+  const documented = new Map(HELP_ENTRIES.filter(entry => entry.kind === 'form').map(entry => [entry.name, entry]));
+  for (const name of [
+    'def', 'defonce', 'defn', 'defn-', 'fn', 'let', 'if', 'when', 'when-not', 'cond', 'case', 'and', 'or', 'do',
+    '->', '->>', 'as->', 'quote', 'comment', 'ns', 'in-ns', 'throw', 'loop', 'recur', 'try', 'catch', 'finally', 'new', '.',
+  ]) {
+    const entry = documented.get(name);
+    assert.ok(entry, `${name} is documented`);
+    assert.ok(entry.example, `${name} has an example`);
   }
 });
 
@@ -36,9 +51,10 @@ test('the reference documents selection hooks, event payload keywords, and all k
     'run-hook', 'clear-hook', 'list-hooks', ':on-selection-change', ':on-cell-source-change',
     ':on-cell-value-change', ':on-cell-evaluation-error', ':cell', ':old-source', ':new-source',
     ':old-value', ':new-value', ':previous-value-available?', ':expression', ':error', ':info',
-    ':warn', ':error', ':debug', ':category', ':details', ':exception',
+    ':warn', ':error', ':debug', ':category', ':details', ':exception', ':name', ':message', ':line', ':stack',
     ':previous-selection', ':selection', ':range', ':background', ':color', ':bold',
     ':italic', ':underline', ':font-size', ':font-family', ':border-color', ':border-width', ':border-style',
+    ':none', ':solid', ':dashed', ':dotted', ':double', ':groove', ':ridge', ':inset', ':outset',
     'case', 'as->', 'finally',
   ]) assert.ok(names.has(name), `${name} is documented`);
 });
