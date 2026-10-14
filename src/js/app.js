@@ -15,6 +15,7 @@ import { createEditor } from './editor.js';
 import { createCommands } from './commands.js';
 import { createPersistence } from './persistence.js';
 import { syntaxError } from './editor-assistance.js';
+import { createMessagesStore } from './messages.js';
 
 /**
  * Monta l'applicazione sul documento corrente.
@@ -22,7 +23,8 @@ import { syntaxError } from './editor-assistance.js';
  */
 export function createApp() {
   const modelEl = document.querySelector('#model');
-  const session = createSession(createWorkbook(readEDN(modelEl.textContent)));
+  const messages = createMessagesStore();
+  const session = createSession(createWorkbook(readEDN(modelEl.textContent)), { log: messages.log });
 
   let ci = 0;
   let note = '';
@@ -30,6 +32,7 @@ export function createApp() {
   /** Contesto condiviso fra i moduli della vista. */
   const ctx = {
     session,
+    messages,
     grid: null,
     editor: null,
     commands: null,

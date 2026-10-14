@@ -87,6 +87,29 @@ The explorer provides:
 
 The explorer operates on the original Scittle values, so keywords remain different from strings, and maps, vectors, lists, and sets remain distinguishable. Unsupported JavaScript interop objects may have limited inspection or EDN export. Lazy sequences show at most 200 items; exporting a longer lazy sequence is refused with an explanation.
 
+## Messages
+
+Click **Messages** in the toolbar to open the resizable panel below the grid. It keeps collecting diagnostics while closed and does not change the current cell selection. The toolbar badge shows the number of retained messages. The panel shows retained and discarded counts, and follows new messages only while you are already at the bottom of the list.
+
+Messages have a timestamp, severity, category, text, and optional source, details, and exception. Severity is independent from category. Common categories include `app`, `exec`, and `data`. `INFO` uses blue, `WARN` amber, `ERROR` red, and `DEBUG` muted gray; execution messages use the `exec` category, shown with a violet accent. Text labels accompany the colors.
+
+Use the severity buttons, category menu, and search field to narrow the list. Search includes text, category, source, details, and exception information. Expand **Details** to inspect long messages, structured details, or exception stacks. **Copy** copies one message; **Copy details** includes its details and stack. **Copy filtered** copies the current filtered results, and **Export all** downloads all retained messages as JSON. **Clear** asks for confirmation before removing the retained history.
+
+Application diagnostics use one bounded in-memory store. It retains at most 2,000 messages and 2,097,152 UTF-16 code units across message text and metadata (up to about 4 MiB of raw string storage); an individual entry is limited to 16 KiB, with long fields truncated. These limits are defined in `MESSAGE_LIMITS` in `src/js/messages.js`. When either limit is exceeded, the oldest entries are discarded first and the discarded count increases. Clearing the store releases retained message and detail references but does not reset the discarded count. The visible list is virtualized: it renders only the viewport and a small overscan region. Messages are not persisted in the workbook or standalone HTML file.
+
+Formula evaluation failures are recorded with their cell, expression, exception, and stack where available. An unchanged formula failure is logged once until the formula succeeds or changes. Application modules can use the shared store's `log` method or its `info`, `warn`, `error`, and `debug` helpers. For example, a module with the application context can call `ctx.messages.warn("Some rows have no budget", { category: "data", source: { operation: "rows->maps" } })`. User ClojureScript has the `log!` function in the workbook namespace:
+
+```clojure
+(log! :info "Imported records" {:category :data
+                                :source {:operation "rows->maps"}
+                                :details {:count (count records)}})
+(log! :warn "Some records are missing :budget")
+(log! :error "Import failed" {:category :data
+                              :exception error})
+```
+
+The supported severities are `:info`, `:warn`, `:error`, and `:debug`. If omitted, the category is `:exec` for messages from ClojureScript. A formula that calls `log!` repeatedly with the same severity, category, and text is deduplicated until its source expression changes; messages with changing text can still produce new entries, so avoid logging routine recalculation output.
+
 ## Try it locally
 
 Requirements: Node.js 20.19 or newer and npm.

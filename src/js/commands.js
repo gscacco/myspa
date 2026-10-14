@@ -10,6 +10,7 @@ import { addr } from './references.js';
 import { syntaxError } from './editor-assistance.js';
 import { printCljsValue } from './scittle-runtime.js';
 import { createDataExplorer } from './data-explorer.js';
+import { createMessagesPanel } from './messages-panel.js';
 
 /** Tasti che muovono la selezione. */
 const KEYS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0], Tab: [0, 1] };
@@ -70,6 +71,7 @@ export function createCommands(ctx) {
   let CB = null;   // appunti interni: { token, tsv, r0, c0, rows, values }
   let clipboardSequence = 0;
   const dataExplorer = createDataExplorer(ctx);
+  const messagesPanel = createMessagesPanel(ctx.messages);
 
   const isCljsDataForm = raw => typeof raw === 'string'
     && /^(?:\{|\[|:|"|'|`|\\|#\{|true(?:\s|$)|false(?:\s|$)|nil(?:\s|$))/.test(raw.trim());
@@ -297,11 +299,12 @@ export function createCommands(ctx) {
   function init() {
     wireToolbar();
     initKeys();
+    messagesPanel.init();
     addEventListener('copy', e => cp(e, 0));
     addEventListener('cut', e => cp(e, 1));
     addEventListener('paste', paste);
   }
 
-  return { init, renderTabs, applyCode, applyForm, clearSel, fillDown, fmt, cp, paste, addSheet, delSheet, doUndo, doRedo };
+  return { init, renderTabs, applyCode, applyForm, clearSel, fillDown, fmt, cp, paste, addSheet, delSheet, doUndo, doRedo, messagesPanel };
 }
 

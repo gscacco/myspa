@@ -22,6 +22,20 @@ export function buildDocument(doc, wb) {
   const h = doc.documentElement.cloneNode(true);
   h.querySelectorAll('[data-dyn]').forEach(e => e.replaceChildren());
   h.querySelector('#fn').hidden = true;
+  const messagesPanel = h.querySelector('#messages-panel');
+  messagesPanel.hidden = true;
+  messagesPanel.style.height = '';
+  messagesPanel.querySelector('.messages-rows').replaceChildren();
+  messagesPanel.querySelector('#messages-virtual-list').style.height = '0px';
+  messagesPanel.querySelector('[data-category-filter]').replaceChildren(Object.assign(doc.createElement('option'), { value: '', textContent: 'All categories' }));
+  messagesPanel.querySelector('[data-message-search]').value = '';
+  messagesPanel.querySelector('[data-message-count]').textContent = '0 retained · 0 discarded';
+  messagesPanel.querySelector('.messages-status').textContent = '';
+  messagesPanel.querySelectorAll('[data-level]').forEach(button => { button.setAttribute('aria-pressed', 'true'); button.classList.remove('off'); });
+  const messagesButton = h.querySelector('#bmessages');
+  messagesButton.classList.remove('on');
+  messagesButton.setAttribute('aria-expanded', 'false');
+  messagesButton.querySelector('#messages-badge').textContent = '0';
   h.querySelector('#model').textContent = '\n' + writeEDN(wb, 0) + '\n';
   h.querySelector('title').textContent = wb.name;
   return '<!doctype html>\n' + h.outerHTML;
@@ -73,10 +87,21 @@ export function createPersistence(ctx) {
       } else download(html);
     } catch (e) {
       if (e.name === 'AbortError') return html;
-      download(html);
+      try {
+        download(html);
+        ctx.messages?.warn('The native save failed; a download fallback was used.', {
+          category: 'app', source: { operation: 'save' }, details: { reason: e.message }, exception: e,
+        });
+      } catch (fallbackError) {
+        ctx.messages?.error('Workbook could not be saved.', {
+          category: 'app', source: { operation: 'save' }, details: { reason: e.message }, exception: fallbackError,
+        });
+        throw fallbackError;
+      }
     }
     ctx.session.markSaved();
     ctx.updateStatus();
+    ctx.messages?.info('Workbook saved.', { category: 'app', source: { operation: 'save' } });
     ctx.flash('Salvato');
     return html;
   }
@@ -99,8 +124,14 @@ export function createPersistence(ctx) {
       const wb = readEDN(extractModel(await f.text()));
       fh = h;
       ctx.loadWorkbook(wb);
+      ctx.messages?.info('Workbook loaded.', { category: 'app', source: { operation: 'open' } });
     } catch (e) {
-      if (e.name !== 'AbortError') ctx.flash('Apertura non riuscita: ' + e.message);
+      if (e.name !== 'AbortError') {
+        ctx.messages?.error('Workbook could not be opened.', {
+          category: 'app', source: { operation: 'open' }, details: { reason: e.message }, exception: e,
+        });
+        ctx.flash('Apertura non riuscita: ' + e.message);
+      }
     }
   }
 

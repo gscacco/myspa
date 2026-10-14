@@ -16,6 +16,7 @@
   <button id="bflow" class="on" data-action="toggle-flow" title="Evidenzia sorgenti (blu) e dipendenti (arancio)">Flusso</button>
   <button id="bfn" data-action="toggle-functions">ƒ CLJS</button>
   <button id="bexplore" data-action="explore-data">Explore Data</button>
+  <button id="bmessages" data-action="toggle-messages" aria-expanded="false" aria-controls="messages-panel">Messages <span id="messages-badge" aria-label="Retained messages">0</span></button>
   <span id="stat" data-dyn></span>
 </div>
 <div id="data-explorer" class="data-explorer-overlay" hidden>
@@ -39,6 +40,32 @@
 </div>
 <div id="fb"><input id="nb" readonly><b>ƒx</b><input id="fx" spellcheck="false"><span id="vv" data-dyn></span></div>
 <div id="gw"><div id="gx"><table id="g" data-dyn></table><div id="ov"><div id="fh" title="Fill cells"></div></div></div></div>
+<section id="messages-panel" aria-label="Messages" hidden>
+  <div id="messages-resizer" role="separator" aria-label="Resize Messages panel" aria-orientation="horizontal" aria-valuemin="160" aria-valuemax="900" tabindex="0"></div>
+  <header class="messages-header">
+    <div class="messages-title"><b>Messages</b><span data-message-count>0 retained · 0 discarded</span></div>
+    <div class="messages-controls">
+      <div class="messages-levels" role="group" aria-label="Filter by severity">
+        <button type="button" data-level="info" aria-pressed="true">INFO</button>
+        <button type="button" data-level="warn" aria-pressed="true">WARN</button>
+        <button type="button" data-level="error" aria-pressed="true">ERROR</button>
+        <button type="button" data-level="debug" aria-pressed="true">DEBUG</button>
+      </div>
+      <select data-category-filter aria-label="Filter by category"><option value="">All categories</option></select>
+      <input data-message-search type="search" placeholder="Search messages" aria-label="Search messages">
+    </div>
+    <div class="messages-actions">
+      <button type="button" data-copy-messages>Copy filtered</button>
+      <button type="button" data-export-messages>Export all</button>
+      <button type="button" data-clear-messages>Clear</button>
+      <button type="button" data-close-messages aria-label="Close Messages">×</button>
+    </div>
+  </header>
+  <div id="messages-list" role="log" aria-label="Application messages" aria-live="off" tabindex="0">
+    <div id="messages-virtual-list"><div class="messages-rows"></div></div>
+  </div>
+  <div class="messages-status" role="status" aria-live="polite"></div>
+</section>
 <div id="tabs" data-dyn></div>
 <div id="fn" role="dialog" aria-modal="false" aria-labelledby="fn-title" hidden>
   <div id="fn-head"><b id="fn-title">User-defined functions (ClojureScript)</b><div id="fn-actions"><button id="apply-code" type="button" title="Apply all function definitions" aria-label="Apply all function definitions">✓</button><button id="close-code" type="button" title="Close code editor" aria-label="Close code editor">×</button></div></div>

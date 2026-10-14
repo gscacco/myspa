@@ -869,3 +869,131 @@ test('Explore Data copies the selected EDN and its ClojureScript selection expre
   }
 });
 
+test('Messages stays independent of panel visibility and renders a virtual window', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.grid.sel(1, 2);
+  const selected = app.grid.cursor();
+  for (let i = 0; i < 2105; i++) app.messages.info(`Background message ${i}`, { category: 'app' });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const panel = document.querySelector('#messages-panel');
+  const button = document.querySelector('[data-action="toggle-messages"]');
+  button.click();
+  assert.equal(panel.hidden, false);
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  assert.equal(panel.querySelector('[data-message-count]').textContent, '2000 retained · 105 discarded');
+  assert.ok(panel.querySelectorAll('.message-row').length < 30, 'the panel renders only a viewport and overscan');
+  assert.ok(panel.textContent.includes('Background message 2104'), 'opening follows the newest messages');
+  assert.deepEqual(app.grid.cursor(), selected, 'opening the panel preserves spreadsheet selection');
+  app.messages.info('Follow while at bottom');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(panel.textContent.includes('Follow while at bottom'), 'new messages are followed when the reader is at the bottom');
+
+  const list = panel.querySelector('#messages-list');
+  list.scrollTop = 0;
+  list.dispatchEvent(new window.Event('scroll'));
+  const firstRow = panel.querySelector('.message-row');
+  const firstId = firstRow.dataset.messageId;
+  assert.equal(firstId, '107');
+  const retainedRow = panel.querySelector('[data-message-id="112"]');
+  app.messages.warn('Appended while inspecting history');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(panel.querySelector(`[data-message-id="${firstId}"]`), null, 'retention drops the oldest row');
+  assert.equal(panel.querySelector('[data-message-id="112"]'), retainedRow, 'append keeps surviving visible rows and DOM nodes');
+  assert.ok(panel.querySelectorAll('.message-row').length < 30);
+
+  panel.querySelector('[data-close-messages]').click();
+  assert.equal(panel.hidden, true);
+  app.messages.clear();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  app.messages.error('Collected while hidden');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  button.click();
+  assert.ok(app.messages.getMessages().some(message => message.message === 'Collected while hidden'));
+  assert.deepEqual(app.messages.getStats(), { retained: 1, discarded: 107, chars: app.messages.getStats().chars });
+  const search = panel.querySelector('[data-message-search]');
+  assert.doesNotMatch(panel.textContent, /Background message 2104/, 'clear releases the hidden view of the old history');
+  search.value = 'Collected while hidden';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.ok(panel.textContent.includes('Collected while hidden'), 'search can reveal messages collected while hidden');
+  close();
+});
+
+test('Messages filters, expands and copies details, exports retained JSON, and clears on confirmation', async () => {
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const clipboard = [];
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { clipboard: { writeText: async value => { clipboard.push(value); } } },
+  });
+  const { document, window, app, close } = await mountApp();
+  try {
+    app.messages.error('Evaluation failed at C2', {
+      category: 'exec', source: { cell: 'Foglio1!C2' }, details: { expression: '(bad-form)' }, exception: new Error('unbound symbol'),
+    });
+    app.messages.warn('Missing budget', { category: 'data' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    document.querySelector('[data-action="toggle-messages"]').click();
+    const panel = document.querySelector('#messages-panel');
+    assert.deepEqual([...panel.querySelectorAll('[data-category-filter] option')].map(option => option.value), ['', 'data', 'exec']);
+
+    panel.querySelector('[data-level="warn"]').click();
+    assert.equal(panel.querySelectorAll('.message-row').length, 1);
+    assert.ok(panel.textContent.includes('Evaluation failed at C2'));
+    panel.querySelector('[data-level="warn"]').click();
+    const category = panel.querySelector('[data-category-filter]');
+    category.value = 'data';
+    category.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.equal(panel.querySelectorAll('.message-row').length, 1);
+    assert.ok(panel.textContent.includes('Missing budget'));
+    category.value = 'exec';
+    category.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.ok(panel.textContent.includes('Evaluation failed at C2'));
+    category.value = '';
+    category.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const search = panel.querySelector('[data-message-search]');
+    search.value = 'Foglio1!C2';
+    search.dispatchEvent(new window.Event('input', { bubbles: true }));
+    const row = panel.querySelector('.message-row');
+    assert.ok(row);
+    assert.equal(row.querySelector('.message-level').textContent, 'ERROR');
+    assert.ok(row.querySelector('.message-level').classList.contains('level-error'));
+    assert.equal(row.querySelector('.message-category').textContent, 'exec');
+    row.querySelector('.message-row-actions button:last-child').click();
+    row.querySelector('.message-details-toggle').click();
+    const expandedRow = panel.querySelector('.message-row');
+    assert.equal(expandedRow.querySelector('.message-details-toggle').getAttribute('aria-expanded'), 'true');
+    assert.ok(expandedRow.querySelector('.message-detail').textContent.includes('unbound symbol'));
+    expandedRow.querySelector('.message-detail button').click();
+    panel.querySelector('[data-copy-messages]').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.match(clipboard[0], /Foglio1!C2/);
+    assert.doesNotMatch(clipboard[0], /unbound symbol/);
+    assert.match(clipboard[1], /unbound symbol/);
+    assert.match(clipboard[2], /Evaluation failed at C2/);
+
+    let exported = null, downloaded = false;
+    window.URL.createObjectURL = blob => { exported = blob; return 'blob:messages-test'; };
+    window.URL.revokeObjectURL = () => {};
+    window.HTMLAnchorElement.prototype.click = function click() { downloaded = this.download === 'foglio-messages.json'; };
+    panel.querySelector('[data-export-messages]').click();
+    assert.ok(exported instanceof window.Blob);
+    assert.equal(downloaded, true);
+
+    const handle = panel.querySelector('#messages-resizer');
+    handle.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, clientY: 200 }));
+    window.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientY: 160 }));
+    window.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+    assert.equal(panel.style.height, '320px');
+
+    panel.querySelector('[data-clear-messages]').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(app.messages.getStats().retained, 0);
+    assert.equal(panel.querySelectorAll('.message-row').length, 0);
+  } finally {
+    close();
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+    else delete globalThis.navigator;
+  }
+});
+

@@ -67,8 +67,13 @@ function toError(error, source = '') {
  *
  * @param {object} workbook
  */
-export function createEngine(workbook) {
+export function createEngine(workbook, { log = null } = {}) {
   let wb = workbook;
+  const report = (level, message, metadata) => {
+    try { if (typeof log === 'function') log(level, message, metadata); }
+    catch { /* Diagnostics must not alter evaluation behavior. */ }
+  };
+  const reportedErrors = new WeakSet();
   ensureSheetCore();
   const engineId = nextEngineId++;
   let userNsVersion = 0;
@@ -89,7 +94,7 @@ export function createEngine(workbook) {
       const [sh, a] = id.split('!');
       const s = sheetByName(wb, sh);
       if (!s) throw Error('#REF: foglio «' + sh + '» inesistente');
-      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, cljVal: null, display: null, err: null, fn: null, cljs: null, raw: undefined };
+      n = { id, sh, a, deps: new Set(), rd: new Set(), st: 0, val: null, cljVal: null, display: null, err: null, fn: null, cljs: null, raw: undefined, lastLoggedError: null, loggedMessages: new Set(), errorOrigin: null, propagatedError: null };
       nodes.set(id, n);
       setNode(n, s.cells[a]?.r);
     }
@@ -103,7 +108,7 @@ export function createEngine(workbook) {
   function setNode(n, raw) {
     n.deps.forEach(d => d.rd.delete(n));
     n.deps.clear();
-    n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null; n.cljVal = raw === undefined ? null : raw; n.display = null;
+    n.raw = raw; n.fn = null; n.cljs = null; n.err = null; n.st = 0; n.val = null; n.cljVal = raw === undefined ? null : raw; n.display = null; n.lastLoggedError = null; n.loggedMessages.clear(); n.errorOrigin = null; n.propagatedError = null;
     if (typeof raw === 'string') {
       try {
         const hasPrefix = raw[0] === '=';
@@ -124,7 +129,15 @@ export function createEngine(workbook) {
         } else {
           n.val = raw;
         }
-      } catch (e) { n.err = e; }
+      } catch (e) {
+        n.err = toError(e, String(raw));
+        n.errorOrigin = n;
+        n.lastLoggedError = `${n.err.name}:${n.err.message}`;
+        report('error', n.err.message, {
+          category: 'exec', source: { cell: `${n.sh}!${n.a}` }, details: { expression: String(raw) }, exception: n.err,
+        });
+        reportedErrors.add(n.err);
+      }
     } else n.val = raw === undefined ? null : raw;
   }
 
@@ -133,7 +146,10 @@ export function createEngine(workbook) {
     if (ctx) { ctx.deps.add(n); n.rd.add(ctx); }
     if (n.st === 2) throw new Error('#CIRC: riferimento circolare');
     if (n.st === 1) ev(n);
-    if (n.err) throw n.err;
+    if (n.err) {
+      if (ctx && ctx !== n) ctx.propagatedError = n.errorOrigin || n;
+      throw n.err;
+    }
     return n.val;
   }
 
@@ -142,6 +158,7 @@ export function createEngine(workbook) {
     n.st = 2;
     n.deps.forEach(d => d.rd.delete(n));
     n.deps.clear();
+    n.propagatedError = null;
     const p = ctx; ctx = n;
     try {
       const result = withCellBridge(cellBridge(), () => n.cljs != null
@@ -151,8 +168,25 @@ export function createEngine(workbook) {
       n.cljVal = result.cljs ? result.raw : n.val;
       n.display = result.cljs ? result.display : null;
       n.err = null;
+      n.lastLoggedError = null;
+      n.errorOrigin = null;
     }
-    catch (e) { n.err = toError(e, n.cljs || ''); n.val = null; n.cljVal = null; n.display = null; }
+    catch (e) {
+      n.err = toError(e, n.cljs || '');
+      n.val = null; n.cljVal = null; n.display = null;
+      const signature = `${n.err.name}:${n.err.message}`;
+      const propagatedFrom = n.propagatedError;
+      if (!propagatedFrom && !reportedErrors.has(n.err) && n.lastLoggedError !== signature) {
+        report('error', n.err.message, {
+          category: 'exec', source: { cell: `${n.sh}!${n.a}` },
+          details: { expression: typeof n.raw === 'string' ? n.raw : undefined }, exception: n.err,
+        });
+        reportedErrors.add(n.err);
+        n.lastLoggedError = signature;
+      }
+      n.errorOrigin = propagatedFrom || n;
+      n.propagatedError = null;
+    }
     ctx = p; n.st = 0; changed.add(n);
   }
 
@@ -188,7 +222,24 @@ export function createEngine(workbook) {
     return out;
   };
 
-  const cellBridge = () => ({ read: $, range: $$, readClj: $clj, rangeClj: $$clj });
+  const cellBridge = () => ({
+    read: $, range: $$, readClj: $clj, rangeClj: $$clj,
+    log(level, message, metadata) {
+      const options = metadata && typeof metadata === 'object' ? metadata : {};
+      const source = options.source ?? (ctx ? { cell: `${ctx.sh}!${ctx.a}` } : undefined);
+      if (ctx) {
+        const key = `${level}\u0000${options.category || 'exec'}\u0000${message}`;
+        if (ctx.loggedMessages.has(key)) return;
+        ctx.loggedMessages.add(key);
+        if (ctx.loggedMessages.size > 32) ctx.loggedMessages.delete(ctx.loggedMessages.values().next().value);
+      }
+      report(level, message, {
+        ...options,
+        category: options.category || 'exec',
+        ...(source ? { source } : {}),
+      });
+    },
+  });
 
   /** Crea un ENV JavaScript che espone le var ClojureScript del workbook. */
   function makeEnvironment() {
@@ -295,7 +346,12 @@ export function createEngine(workbook) {
       withCellBridge(cellBridge(), () => scittleEval(scopedCode(code || '')));
       return null;
     } catch (error) {
-      return toError(error, code || '');
+      const normalized = toError(error, code || '');
+      report('error', normalized.message, {
+        category: 'exec', source: { operation: 'user-code' },
+        details: { context: 'Applying the ClojureScript editor' }, exception: normalized,
+      });
+      return normalized;
     }
   }
 
@@ -324,7 +380,12 @@ export function createEngine(workbook) {
       refreshEnvironment(userNames.map(name => `(def ${name})`).join('\n'));
       return { value, error: null, defs };
     } catch (error) {
-      return { value: null, error: toError(error, code), defs: {} };
+      const normalized = toError(error, code);
+      report('error', normalized.message, {
+        category: 'exec', source: { operation: 'evaluate-form' },
+        details: { expression: code }, exception: normalized,
+      });
+      return { value: null, error: normalized, defs: {} };
     }
   }
 

@@ -14,6 +14,14 @@ export const SHEET_CORE_SOURCE = `(ns sheet.core)
     (if (.-rangeClj bridge)
       (js->clj ((.-rangeClj bridge) id) :keywordize-keys true)
       (js->clj ((.-range bridge) id) :keywordize-keys true)))))
+(def log! (fn
+  ([level message] (log! level message nil))
+  ([level message metadata]
+   (let [bridge js/globalThis.__foglioScittleBridge
+         options (when metadata (clj->js metadata))]
+     (when (.-log bridge)
+       ((.-log bridge) (if (keyword? level) (name level) (str level)) (str message) options))
+     nil))))
 (def PI js/Math.PI)
 (def E js/Math.E)
 (def abs js/Math.abs)
@@ -89,6 +97,10 @@ export function ensureSheetCore() {
       rangeClj(id) {
         if (!bridgeState.active) throw new Error('accesso a intervallo fuori da una valutazione');
         return (bridgeState.active.rangeClj || bridgeState.active.range)(id);
+      },
+      log(level, message, metadata) {
+        if (!bridgeState.active?.log) return null;
+        return bridgeState.active.log(level, message, metadata);
       },
     };
     globalThis[BRIDGE_KEY] = bridgeState;

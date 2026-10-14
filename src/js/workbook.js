@@ -20,9 +20,9 @@ const HISTORY_LIMIT = 100;
  * Crea una sessione di lavoro su un workbook.
  * @param {object} workbook
  */
-export function createSession(workbook) {
+export function createSession(workbook, options = {}) {
   let wb = workbook;
-  const engine = createEngine(wb);
+  const engine = createEngine(wb, options);
   const undoStack = [];
   const redoStack = [];
   let modified = false;
