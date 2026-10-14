@@ -108,3 +108,43 @@ test('cell hooks report committed sources, changed SCI values, dependency recalc
     close();
   }
 });
+
+test('ClojureScript can write and clear the bottom-right selection summary from hooks', async () => {
+  const { app, document, close } = await mountApp();
+  try {
+    const summary = document.querySelector('#selection-summary');
+    assert.ok(summary);
+
+    assert.equal(app.session.evalForm('(set-status! "Count: 3 · Sum: 42 · Average: 14")').value, true);
+    assert.equal(summary.textContent, 'Count: 3 · Sum: 42 · Average: 14');
+    app.session.evalForm('(set-status! "<img src=x onerror=alert(1)>")');
+    assert.equal(summary.textContent, '<img src=x onerror=alert(1)>');
+    assert.equal(summary.childElementCount, 0, 'status content is inserted as plain text');
+
+    const registration = app.session.evalForm(`
+      (add-hook :on-selection-change
+        (fn [event]
+          (let [selection (get-in event [:data :selection])
+                range (:range selection)
+                reference (str (:sheet selection) "!" range
+                               (when (= range (:focus selection)) (str ":" range)))
+                values (filter number? (flatten ($$ reference)))]
+            (if (seq values)
+              (let [total (reduce + 0 values)]
+                (set-status! (str "Count: " (count values)
+                                  " · Sum: " (ROUND total 2)
+                                  " · Average: " (ROUND (/ total (count values)) 2))))
+              (clear-status!)))))`);
+    assert.equal(registration.error, null);
+
+    app.grid.sel(1, 1);
+    app.grid.sel(3, 1, true);
+    assert.equal(summary.textContent, 'Count: 3 · Sum: 29.6 · Average: 9.87');
+
+    app.grid.sel(4, 24);
+    assert.equal(summary.textContent, '');
+    assert.equal(app.session.evalForm('(clear-status!)').value, true);
+  } finally {
+    close();
+  }
+});

@@ -16,7 +16,7 @@ test('every help entry has a unique id, explanation, and copyable example', () =
 test('the help catalog covers every function exposed by the ClojureScript runtime', () => {
   const documented = new Set(HELP_ENTRIES.filter(entry => entry.kind === 'function').map(entry => entry.name));
   for (const name of Object.keys(coreBuiltins())) assert.ok(documented.has(name), `${name} is documented`);
-  for (const name of ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$', 'log!', 'add-hook', 'remove-hook', 'run-hook', 'clear-hook', 'list-hooks', 'style-range!', 'clear-range-style!']) {
+  for (const name of ['SUM', 'COUNT', 'MIN', 'MAX', 'AVG', 'AVERAGE', 'ROUND', 'IF', '$', '$$', 'log!', 'add-hook', 'remove-hook', 'run-hook', 'clear-hook', 'list-hooks', 'style-range!', 'clear-range-style!', 'set-status!', 'clear-status!']) {
     assert.ok(documented.has(name), `${name} is documented`);
   }
 });

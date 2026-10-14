@@ -68,7 +68,7 @@ function toError(error, source = '') {
  *
  * @param {object} workbook
  */
-export function createEngine(workbook, { log = null, hooks = null, styleRange: applyStyleRange = null } = {}) {
+export function createEngine(workbook, { log = null, hooks = null, styleRange: applyStyleRange = null, setStatus = null } = {}) {
   let wb = workbook;
   const report = (level, message, metadata) => {
     try { if (typeof log === 'function') log(level, message, metadata); }
@@ -323,6 +323,16 @@ export function createEngine(workbook, { log = null, hooks = null, styleRange: a
 
   const cellBridge = () => ({
     read: $, range: $$, readClj: $clj, rangeClj: $$clj,
+    setStatus(message) {
+      if (typeof setStatus !== 'function') return false;
+      setStatus(String(message ?? ''));
+      return true;
+    },
+    clearStatus() {
+      if (typeof setStatus !== 'function') return false;
+      setStatus('');
+      return true;
+    },
     styleRange(reference, style) {
       if (typeof applyStyleRange !== 'function') throw new Error('Cell styling is unavailable in this evaluation context');
       return applyStyleRange(reference, style, ctx?.sh);

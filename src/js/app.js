@@ -32,6 +32,10 @@ export function createApp() {
   session = createSession(initialWorkbook, {
     log: messages.log,
     hooks,
+    setStatus: value => {
+      const status = document.querySelector('#selection-summary');
+      if (status) status.textContent = value;
+    },
     getCurrentSheet: () => session?.workbook.sheets[ci]?.name || initialWorkbook.sheets[0]?.name,
   });
 

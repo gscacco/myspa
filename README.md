@@ -198,6 +198,31 @@ Remove a hook when it is no longer needed:
 (remove-hook :on-selection-change report-selection)
 ```
 
+## Selection summary
+
+The bottom-right area below the sheet tabs is available for short, user-defined status text. ClojureScript expressions and event hooks can write to it with `set-status!`; `clear-status!` removes the current text. Updating this area does not change the workbook, cell selection, or Messages history. The text is inserted as plain text and remains visible until replaced or cleared.
+
+For example, this hook shows the count, sum, and average of numeric values in the selected range, and clears the area when the range contains no numbers:
+
+```clojure
+(add-hook :on-selection-change
+  (fn [event]
+    (let [selection (get-in event [:data :selection])
+          range (:range selection)
+          reference (str (:sheet selection) "!" range
+                         (when (= range (:focus selection)) (str ":" range)))
+          numbers (filter number? (flatten ($$ reference)))]
+      (if (seq numbers)
+        (let [total (reduce + 0 numbers)]
+          (set-status!
+            (str "Count: " (count numbers)
+                 " · Sum: " (ROUND total 2)
+                 " · Average: " (ROUND (/ total (count numbers)) 2))))
+        (clear-status!)))))
+```
+
+Here, count includes numeric cells, matching the spreadsheet `COUNT` convention; blank and nonnumeric values are excluded from all three calculations. The selected range is expanded to `A1:A1` form when it contains only one cell. The hook is registered only when this expression is evaluated. Use `(clear-hook :on-selection-change)` to remove all selection hooks.
+
 ## Try it locally
 
 Requirements: Node.js 20.19 or newer and npm.

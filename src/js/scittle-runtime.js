@@ -24,6 +24,16 @@ export const SHEET_CORE_SOURCE = `(ns sheet.core)
     (if (.-styleRange bridge)
       ((.-styleRange bridge) reference nil)
       0))))
+(def set-status! (fn [message]
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-setStatus bridge)
+      ((.-setStatus bridge) (str message))
+      false))))
+(def clear-status! (fn []
+  (let [bridge js/globalThis.__foglioScittleBridge]
+    (if (.-clearStatus bridge)
+      ((.-clearStatus bridge))
+      false))))
 (def log! (fn
   ([level message] (log! level message nil))
   ([level message metadata]
@@ -167,6 +177,8 @@ export function ensureSheetCore() {
         if (!bridgeState.active?.styleRange) throw new Error('cell styling is unavailable outside an application evaluation');
         return bridgeState.active.styleRange(reference, style);
       },
+      setStatus(message) { return bridgeState.active?.setStatus?.(message) ?? false; },
+      clearStatus() { return bridgeState.active?.clearStatus?.() ?? false; },
       log(level, message, metadata) {
         if (!bridgeState.active?.log) return null;
         return bridgeState.active.log(level, message, metadata);
