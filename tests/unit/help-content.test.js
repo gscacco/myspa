@@ -51,3 +51,20 @@ test('the add-hook help example logs both the previous and current selection', (
   assert.match(addHook.example, /\(log! :info/);
   assert.match(addHook.example, /:details \{:previous-selection previous\s+:selection current\}/);
 });
+
+test('event help entries show complete payload shapes for all supported events', () => {
+  const eventEntries = new Map(HELP_ENTRIES
+    .filter(entry => entry.kind === 'keyword' && entry.category === 'Evento')
+    .map(entry => [entry.name, entry]));
+  const expectedFields = {
+    ':on-selection-change': [':event :on-selection-change', ':timestamp', ':source :ui', ':previous-selection', ':selection', ':anchor', ':focus', ':range'],
+    ':on-cell-source-change': [':event :on-cell-source-change', ':timestamp', ':source :cell', ':cell', ':old-source', ':new-source'],
+    ':on-cell-value-change': [':event :on-cell-value-change', ':timestamp', ':source :cell', ':cell', ':previous-value-available?', ':old-value', ':new-value'],
+    ':on-cell-evaluation-error': [':event :on-cell-evaluation-error', ':timestamp', ':source :cell', ':cell', ':expression', ':error', ':name', ':message', ':line', ':stack'],
+  };
+  for (const [event, fields] of Object.entries(expectedFields)) {
+    const entry = eventEntries.get(event);
+    assert.ok(entry, `${event} has a help entry`);
+    for (const field of fields) assert.ok(entry.example.includes(field), `${event} example includes ${field}`);
+  }
+});
