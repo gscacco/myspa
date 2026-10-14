@@ -84,9 +84,16 @@ Click **Help** in the toolbar to open the searchable ClojureScript reference. It
 
 Choose an entry to read its description and example. **Copy example** places the example on the clipboard. **Insert into editor** adds it at the current cursor position in the `ƒ CLJS` editor, opening that editor if needed; it does not run the code or change a cell. Review the inserted code, then use Ctrl+Enter to evaluate the form at the cursor or apply the editor code as appropriate. Examples that refer to names such as `records`, `record`, or `event` expect those values to exist in the workbook or calling context.
 
-### Styling cells from ClojureScript
+### Modifying cell appearance from ClojureScript
 
-Use `style-range!` to style a single cell or range by its text reference. An unqualified reference uses the sheet containing the running cell, or the currently selected sheet when evaluated from the `ƒ CLJS` editor. Add `SheetName!` to target a specific sheet. The function merges the supplied options with existing styles, returns the number of cells changed, records the change for undo, and does not change cell values or recalculate formulas.
+Foglio exposes two functions for changing cell appearance; they do not set or replace cell values. Use `style-range!` to apply or update styles on a single cell or range, and `clear-range-style!` to remove them:
+
+```clojure
+(style-range! reference styles)
+(clear-range-style! reference)
+```
+
+The reference is text such as `"A1"` or `"A1:B3"`. An unqualified reference uses the sheet containing the running cell, or the currently selected sheet when evaluated from the `ƒ CLJS` editor. Add `SheetName!` to target a specific sheet. `style-range!` merges supplied options with existing styles, returns the number of cells changed, records the change for undo, and does not recalculate formulas.
 
 ```clojure
 (style-range! "A1:B3"
@@ -102,7 +109,7 @@ Use `style-range!` to style a single cell or range by its text reference. An unq
    :border-style :solid})
 ```
 
-Supported style keys are `:background`, `:color`, `:bold`, `:italic`, `:underline`, `:font-size`, `:font-family`, `:border-color`, `:border-width`, and `:border-style`. Font sizes are 8–72 pixels; border widths are 0–12 pixels. Border styles include `:none`, `:solid`, `:dashed`, `:dotted`, and `:double` (as well as the standard groove, ridge, inset, and outset styles). Set an individual option to `nil` to remove that override. `clear-range-style!` removes all styles set through this API and legacy toolbar bold/background styles, while preserving cell values and decimal formatting.
+Supported style keys are `:background`, `:color`, `:bold`, `:italic`, `:underline`, `:font-size`, `:font-family`, `:border-color`, `:border-width`, and `:border-style`. Font sizes are 8–72 pixels; border widths are 0–12 pixels. Border styles include `:none`, `:solid`, `:dashed`, `:dotted`, and `:double` (as well as the standard groove, ridge, inset, and outset styles). Set an individual option to `nil` to remove that override. `clear-range-style!` removes styles set through this API and legacy toolbar bold/background styles, while preserving cell values and decimal formatting. Both functions accept a single cell or a range.
 
 Style operations can run in an event hook. This example highlights the current selection and works for both a cell and a range:
 
@@ -154,13 +161,39 @@ The supported severities are `:info`, `:warn`, `:error`, and `:debug`. If omitte
 
 ## Event hooks
 
-Hooks run synchronously after the relevant state has been committed and recalculated. The supported events are `:on-selection-change`, `:on-cell-source-change`, `:on-cell-value-change`, and `:on-cell-evaluation-error`. The initial A1 selection at startup does not emit a selection event. Selection changes include the previous and current descriptors (`:sheet`, `:anchor`, `:focus`, and normalized `:range`); switching sheets counts as a change.
+Hooks run synchronously after the relevant state has been committed and recalculated. The supported events are `:on-selection-change`, `:on-cell-source-change`, `:on-cell-value-change`, and `:on-cell-evaluation-error`. Each event has the common shape `{:event keyword :timestamp ISO-string :source keyword :data map}`. The initial A1 selection at startup does not emit a selection event. Selection changes include the previous and current descriptors (`:sheet`, `:anchor`, `:focus`, and normalized `:range`); switching sheets counts as a change.
+
+The selection event has this structure (the `:data` keys are ClojureScript keywords):
+
+```clojure
+{:event :on-selection-change
+ :timestamp "2026-10-14T12:00:00.000Z"
+ :source :ui
+ :data {:previous-selection {:sheet "Foglio1"
+                             :anchor "A1" :focus "A1" :range "A1"}
+        :selection {:sheet "Foglio1"
+                    :anchor "B1" :focus "B1" :range "B1"}}}
+```
 
 Cell events use `:source :cell` and identify a cell with its sheet-qualified A1 address, such as `"Foglio1!C2"`. `:on-cell-source-change` fires once when a committed raw source changes. Intermediate typing and identical source commits are ignored. Source values preserve the stored representation; clearing a source is represented by `nil`. Multiple writes to one cell before recalculation are coalesced from the original to the final source.
 
 `:on-cell-value-change` fires only when a successful evaluated value differs under ClojureScript `=` semantics. It includes changes caused by dependency recalculation, even when the dependent cell's source did not change. Values remain ClojureScript values, preserving distinctions such as keywords versus strings and vectors versus lists. For a cell without a previous successful value, the event sets `:previous-value-available?` to `false` and omits `:old-value`; otherwise it sets the flag to `true` and provides both `:old-value` and `:new-value`. A failed evaluation never emits a value-change event.
 
 `:on-cell-evaluation-error` fires for a failed cell evaluation. Its `:data` contains `:cell`, the string `:expression` when the source is text, and an `:error` map with `:name`, `:message`, and available `:line` or `:stack` information. Stack text is limited to 8,000 characters. Errors propagated from a failing cell to dependent formulas are reported only for the originating cell.
+
+### Hook functions
+
+Use these functions to register and manage callbacks. Each callback receives one event map as its argument:
+
+| Function | Behavior |
+| --- | --- |
+| `(add-hook event function)` | Register a callback; returns `true` when added and `false` if the same function is already registered. |
+| `(remove-hook event function)` | Remove that callback; returns `true` when removed and `false` if it was not registered. |
+| `(run-hook event)` / `(run-hook event payload)` | Manually dispatch an event and return the number of callbacks attempted. The optional payload supplies `:data` and may supply `:timestamp` and `:source`; defaults are an empty data map, the current time, and `:manual`. |
+| `(clear-hook event)` | Remove all callbacks for the event and return the number removed. |
+| `(list-hooks)` / `(list-hooks event)` | Return the callbacks registered for an event. Without an argument, lists `:on-selection-change` callbacks. |
+
+Only the four events listed above are supported; an unknown event raises an error. Callbacks run in registration order from a stable snapshot, so additions and removals during dispatch affect the next event. A callback error is sent to Messages and does not stop later callbacks.
 
 For example, these hooks write source, value, and failure feedback to Messages:
 
@@ -191,7 +224,7 @@ For example, these hooks write source, value, and failure feedback to Messages:
       {:category :exec})))
 ```
 
-The Help reference documents the hook functions, event names, and payload keys. Registering the same function twice is ignored. `remove-hook` returns `false` if the function was not registered; `clear-hook` removes all hooks for an event; and `list-hooks` returns the registered functions, optionally for a specified event. `run-hook` manually dispatches an event and returns the number of hooks attempted. Unsupported events raise an error. Each dispatch uses a stable listener snapshot, and a failing hook is reported in Messages while later hooks still run. The existing `:on-selection-change` payload and behavior remain unchanged.
+The Help reference also documents the event keywords and payload keys. The hook registry is in memory for the current application session; evaluate the registration expression again after reloading Foglio.
 
 Remove a hook when it is no longer needed:
 
@@ -201,7 +234,7 @@ Remove a hook when it is no longer needed:
 
 ## Selection summary
 
-The bottom-right area below the sheet tabs is available for short, user-defined status text. ClojureScript expressions and event hooks can write to it with `set-status!`; `clear-status!` removes the current text. Updating this area does not change the workbook, cell selection, or Messages history. The text is inserted as plain text and remains visible until replaced or cleared.
+The bottom-right area below the sheet tabs is available for short, user-defined status text. Use `(set-status! text)` to display a value, or `(clear-status!)` to remove it. The text is inserted as plain text and remains visible until replaced or cleared. Both functions can be called from cell expressions, the `ƒ CLJS` editor, or event hooks; updating the area does not change the workbook, cell selection, or Messages history.
 
 For example, this hook shows the count, sum, and average of numeric values in the selected range, and clears the area when the range contains no numbers:
 
