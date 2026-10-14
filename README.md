@@ -20,6 +20,11 @@ There is currently no schedule or timeline for future versions.
 - Apply basic formatting, including bold text, decimal places, and background colors. Copy and paste cell ranges, and undo or redo workbook changes.
 - Use ClojureScript functions to format one cell or a range, including text and border styles.
 - Save and reopen a workbook as a standalone HTML file containing the application and workbook data.
+- Export workbook data and general ClojureScript code to EDN, then import them into another Foglio version without replacing that version's application files.
+
+### Moving workbook data between Foglio versions
+
+**Save** writes the complete standalone HTML application. **Esporta dati** writes only the workbook as an `.edn` file, including sheets, cell sources, formatting, dimensions, and general ClojureScript code. Use **Importa dati** in another Foglio version to load that file; the current workbook is replaced while the new version's application remains in place. Import asks before replacing unsaved changes. The imported code becomes the workbook's general ClojureScript code and is loaded by Foglio.
 
 The runtime is Scittle 0.8.33, which evaluates ClojureScript through SCI. It does not require Java or a JVM. SCI is an interpreter, not the official ClojureScript compiler, and it does not provide the complete ClojureScript build and library ecosystem. The spreadsheet functions and cell-reference bridge are defined in `src/js/scittle-runtime.js`; `src/js/cljs.js` contains the editor reader and compatibility wrappers that delegate evaluation to Scittle.
 

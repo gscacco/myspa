@@ -54,7 +54,7 @@ export function readEDN(s) {
     if (c === '"') {
       i++;
       let r = '';
-      while (s[i] !== '"') {
+      while (i < s.length && s[i] !== '"') {
         if (s[i] === '\\') {
           i++;
           const d = s[i];
@@ -65,6 +65,7 @@ export function readEDN(s) {
         } else r += s[i];
         i++;
       }
+      if (i >= s.length) throw Error('EDN: stringa non terminata');
       i++;
       return r;
     }

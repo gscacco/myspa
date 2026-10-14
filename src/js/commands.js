@@ -250,6 +250,8 @@ export function createCommands(ctx) {
     const act = (name, fn, evName = 'click') => { const el = Q('[data-action="' + name + '"]'); if (el) el.addEventListener(evName, fn); };
     act('save', () => ctx.save(false));
     act('open', () => ctx.open());
+    act('export-data', () => ctx.exportData());
+    act('import-data', () => ctx.importData());
     act('undo', doUndo);
     act('redo', doRedo);
     act('toggle-bold', () => fmt('b'));

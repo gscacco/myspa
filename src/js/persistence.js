@@ -8,9 +8,11 @@
  */
 
 import { writeEDN, readEDN } from './edn.js';
+import { createWorkbook } from './model.js';
 
 /** Tipi accettati dal selettore file nativo. */
 export const FILE_TYPES = [{ description: 'Foglio di calcolo HTML', accept: { 'text/html': ['.html'] } }];
+export const DATA_FILE_TYPES = [{ description: 'Dati e codice Foglio (EDN)', accept: { 'application/edn': ['.edn'] } }];
 
 /**
  * Costruisce il documento HTML standalone.
@@ -52,6 +54,20 @@ export function extractModel(html) {
   return m[1];
 }
 
+/** Legge e normalizza un workbook esportato separatamente dall'applicazione. */
+export function parseWorkbookData(source) {
+  const parsed = readEDN(source);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+    || !Array.isArray(parsed.sheets) || parsed.sheets.length === 0
+    || (parsed.name != null && typeof parsed.name !== 'string')
+    || (parsed.code != null && typeof parsed.code !== 'string')
+    || parsed.sheets.some(sheet => !sheet || typeof sheet.name !== 'string' || !sheet.name.trim()
+      || (sheet.cells != null && (typeof sheet.cells !== 'object' || Array.isArray(sheet.cells))))) {
+    throw new Error('Il file non contiene dati di un workbook Foglio validi.');
+  }
+  return createWorkbook(parsed);
+}
+
 /**
  * Crea il servizio di persistenza.
  * @param {object} ctx contesto applicativo con `session`, `flash`,
@@ -61,13 +77,14 @@ export function createPersistence(ctx) {
   const E = (t, a = {}) => { const e = document.createElement(t); Object.assign(e, a); return e; };
   let fh = null;
 
-  function download(html) {
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
-    const a = E('a', { href: url, download: ctx.session.workbook.name + '.html' });
+  function download(content, filename, type) {
+    const view = window;
+    const url = view.URL.createObjectURL(new view.Blob([content], { type }));
+    const a = E('a', { href: url, download: filename });
     document.body.append(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => view.URL.revokeObjectURL(url), 1000);
   }
 
   /**
@@ -84,11 +101,11 @@ export function createPersistence(ctx) {
         const w = await fh.createWritable();
         await w.write(html);
         await w.close();
-      } else download(html);
+      } else download(html, wb.name + '.html', 'text/html;charset=utf-8');
     } catch (e) {
       if (e.name === 'AbortError') return html;
       try {
-        download(html);
+        download(html, wb.name + '.html', 'text/html;charset=utf-8');
         ctx.messages?.warn('The native save failed; a download fallback was used.', {
           category: 'app', source: { operation: 'save' }, details: { reason: e.message }, exception: e,
         });
@@ -104,6 +121,59 @@ export function createPersistence(ctx) {
     ctx.messages?.info('Workbook saved.', { category: 'app', source: { operation: 'save' } });
     ctx.flash('Salvato');
     return html;
+  }
+
+  /** Esporta soltanto il workbook, inclusi dati, formattazione e codice utente. */
+  function exportData() {
+    const wb = ctx.session.workbook;
+    const edn = writeEDN(wb, 0);
+    const baseName = String(wb.name || 'Foglio').replace(/[\\/:*?"<>|]/g, '_').trim() || 'Foglio';
+    download(edn, baseName + '.edn', 'application/edn;charset=utf-8');
+    ctx.messages?.info('Workbook data and ClojureScript code exported.', {
+      category: 'app', source: { operation: 'export' },
+    });
+    ctx.flash('Dati e codice esportati');
+    return edn;
+  }
+
+  /** Seleziona un file EDN con i dati esportati da Foglio. */
+  async function chooseDataFile() {
+    if (window.showOpenFilePicker) {
+      const [handle] = await window.showOpenFilePicker({ types: DATA_FILE_TYPES });
+      return handle.getFile();
+    }
+    return new Promise((resolve, reject) => {
+      const input = E('input', { type: 'file', accept: '.edn,application/edn,text/plain' });
+      input.onchange = () => input.files?.[0]
+        ? resolve(input.files[0])
+        : reject({ name: 'AbortError' });
+      input.click();
+    });
+  }
+
+  /** Importa e sostituisce i dati del workbook corrente, lasciando intatta l'app. */
+  async function importData() {
+    try {
+      const file = await chooseDataFile();
+      const workbook = parseWorkbookData(await file.text());
+      const editorHasDraft = !ctx.grid?.isEditing?.()
+        && ctx.editor?.value?.() !== (ctx.session.workbook.code || '');
+      if ((ctx.session.isModified() || editorHasDraft)
+        && !confirm('Ci sono modifiche non salvate. Sostituire il workbook con i dati importati?')) return null;
+      ctx.loadWorkbook(workbook);
+      ctx.messages?.info('Workbook data and ClojureScript code imported.', {
+        category: 'app', source: { operation: 'import' }, details: { file: file.name || '' },
+      });
+      ctx.flash('Dati e codice importati');
+      return workbook;
+    } catch (error) {
+      if (error?.name === 'AbortError') return null;
+      ctx.messages?.error('Workbook data could not be imported.', {
+        category: 'app', source: { operation: 'import' }, details: { reason: error.message }, exception: error,
+      });
+      ctx.flash('Importazione non riuscita: ' + error.message);
+      return null;
+    }
   }
 
   /** Apre un documento HTML e ne carica il modello. */
@@ -140,5 +210,5 @@ export function createPersistence(ctx) {
     addEventListener('beforeunload', e => { if (ctx.session.isModified()) { e.preventDefault(); e.returnValue = ''; } });
   }
 
-  return { save, open, init, download, build: () => buildDocument(document, ctx.session.workbook) };
+  return { save, open, exportData, importData, init, download, build: () => buildDocument(document, ctx.session.workbook) };
 }

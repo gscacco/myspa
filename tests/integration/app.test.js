@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mountApp, fakeClipboardEvent } from '../helpers/dom.js';
 import { extractModel } from '../../src/js/persistence.js';
 import { readEDN } from '../../src/js/edn.js';
+import { getRaw } from '../../src/js/model.js';
 
 /** Shortcut: zero-based cell coordinates (r,c). */
 const cell = (document, r, c) => document.querySelector('#g').rows[r + 1].cells[c + 1];
@@ -649,6 +650,47 @@ test('repeated standalone saves include the latest general ClojureScript editor 
   await saveAndReadCode('(defn SAVE_VERSION [x] (+ x 3))');
   assert.equal(pickerCalls, 1, 'subsequent saves reuse the selected file');
   assert.equal(files.length, 2);
+  close();
+});
+
+test('workbook data export and import transfer cell data and general code without replacing the app', async () => {
+  const { document, window, app, close } = await mountApp();
+  app.flash = () => {};
+  const code = '(defn MIGRATED [x] (+ x 100))';
+  document.querySelector('#code').value = code;
+  app.session.setCell('Foglio1', 8, 8, 'from exported workbook');
+
+  let downloadName = '';
+  window.URL.createObjectURL = () => 'blob:workbook-data';
+  window.URL.revokeObjectURL = () => {};
+  window.HTMLAnchorElement.prototype.click = function click() { downloadName = this.download; };
+  const runExport = app.exportData;
+  let exportedEDN;
+  app.exportData = () => { exportedEDN = runExport(); return exportedEDN; };
+  document.querySelector('[data-action="export-data"]').click();
+  const exported = readEDN(exportedEDN);
+  assert.equal(downloadName, 'Foglio di calcolo.edn');
+  assert.equal(exported.code, code);
+  assert.equal(exported.sheets[0].cells.I9.r, 'from exported workbook');
+
+  let pickedTypes;
+  window.showOpenFilePicker = async options => {
+    pickedTypes = options.types;
+    return [{ getFile: async () => ({ name: 'Foglio.edn', text: async () => exportedEDN }) }];
+  };
+  app.session.setCell('Foglio1', 8, 8, 'replacement');
+  const runImport = app.importData;
+  let importPromise;
+  app.importData = () => { importPromise = runImport(); return importPromise; };
+  document.querySelector('[data-action="import-data"]').click();
+  const imported = await importPromise;
+  assert.equal(imported.code, code);
+  assert.equal(app.session.workbook.code, code);
+  assert.equal(document.querySelector('#code').value, code);
+  assert.equal(getRaw(app.session.workbook, 'Foglio1', 'I9'), 'from exported workbook');
+  assert.equal(pickedTypes[0].accept['application/edn'][0], '.edn');
+  assert.ok(document.querySelector('[data-action="export-data"]'));
+  assert.ok(document.querySelector('[data-action="import-data"]'));
   close();
 });
 

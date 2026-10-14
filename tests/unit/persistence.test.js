@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { domFromHTML } from '../helpers/dom.js';
 import { workbook } from '../helpers/sample.js';
-import { buildDocument } from '../../src/js/persistence.js';
+import { buildDocument, parseWorkbookData } from '../../src/js/persistence.js';
+import { writeEDN } from '../../src/js/edn.js';
 
 test('standalone workbook export resets transient Messages state and history', () => {
   const dom = domFromHTML();
@@ -33,4 +34,12 @@ test('standalone workbook export resets transient Messages state and history', (
   assert.equal(saved.querySelector('#messages-badge').textContent, '0');
   assert.doesNotMatch(html, /private diagnostic|secret-category/);
   dom.window.close();
+});
+
+test('EDN workbook data export can be parsed and invalid data is rejected', () => {
+  const source = workbook();
+  const imported = parseWorkbookData(writeEDN(source));
+  assert.deepEqual(imported, source);
+  assert.throws(() => parseWorkbookData('{:code "not a workbook"}'), /workbook Foglio validi/);
+  assert.throws(() => parseWorkbookData('{:name "unfinished'), /stringa non terminata/);
 });

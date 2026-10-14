@@ -51,6 +51,8 @@ export function createApp() {
     commands: null,
     save: null,
     open: null,
+    exportData: null,
+    importData: null,
     applyCode: null,
     applyForm: null,
     loadWorkbook: null,
@@ -119,6 +121,15 @@ export function createApp() {
     return persistence.save(as);
   };
   ctx.open = () => persistence.open();
+  ctx.exportData = () => {
+    if (ctx.grid.isEditing()) { ctx.flash('Concludi la modifica della cella prima di esportare.'); return null; }
+    session.setCodeSource(ctx.editor.value());
+    return persistence.exportData();
+  };
+  ctx.importData = () => {
+    if (ctx.grid.isEditing()) { ctx.flash('Concludi la modifica della cella prima di importare.'); return null; }
+    return persistence.importData();
+  };
 
   const commands = createCommands(ctx);
   ctx.commands = commands;
