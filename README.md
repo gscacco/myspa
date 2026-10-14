@@ -82,14 +82,10 @@ Select a cell and click **Explore Data** in the toolbar to inspect its evaluated
 
 The explorer provides:
 
-- A lazy, expandable tree with collection types, sizes, map keys, stable sequence indices, selectable nodes, and a way to make any node the current exploration root.
-- A table for row collections. Map columns use the union of keys, so heterogeneous records are supported. Missing keys display as `— missing`; an explicit `nil` displays as `nil`. Nested paths can be selected and ordered with a **Project fields** pipeline step, for example `[:team :name]`. Nested row collections can be expanded while retaining their parent row reference.
-- A grouped view for one or more paths, with count or numeric sum, average, minimum, or maximum summaries.
-- An ordered visual pipeline with filters, projection, grouping, sorting, editable steps, and reset. Filter conditions support AND/OR, nested paths, keywords, strings, numbers, booleans, nil, missing-value checks, comparisons, and string matching.
-- An optional ClojureScript expression editor. It exposes `root` (the original cell value), `selected-node` and `records` (the current selected node), and `query-result` (the visual pipeline output). For example, `(->> records (filter #(= :active (:status %))) (group-by :category))`. Expressions run through the existing Scittle/SCI runtime in an explorer namespace; they do not update workbook functions or cells. The custom result is kept separate from the visual pipeline result.
-- Select a tree item and use **Copy selected EDN** or **Copy select expression** in the toolbar. The expression reads the original cell and follows the selected map key or collection index. **Copy path** and **Copy result EDN** remain available; copying never writes to the source cell.
+- A lazy, expandable tree with collection types, sizes, map keys, stable sequence indices and previews of nested values.
+- Select an item and use **Copy selected EDN** or **Copy select expression** in the toolbar. The expression reads the original cell and follows the selected map key or collection index. **Copy path** is also available. Copying never writes to the source cell.
 
-The explorer operates on the original Scittle values, so keywords remain different from strings, and maps, vectors, lists, and sets remain distinguishable. The table and grouping views derive new values and never mutate the source. Unsupported JavaScript interop objects may have limited inspection or EDN export. Lazy sequences are previewed up to 200 items; operations that need full realization and EDN export are refused when a sequence exceeds that preview limit. Materialize a finite result in a custom expression before sorting, grouping, or exporting it.
+The explorer operates on the original Scittle values, so keywords remain different from strings, and maps, vectors, lists, and sets remain distinguishable. Unsupported JavaScript interop objects may have limited inspection or EDN export. Lazy sequences show at most 200 items; exporting a longer lazy sequence is refused with an explanation.
 
 ## Try it locally
 

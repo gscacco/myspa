@@ -709,8 +709,8 @@ test('Ctrl+Enter reports an error for a form that cannot be evaluated', async ()
   close();
 });
 
-test('Explore Data snapshots the evaluated SCI value of the selected cell and closes cleanly', async () => {
-  const { document, app, close } = await mountApp();
+test('Explore Data shows the selected cell value as a tree and closes without changing it', async () => {
+  const { document, window, app, close } = await mountApp();
   app.grid.setCellText(0, 8, '{:status :active :result (+ 1 2) :items ["a" :b]}');
   app.grid.sel(0, 8);
   document.querySelector('[data-action="explore-data"]').click();
@@ -718,15 +718,18 @@ test('Explore Data snapshots the evaluated SCI value of the selected cell and cl
   const overlay = document.querySelector('#data-explorer');
   assert.equal(overlay.hidden, false);
   assert.equal(overlay.querySelector('.explorer-location').textContent, 'Source snapshot: Foglio1!I1');
-  assert.equal(overlay.querySelector('.tree-value').textContent, '#<map 3>');
-  const rootChildren = overlay.querySelector('.tree-children');
-  rootChildren.open = true;
-  rootChildren.dispatchEvent(new window.Event('toggle'));
-  assert.ok([...overlay.querySelectorAll('.tree-value')].some(value => value.textContent === '3'), 'the tree displays the evaluated result, not the source form');
+  assert.equal(overlay.querySelector('.tree-value').textContent, '{…}');
+  assert.equal(overlay.querySelector('.explorer-nav'), null, 'the inspector has one simple tree view');
+  assert.equal(overlay.querySelector('.pipeline-add'), null);
+
+  const root = overlay.querySelector('.tree-node');
+  root.open = true;
+  root.dispatchEvent(new window.Event('toggle'));
+  assert.ok([...overlay.querySelectorAll('.tree-value')].some(value => value.textContent === '3'), 'the tree displays evaluated values');
   assert.ok([...overlay.querySelectorAll('.tree-label')].some(label => label.textContent === ':status'));
 
   app.grid.sel(1, 8);
-  assert.equal(overlay.querySelector('.explorer-location').textContent, 'Source snapshot: Foglio1!I1', 'the open explorer keeps its original cell snapshot');
+  assert.equal(overlay.querySelector('.explorer-location').textContent, 'Source snapshot: Foglio1!I1');
   overlay.querySelector('[data-explorer-close]').click();
   assert.equal(overlay.hidden, true);
   assert.equal(app.currentSheet().cells.I1.r, '{:status :active :result (+ 1 2) :items ["a" :b]}');
@@ -734,42 +737,38 @@ test('Explore Data snapshots the evaluated SCI value of the selected cell and cl
   close();
 });
 
-test('Explore Data reports empty cells and allows an explicit nil scalar', async () => {
-  const { document, app, close } = await mountApp();
-  app.grid.sel(20, 20);
-  document.querySelector('[data-action="explore-data"]').click();
-  assert.equal(document.querySelector('#data-explorer').hidden, true);
-  assert.match(document.querySelector('#stat').textContent, /empty|no evaluated value/i);
-
-  app.grid.setCellText(20, 20, 'nil');
-  document.querySelector('[data-action="explore-data"]').click();
-  assert.equal(document.querySelector('#data-explorer').hidden, false);
-  assert.equal(document.querySelector('.tree-value').textContent, 'nil');
-  assert.equal(document.querySelector('.tree-focus'), null, 'nil is atomic and cannot become an exploration root');
-  document.querySelector('[data-explorer-close]').click();
-  close();
-});
-
-test('Explore Data only offers Use as root for structured values, including empty collections', async () => {
+test('Explore Data displays atomic values and nested ClojureScript collections in the tree', async () => {
   const { document, window, app, close } = await mountApp();
-  app.grid.setCellText(0, 8, '{:atom 42 :empty []}');
+  app.grid.setCellText(0, 8, '{:atom 42 :empty [] :items [{:status :active}] :values (list :first :second) :tags #{:one :two}}');
   app.grid.sel(0, 8);
   document.querySelector('[data-action="explore-data"]').click();
 
   const overlay = document.querySelector('#data-explorer');
-  assert.equal(overlay.querySelector('.tree-focus')?.textContent, 'Use as root', 'the map root is structured');
-  const rootChildren = overlay.querySelector('.tree-children');
-  rootChildren.open = true;
-  rootChildren.dispatchEvent(new window.Event('toggle'));
-
+  const root = overlay.querySelector('.tree-node');
+  root.open = true;
+  root.dispatchEvent(new window.Event('toggle'));
   const nodeForLabel = label => [...overlay.querySelectorAll('.tree-label')]
     .find(node => node.textContent === label)?.closest('.tree-node');
-  assert.equal(nodeForLabel(':atom')?.querySelector('.tree-focus'), null, 'a numeric map value is atomic');
-  assert.equal(nodeForLabel(':empty')?.querySelector('.tree-focus')?.textContent, 'Use as root', 'an empty vector is still structured');
+
+  assert.equal(nodeForLabel(':atom').querySelector('.tree-type').textContent, 'number');
+  assert.equal(nodeForLabel(':empty').querySelector('.tree-value').textContent, '[]');
+  assert.equal(nodeForLabel(':empty').tagName, 'DIV', 'empty collections do not show an empty disclosure control');
+  assert.equal(nodeForLabel(':tags').querySelector('.tree-type').textContent, 'set · 2');
+  assert.equal(nodeForLabel(':values').querySelector('.tree-type').textContent, 'list · 2');
+
+  const items = nodeForLabel(':items');
+  items.open = true;
+  items.dispatchEvent(new window.Event('toggle'));
+  const firstItem = [...items.querySelectorAll('.tree-label')]
+    .find(label => label.textContent === '[0]')?.closest('.tree-node');
+  assert.ok(firstItem);
+  firstItem.open = true;
+  firstItem.dispatchEvent(new window.Event('toggle'));
+  assert.ok(items.textContent.includes(':active'));
   close();
 });
 
-test('Explore Data copies the selected tree value and its ClojureScript select expression from the toolbar', async () => {
+test('Explore Data copies the selected EDN and its ClojureScript selection expression from the toolbar', async () => {
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const copied = [];
   Object.defineProperty(globalThis, 'navigator', {
@@ -789,20 +788,21 @@ test('Explore Data copies the selected tree value and its ClojureScript select e
     };
     const nodeForLabel = label => [...overlay.querySelectorAll('.tree-label')]
       .find(node => node.textContent === label)?.closest('.tree-node');
-    expand(overlay.querySelector('.tree-children'));
+    expand(overlay.querySelector('.tree-node'));
     const person = nodeForLabel(':person');
-    expand(person.querySelector('.tree-children'));
+    expand(person);
     const score = nodeForLabel(':score');
     score.querySelector('.tree-node-summary').click();
 
     assert.equal(score.querySelector('.tree-node-summary').getAttribute('aria-selected'), 'true');
-    assert.equal(overlay.querySelector('.tree-copy'), null, 'Copy EDN is no longer repeated on every tree item');
+    assert.equal(overlay.querySelector('.tree-copy'), null, 'copy actions live in the toolbar');
     overlay.querySelector('[data-copy-selected-edn]').click();
     overlay.querySelector('[data-copy-select-expression]').click();
     await new Promise(resolve => setTimeout(resolve, 0));
 
     assert.equal(copied[0], '7');
     assert.equal(copied[1], '(get (get ($ "Foglio1!I1") :person) :score)');
+    assert.equal(overlay.querySelector('.explorer-selected-path').textContent, 'Selected path: :person → :score');
     app.grid.setCellText(1, 8, copied[1]);
     assert.equal(app.session.engine.evaluate('Foglio1!I2'), 7, 'the copied expression evaluates to the selected source value');
   } finally {
@@ -811,116 +811,4 @@ test('Explore Data copies the selected tree value and its ClojureScript select e
     else delete globalThis.navigator;
   }
 });
-
-test('Explore Data applies a typed filter pipeline and evaluates ClojureScript expressions', async () => {
-  const { document, window, app, close } = await mountApp();
-  app.grid.setCellText(0, 8, '[{:status :active :budget 10} {:status :inactive :budget 3} {:budget 40 :note nil}]');
-  app.grid.sel(0, 8);
-  document.querySelector('[data-action="explore-data"]').click();
-  const clickView = name => [...document.querySelectorAll('.explorer-nav button')].find(button => button.textContent === name).click();
-  clickView('Pipeline');
-  document.querySelector('.pipeline-add button').click();
-  document.querySelector('.pipeline-add button').click();
-
-  const setField = (label, selector, value, index = 0) => {
-    const field = [...document.querySelectorAll(`${selector}[aria-label="${label}"]`)][index];
-    field.value = value;
-    field.dispatchEvent(new window.Event('change', { bubbles: true }));
-  };
-  setField('Nested path', 'input', '[:budget]', 1);
-  setField('Condition', 'select', 'gt', 1);
-  setField('Clojure value', 'input', '10', 1);
-  setField('Combine filters', 'select', 'OR', 1);
-  document.querySelector('.pipeline-add button:nth-child(5)').click();
-  setField('Nested path', 'input', '[:budget]', 2);
-  setField('Order', 'select', 'desc');
-
-  assert.doesNotMatch(document.querySelector('.data-explorer-status').textContent, /error|Path must/i);
-  clickView('Table');
-  assert.equal(document.querySelectorAll('.explorer-table tbody tr').length, 2);
-  assert.ok(document.querySelector('.explorer-table').textContent.includes(':active'));
-  const budgetColumn = [...document.querySelectorAll('.explorer-table thead th')].findIndex(header => header.textContent === ':budget');
-  assert.equal(document.querySelectorAll('.explorer-table tbody tr')[0].cells[budgetColumn].textContent, '40', 'sorting follows the combined filter result');
-  clickView('Pipeline');
-  document.querySelector('.pipeline-add button:nth-child(4)').click();
-  setField('Group paths (one EDN vector per line)', 'textarea', '[:status]');
-  setField('Aggregate path', 'input', '[:budget]');
-  clickView('Grouped');
-  assert.ok([...document.querySelectorAll('.group-node')].some(group => /:active 1 records · sum: 10/.test(group.textContent)), 'grouping follows the filter and sort steps');
-  clickView('ClojureScript');
-  const editor = document.querySelector('.explorer-expression');
-  editor.value = '(map :budget records)';
-  editor.dispatchEvent(new window.Event('input', { bubbles: true }));
-  [...document.querySelectorAll('.data-explorer-views button')].find(button => button.textContent === 'Evaluate expression').click();
-  assert.match(document.querySelector('.data-explorer-views').textContent, /\(10 3 40\)/);
-  editor.value = '(';
-  editor.dispatchEvent(new window.Event('input', { bubbles: true }));
-  [...document.querySelectorAll('.data-explorer-views button')].find(button => button.textContent === 'Evaluate expression').click();
-  assert.ok(document.querySelector('.explorer-error')?.textContent, 'invalid expressions produce an error in the explorer');
-  close();
-});
-
-test('Explore Data groups three nested fields and reports numeric aggregates', async () => {
-  const { document, window, app, close } = await mountApp();
-  app.grid.setCellText(0, 8, '[{:category :north :status :active :owner :A :budget 10} {:category :north :status :active :owner :A :budget 15} {:category :north :status :paused :owner :B :budget 5} {:category :south :status :active :owner :C :budget 20}]');
-  app.grid.sel(0, 8);
-  document.querySelector('[data-action="explore-data"]').click();
-  const clickView = name => [...document.querySelectorAll('.explorer-nav button')].find(button => button.textContent === name).click();
-  clickView('Pipeline');
-  document.querySelector('.pipeline-add button:nth-child(4)').click();
-  const paths = document.querySelector('textarea[aria-label="Group paths (one EDN vector per line)"]');
-  paths.value = '[:category]\n[:status]\n[:owner]';
-  paths.dispatchEvent(new window.Event('change', { bubbles: true }));
-  const aggregatePath = document.querySelector('input[aria-label="Aggregate path"]');
-  aggregatePath.value = '[:budget]';
-  aggregatePath.dispatchEvent(new window.Event('change', { bubbles: true }));
-  clickView('Grouped');
-
-  assert.match(document.querySelector('.group-node').textContent, /:north 3 records · sum: 30/);
-  assert.match([...document.querySelectorAll('.group-node')].find(group => group.textContent.includes(':south')).textContent, /1 records · sum: 20/);
-  document.querySelector('.group-node > summary').click();
-  await new Promise(resolve => window.setTimeout(resolve, 0));
-  assert.ok(document.querySelectorAll('.group-node').length >= 4, 'the second grouping level can be expanded');
-  const activeGroup = [...document.querySelectorAll('.group-node')].find(group => group.querySelector(':scope > summary b')?.textContent === ':active');
-  activeGroup.querySelector(':scope > summary').click();
-  await new Promise(resolve => window.setTimeout(resolve, 0));
-  assert.ok([...document.querySelectorAll('.group-node > summary b')].some(label => label.textContent === ':A'), 'the third grouping level is visible');
-  close();
-});
-
-test('Explore Data projects nested paths into ordered columns and distinguishes nil from missing', async () => {
-  const { document, window, app, close } = await mountApp();
-  app.grid.setCellText(0, 8, '[{:team {:name "A"} :meta {:value nil}} {:team {:name "B"}} {:team nil}]');
-  app.grid.sel(0, 8);
-  document.querySelector('[data-action="explore-data"]').click();
-  const clickView = name => [...document.querySelectorAll('.explorer-nav button')].find(button => button.textContent === name).click();
-  clickView('Pipeline');
-  document.querySelector('.pipeline-add button:nth-child(3)').click();
-  const paths = document.querySelector('textarea[aria-label="Paths (one EDN vector per line)"]');
-  paths.value = '[:team :name]\n[:meta :value]';
-  paths.dispatchEvent(new window.Event('change', { bubbles: true }));
-  clickView('Table');
-
-  const headers = [...document.querySelectorAll('.explorer-table thead th')].map(header => header.textContent);
-  assert.deepEqual(headers, ['[:team :name]', '[:meta :value]']);
-  const rows = [...document.querySelectorAll('.explorer-table tbody tr')];
-  assert.equal(rows.length, 3);
-  assert.equal(rows[0].cells[1].textContent, 'nil', 'an explicit nil remains present');
-  assert.equal(rows[1].cells[1].textContent, '— missing', 'a missing path remains distinguishable from nil');
-  assert.equal(rows[2].cells[0].textContent, '— missing');
-  close();
-});
-
-test('Explore Data can expand a nested collection into rows with its parent reference', async () => {
-  const { document, app, close } = await mountApp();
-  app.grid.setCellText(0, 8, '[{:teams [{:name :one} {:name :two}]}]');
-  app.grid.sel(0, 8);
-  document.querySelector('[data-action="explore-data"]').click();
-  [...document.querySelectorAll('.explorer-nav button')].find(button => button.textContent === 'Table').click();
-  document.querySelector('.nested-rows-button').click();
-  assert.match(document.querySelector('.nested-data-row').textContent, /Parent row 1 · :teams/);
-  assert.equal(document.querySelectorAll('.nested-data-row tbody tr').length, 2);
-  close();
-});
-
 
