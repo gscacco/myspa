@@ -76,6 +76,12 @@ The runtime includes the following spreadsheet functions in addition to the Cloj
 
 Common ClojureScript core functions include arithmetic and comparisons (`+`, `-`, `*`, `/`, `inc`, `dec`, `=`, `not=`, `<`, `<=`, `>`, `>=`), collection operations (`map`, `filter`, `reduce`, `flatten`, `count`, `get`, `nth`, `first`, `assoc`, `conj`, `merge`, `keys`, `vals`, `sort`, `take`, `drop`, `range`), and string helpers (`str`, `upper-case`, `lower-case`, `trim`, `subs`, `split`, `join`, `replace`). The runtime also exposes common math functions such as `abs`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `sin`, `cos`, and the constants `PI` and `E`. Names are case-sensitive: ClojureScript core functions such as `count` are lowercase, while spreadsheet functions such as `COUNT` are uppercase.
 
+### In-app Help
+
+Click **Help** in the toolbar to open the searchable ClojureScript reference. It documents the functions exposed by Foglio's runtime, spreadsheet functions, special forms such as `defn`, `loop`, and `recur`, important values and system keywords, and examples for cell references, Messages, and event hooks. The same descriptions are available in the editor's inline completion suggestions.
+
+Choose an entry to read its description and example. **Copy example** places the example on the clipboard. **Insert into editor** adds it at the current cursor position in the `ƒ CLJS` editor, opening that editor if needed; it does not run the code or change a cell. Review the inserted code, then use Ctrl+Enter to evaluate the form at the cursor or apply the editor code as appropriate. Examples that refer to names such as `records`, `record`, or `event` expect those values to exist in the workbook or calling context.
+
 ## Explore Data
 
 Select a cell and click **Explore Data** in the toolbar to inspect its evaluated value. The explorer snapshots that cell when it opens; changing the grid selection will not change the data being explored. An empty cell or a cell with an evaluation error leaves the spreadsheet in place and reports the reason in the status bar. Closing the explorer returns to the existing workbook without changing the cell or its expression.
@@ -113,6 +119,8 @@ The supported severities are `:info`, `:warn`, `:error`, and `:debug`. If omitte
 ## Event hooks
 
 The first supported event is `:on-selection-change`. Hooks run synchronously after the grid commits a genuinely different selection. The initial A1 selection at startup does not emit an event. Cell and range selections include the sheet name and A1 references for the anchor, focus, and normalized range. Switching sheets is a selection change as well.
+
+The Help reference documents the hook functions and payload keywords. It also documents the Messages levels (`:info`, `:warn`, `:error`, `:debug`) and metadata keys such as `:category`, `:details`, and `:exception`.
 
 Register a ClojureScript function to log each selection change to Messages:
 

@@ -15,9 +15,28 @@
   <input type="color" data-action="bg-color" value="#fff2a8" title="Colore di sfondo"><button data-action="bg-clear">senza sfondo</button><i></i>
   <button id="bflow" class="on" data-action="toggle-flow" title="Evidenzia sorgenti (blu) e dipendenti (arancio)">Flusso</button>
   <button id="bfn" data-action="toggle-functions">ƒ CLJS</button>
+  <button id="bhelp" data-action="help" aria-haspopup="dialog" aria-controls="help-overlay">Help</button>
   <button id="bexplore" data-action="explore-data">Explore Data</button>
   <button id="bmessages" data-action="toggle-messages" aria-expanded="false" aria-controls="messages-panel">Messages <span id="messages-badge" aria-label="Retained messages">0</span></button>
   <span id="stat" data-dyn></span>
+</div>
+<div id="help-overlay" class="help-overlay" hidden>
+  <section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <header class="help-header">
+      <div><b id="help-title">Aiuto ClojureScript</b><p>Funzioni, forme, valori ed eventi disponibili nel foglio.</p></div>
+      <input data-help-search type="search" placeholder="Cerca una funzione o keyword" aria-label="Cerca nell’aiuto">
+      <button data-help-close type="button" aria-label="Chiudi aiuto">×</button>
+    </header>
+    <div class="help-layout">
+      <nav data-help-list aria-label="Indice dell’aiuto"></nav>
+      <article data-help-detail aria-live="polite"></article>
+    </div>
+    <footer class="help-footer">
+      <span data-help-status role="status" aria-live="polite"></span>
+      <button data-help-copy type="button">Copia esempio</button>
+      <button data-help-insert type="button">Inserisci nell’editor</button>
+    </footer>
+  </section>
 </div>
 <div id="data-explorer" class="data-explorer-overlay" hidden>
   <section class="data-explorer-panel" role="dialog" aria-modal="true" aria-labelledby="data-explorer-title">

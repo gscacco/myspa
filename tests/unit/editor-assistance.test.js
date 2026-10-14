@@ -12,7 +12,7 @@ test('le tabelle di simboli contengono i valori attesi', () => {
   assert.ok(LITERALS.has('nil'));
   assert.ok(BUILTIN_SYMBOLS.has('SUM'));
   assert.ok(BUILTIN_SYMBOLS.has('map'));
-  assert.equal(SHEET_FUNCTIONS.AVERAGE, 'media');
+  assert.match(SHEET_FUNCTIONS.AVERAGE, /AVG/);
   assert.equal(typeof CORE_FUNCTIONS['flatten'], 'string');
   assert.equal(PAIRS['('], ')');
   assert.equal(PAIRS["'"], undefined, "in ClojureScript ' non è una coppia ma la quote");

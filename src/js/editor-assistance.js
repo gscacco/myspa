@@ -8,57 +8,23 @@
  */
 
 import { declarations, readError } from './cljs.js';
+import { HELP_ENTRIES, SPECIAL_FORMS, SYSTEM_KEYWORDS } from './help-content.js';
 
 /** Forme speciali e macro di ClojureScript (evidenziate come parole chiave). */
-export const KEYWORDS = new Set('def defonce defn defn- fn let if when when-not cond and or do -> ->> quote comment ns loop recur try catch'.split(' '));
+export const KEYWORDS = new Set(SPECIAL_FORMS.map(entry => entry.name));
 
 /** Letterali. */
 export const LITERALS = new Set(['nil', 'true', 'false']);
 
 /** Funzioni incorporate del foglio di calcolo, con descrizione. */
-export const SHEET_FUNCTIONS = {
-  SUM: 'somma di numeri e matrici',
-  AVG: 'media',
-  AVERAGE: 'media',
-  MIN: 'minimo',
-  MAX: 'massimo',
-  COUNT: 'quanti numeri',
-  ROUND: '(x, decimali)',
-  IF: '(cond, a, b)',
-};
+export const SHEET_FUNCTIONS = Object.fromEntries(HELP_ENTRIES
+  .filter(entry => entry.kind === 'function' && entry.category === 'Funzioni del foglio')
+  .map(entry => [entry.name, entry.description]));
 
 /** Funzioni del nucleo ClojureScript disponibili, con breve descrizione. */
-export const CORE_FUNCTIONS = {
-  '+': 'somma', '-': 'differenza', '*': 'prodotto', '/': 'divisione',
-  'mod': 'modulo', 'rem': 'resto', 'inc': 'incrementa', 'dec': 'decrementa',
-  'min': 'minimo', 'max': 'massimo',
-  '=': 'uguale', 'not=': 'diverso', '<': 'minore', '<=': 'minore o uguale',
-  '>': 'maggiore', '>=': 'maggiore o uguale',
-  'not': 'negazione logica',
-  'nil?': 'è nil', 'some?': 'non è nil', 'number?': 'è un numero', 'string?': 'è una stringa',
-  'boolean?': 'è un booleano', 'fn?': 'è una funzione', 'vector?': 'è un vettore',
-  'map?': 'è una mappa', 'empty?': 'è vuoto', 'zero?': 'è zero', 'pos?': 'è positivo',
-  'neg?': 'è negativo', 'even?': 'è pari', 'odd?': 'è dispari',
-  'str': 'concatena in stringa', 'count': 'numero di elementi', 'get': '(coll chiave)',
-  'nth': '(coll indice)', 'first': 'primo elemento', 'second': 'secondo elemento',
-  'last': 'ultimo elemento', 'rest': 'elementi dopo il primo', 'next': 'come rest, nil se vuoto',
-  'vec': 'converte in vettore', 'vector': 'crea un vettore', 'list': 'crea una lista',
-  'hash-map': 'crea una mappa', 'conj': 'aggiunge a una collezione', 'assoc': 'associa chiavi',
-  'dissoc': 'rimuove chiavi', 'merge': 'unisce mappe', 'keys': 'chiavi', 'vals': 'valori',
-  'contains?': 'contiene la chiave?', 'into': 'versa in una collezione', 'concat': 'concatena sequenze',
-  'flatten': 'appiattisce le matrici', 'map': '(f coll …) applica', 'filter': '(pred coll) filtra',
-  'remove': '(pred coll) scarta', 'reduce': '(f init coll) riduce', 'apply': '(f coll) spande',
-  'range': 'sequenza di numeri', 'sort': 'ordina', 'sort-by': 'ordina per chiave',
-  'reverse': 'inverte', 'take': '(n coll)', 'drop': '(n coll)', 'some': 'almeno uno',
-  'every?': 'tutti', 'upper-case': 'maiuscole', 'lower-case': 'minuscole', 'trim': 'toglie spazi',
-  'subs': '(s da a) sottostringa', 'split': '(s re) divide', 'join': '(sep coll) unisce',
-  'replace': '(s a b) sostituisce',
-  'abs': 'valore assoluto', 'sqrt': 'radice quadrata', 'pow': '(x n) potenza',
-  'floor': 'arrotonda in giù', 'ceil': 'arrotonda in su', 'round': 'arrotonda',
-  'trunc': 'parte intera', 'exp': 'esponenziale', 'log': 'logaritmo naturale', 'log10': 'logaritmo decimale',
-  'sin': 'seno', 'cos': 'coseno', 'tan': 'tangente', 'PI': 'pigreco', 'E': 'numero di Eulero',
-  'println': 'stampa una riga', 'prn': 'stampa un valore',
-};
+export const CORE_FUNCTIONS = Object.fromEntries(HELP_ENTRIES
+  .filter(entry => entry.kind === 'function' && entry.category !== 'Funzioni del foglio')
+  .map(entry => [entry.name, entry.description]));
 
 /** Nomi considerati "incorporati" per l'evidenziazione. */
 export const BUILTIN_SYMBOLS = new Set([...Object.keys(CORE_FUNCTIONS), ...Object.keys(SHEET_FUNCTIONS)]);
@@ -118,13 +84,22 @@ export function syntaxError(code) {
  */
 export function completionCandidates(code) {
   const decls = extractDeclarations(code);
-  const seen = new Set(decls.map(x => x.n));
+  const byName = new Map(decls.map(candidate => [candidate.n, candidate]));
   const list = [...decls];
-  const add = (n, d, f) => { if (!seen.has(n)) { seen.add(n); list.push({ n, d, f }); } };
-  Object.entries(SHEET_FUNCTIONS).forEach(([n, d]) => add(n, d, true));
-  Object.entries(CORE_FUNCTIONS).forEach(([n, d]) => add(n, d, true));
-  KEYWORDS.forEach(n => add(n, 'forma speciale', true));
-  LITERALS.forEach(n => add(n, 'letterale', false));
+  const add = (n, d, f) => {
+    const existing = byName.get(n);
+    if (existing) {
+      if (!existing.d.includes(d)) existing.d += ` · ${d}`;
+      return;
+    }
+    const candidate = { n, d, f };
+    byName.set(n, candidate);
+    list.push(candidate);
+  };
+  HELP_ENTRIES.filter(entry => ['function', 'form', 'keyword'].includes(entry.kind))
+    .forEach(entry => add(entry.name, `${entry.signature} · ${entry.description}`, entry.kind !== 'keyword'));
+  LITERALS.forEach(n => add(n, 'valore letterale', false));
+  SYSTEM_KEYWORDS.forEach(entry => add(entry.name, entry.description, false));
   return list;
 }
 

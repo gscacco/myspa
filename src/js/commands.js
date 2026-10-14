@@ -11,6 +11,7 @@ import { syntaxError } from './editor-assistance.js';
 import { printCljsValue } from './scittle-runtime.js';
 import { createDataExplorer } from './data-explorer.js';
 import { createMessagesPanel } from './messages-panel.js';
+import { createHelp } from './help.js';
 
 /** Tasti che muovono la selezione. */
 const KEYS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Enter: [1, 0], Tab: [0, 1] };
@@ -72,6 +73,7 @@ export function createCommands(ctx) {
   let clipboardSequence = 0;
   const dataExplorer = createDataExplorer(ctx);
   const messagesPanel = createMessagesPanel(ctx.messages);
+  const help = createHelp(ctx);
 
   const isCljsDataForm = raw => typeof raw === 'string'
     && /^(?:\{|\[|:|"|'|`|\\|#\{|true(?:\s|$)|false(?:\s|$)|nil(?:\s|$))/.test(raw.trim());
@@ -261,6 +263,7 @@ export function createCommands(ctx) {
       Q('#fn').hidden = !Q('#fn').hidden;
       Q('#bfn').classList.toggle('on', !Q('#fn').hidden);
     });
+    act('help', () => help.open());
     act('explore-data', () => {
       if (ctx.grid.isEditing()) { ctx.flash('Finish editing the cell before exploring its evaluated value.'); return; }
       const { r, c } = ctx.grid.cursor();
@@ -300,11 +303,12 @@ export function createCommands(ctx) {
     wireToolbar();
     initKeys();
     messagesPanel.init();
+    help.mount();
     addEventListener('copy', e => cp(e, 0));
     addEventListener('cut', e => cp(e, 1));
     addEventListener('paste', paste);
   }
 
-  return { init, renderTabs, applyCode, applyForm, clearSel, fillDown, fmt, cp, paste, addSheet, delSheet, doUndo, doRedo, messagesPanel };
+  return { init, renderTabs, applyCode, applyForm, clearSel, fillDown, fmt, cp, paste, addSheet, delSheet, doUndo, doRedo, messagesPanel, help };
 }
 

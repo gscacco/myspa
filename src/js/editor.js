@@ -52,6 +52,24 @@ export function createEditor(ctx) {
 
   function setCode(v) { ta.value = v; errLine = 0; refresh(); }
 
+  /** Insert an example at the cursor, opening the function editor if needed. */
+  function insertText(text) {
+    if (cellEdit) return false;
+    if (fn.hidden) {
+      fn.hidden = false;
+      Q('#bfn').classList.add('on');
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+    const from = ta.selectionStart, to = ta.selectionEnd;
+    const before = ta.value.slice(0, from), after = ta.value.slice(to);
+    const prefix = before.trim() ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
+    const suffix = after.trim() ? (after.startsWith('\n') ? '\n' : '\n\n') : '\n';
+    const example = String(text);
+    ins(prefix + example + suffix, from, to, prefix.length + example.length);
+    ta.focus();
+    return true;
+  }
+
   function beginCellEdit({ value, formula, address, apply, caret }) {
     if (cellEdit) return false;
     clearTimeout(chk);
@@ -360,7 +378,7 @@ export function createEditor(ctx) {
   }
 
   return {
-    mount, setCode, showError, note, command, refresh, suggest, hidePop,
+    mount, setCode, insertText, showError, note, command, refresh, suggest, hidePop,
     beginCellEdit, finishCellEdit, isCellEditing: () => !!cellEdit,
     value: () => ta.value, node: ta,
   };
