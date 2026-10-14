@@ -40,3 +40,12 @@ test('the reference documents selection hooks, event payload keywords, and all k
     'case', 'as->', 'finally',
   ]) assert.ok(names.has(name), `${name} is documented`);
 });
+
+test('the add-hook help example logs both the previous and current selection', () => {
+  const addHook = HELP_ENTRIES.find(entry => entry.kind === 'function' && entry.name === 'add-hook');
+  assert.match(addHook.example, /\(fn \[event\]/);
+  assert.match(addHook.example, /\[:data :previous-selection\]/);
+  assert.match(addHook.example, /\[:data :selection\]/);
+  assert.match(addHook.example, /\(log! :info/);
+  assert.match(addHook.example, /:details \{:previous-selection previous\s+:selection current\}/);
+});
