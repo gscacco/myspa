@@ -36,7 +36,6 @@
       <div class="interchange-tools" aria-label="Scambio dati EDN">
         <label for="edn-file">Importa dati da EDN</label>
         <input id="edn-file" type="file" accept=".edn" aria-label="Importa timetable da file EDN">
-        <button id="export-edn" class="secondary-button" type="button" title="Include i dati del modello e il sorgente OFD conservato" disabled>Esporta EDN</button>
       </div>
       <p class="field-help">L’export EDN contiene anche il sorgente OFD conservato e può includere nomi e dati della scuola.</p>
 
@@ -57,7 +56,10 @@
         <p class="eyebrow">Orario di lavoro</p>
         <h2 id="current-heading">Stato corrente</h2>
         <p id="current-status" role="status" aria-live="polite">Nessun orario caricato</p>
-        <button id="change-timetable" class="secondary-button" type="button" aria-controls="import-card" aria-expanded="false" hidden>Carica un altro orario</button>
+        <div class="current-actions">
+          <button id="export-edn" class="secondary-button" type="button" title="Include i dati del modello e il sorgente OFD conservato" disabled>Esporta EDN</button>
+          <button id="change-timetable" class="secondary-button" type="button" aria-controls="import-card" aria-expanded="false" hidden>Carica un altro orario</button>
+        </div>
       </div>
     </section>
 
@@ -85,6 +87,26 @@
         <section class="schedule-panel" aria-labelledby="lesson-details-heading">
           <h3 id="lesson-details-heading">Dettaglio lezione</h3>
           <div id="lesson-details" tabindex="-1" aria-live="polite"><p class="muted">Seleziona una lezione per vederne i dettagli.</p></div>
+          <section id="editor-panel" class="editor-panel" aria-labelledby="editor-heading">
+            <h4 id="editor-heading">Esplora modifiche</h4>
+            <label for="search-depth">Ampiezza della ricerca</label>
+            <select id="search-depth">
+              <option value="immediate">Alternative immediate</option>
+              <option value="local">Coinvolgi poche lezioni</option>
+              <option value="chain">Esplora una catena più lunga</option>
+            </select>
+            <div class="editor-actions">
+              <button id="find-alternatives" class="secondary-button" type="button" disabled>Trova alternative</button>
+              <button id="cancel-search" class="secondary-button" type="button" disabled>Annulla ricerca</button>
+            </div>
+            <p id="edit-status" class="muted" role="status" aria-live="polite">Seleziona una lezione assegnata per esplorare alternative.</p>
+            <div id="proposal-list" class="proposal-list" role="group" aria-label="Alternative verificate"></div>
+            <div id="proposal-impact" class="proposal-impact" aria-live="polite"><p class="muted">Scegli un’alternativa per confrontarne gli effetti.</p></div>
+            <div class="editor-actions">
+              <button id="apply-proposal" class="primary-button" type="button" disabled>Applica proposta</button>
+              <button id="undo-change" class="secondary-button" type="button" disabled>Annulla ultima modifica</button>
+            </div>
+          </section>
         </section>
         <section class="schedule-panel" aria-labelledby="issues-heading">
           <h3 id="issues-heading">Conflitti e avvisi</h3>

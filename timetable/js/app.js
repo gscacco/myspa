@@ -1,6 +1,7 @@
 import { importOFD, OFDImportError } from './ofd-importer.js';
 import { importTimetableEDN, exportTimetableEDN, EDNImportError } from './edn-importer.js';
 import { createTimetableViews } from './views.js';
+import { createTimetableEditor } from './editor.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 
@@ -49,7 +50,19 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let current = null;
   let currentDiagnostics = [];
   let pending = null;
-  const views = createTimetableViews({ document });
+  let views;
+  const editor = createTimetableEditor({
+    document,
+    getTimetable: () => current,
+    onApply: (next, lessonId, action) => {
+      current = next;
+      const stateLabel = action === 'undo' ? 'Modifica annullata' : 'Modifiche applicate';
+      currentStatus.textContent = `${stateLabel} · Esporta EDN per salvarle`;
+      views.render(current, currentDiagnostics, { preserveContext: true });
+      if (lessonId) views.selectLesson(lessonId, { navigate: true, notify: false });
+    },
+  });
+  views = createTimetableViews({ document, onLessonSelect: lesson => editor.selectLesson(lesson.id) });
 
   function renderDiagnostics(items) {
     diagnosticsList.replaceChildren();
@@ -143,6 +156,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     if (current && typeof confirm === 'function' && !confirm('Sostituire l’orario attualmente caricato con quello verificato?')) return false;
     current = pending.timetable;
     currentDiagnostics = [...pending.diagnostics];
+    editor.setTimetable(current);
     views.render(current, currentDiagnostics);
     pending = null;
     applyButton.disabled = true;
@@ -227,6 +241,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     cancelImport,
     exportEDN,
     views,
+    editor,
     get timetable() { return current; },
     get diagnostics() { return currentDiagnostics; },
     get pendingTimetable() { return pending?.timetable || null; },
