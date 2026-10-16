@@ -245,6 +245,14 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .school-heading, .calculation-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .school-heading h2, .calculation-heading h2 { font-size: 25px; }
 .school-heading .intro, .calculation-heading .intro { margin-bottom: 0; }
+.calculation-readiness { margin: 14px 0 18px; padding: 14px 16px; border: 1px solid #c9d8e4; border-left: 4px solid var(--blue); border-radius: 7px; background: #f4f8fb; font-size: 13px; }
+.calculation-readiness[data-state="blocked"] { border-color: #e7c58a; border-left-color: #a86c00; background: #fff9ec; }
+.calculation-readiness > strong { display: block; margin-bottom: 5px; }
+.calculation-blockers { margin: 5px 0 0; padding-left: 20px; }
+.calculation-blockers li + li { margin-top: 3px; }
+.readiness-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.readiness-actions .secondary-button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
+.calculation-readiness-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .school-meta { display: flex; align-items: end; gap: 20px; margin: 18px 0 14px; border-block: 1px solid #e5eaee; padding: 12px 0; }
 .school-meta label, .optimization-settings label { display: grid; min-width: 230px; gap: 4px; color: #405365; font-size: 11px; font-weight: 700; }
 .school-meta input, .optimization-settings input { min-height: 36px; border: 1px solid #aebbc6; border-radius: 5px; padding: 6px 9px; color: var(--ink); background: white; font: inherit; font-size: 13px; }
