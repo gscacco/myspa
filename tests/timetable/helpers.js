@@ -52,7 +52,7 @@ export function timetableFixture() {
     },
     entities: {
       teachers: [
-        { id: 'teacher:T1', name: 'Teacher One', constraints: { timeframes: { unavailable: [], desired: [], undesired: ['0.1'] } } },
+        { id: 'teacher:T1', name: 'Teacher One', constraints: { timeframes: { unavailable: [], desired: [], undesired: ['0.1', '1.2'] } } },
         { id: 'teacher:T2', name: 'Teacher Two', constraints: { timeframes: { unavailable: ['0.1'], desired: [], undesired: [] } } },
       ],
       classes: [{ id: 'class:C1', name: 'Class One' }, { id: 'class:C2', name: 'Class Two' }],
@@ -66,6 +66,32 @@ export function timetableFixture() {
       { id: 'lesson:3', sourceIndex: 3, subjectId: 'subject:HIST', teacherIds: ['teacher:T1'], classIds: ['class:C2'], roomIds: ['room:R2'], durationPeriods: 1, assignedTime: { dayIndex: 1, periodIndex: 2, sourceValue: '1.2' }, timeframes: { unavailable: [], desired: [], undesired: [] } },
       { id: 'lesson:4', sourceIndex: 4, subjectId: 'subject:MATH', teacherIds: ['teacher:T2'], classIds: ['class:C2'], roomIds: [], durationPeriods: 1, assignedTime: null, timeframes: { unavailable: [], desired: [], undesired: [] } },
     ],
+    links: [],
+    parameters: [],
+  };
+}
+
+export function solverFixture({ chain = false } = {}) {
+  const slotCount = chain ? 4 : 3;
+  const lessons = chain ? [
+    { id: 'target', sourceIndex: 0, subjectId: 'subject:MATH', teacherIds: ['teacher:T1'], classIds: ['class:C1'], roomIds: ['room:R1'], durationPeriods: 1, assignedTime: { dayIndex: 0, periodIndex: 0, sourceValue: '0.0' }, timeframes: { unavailable: ['0.2', '0.3'], desired: [], undesired: [] } },
+    { id: 'blocker-1', sourceIndex: 1, subjectId: 'subject:HIST', teacherIds: ['teacher:T1'], classIds: ['class:C2'], roomIds: ['room:R2'], durationPeriods: 1, assignedTime: { dayIndex: 0, periodIndex: 1, sourceValue: '0.1' }, timeframes: { unavailable: ['0.0', '0.3'], desired: [], undesired: [] } },
+    { id: 'blocker-2', sourceIndex: 2, subjectId: 'subject:MATH', teacherIds: ['teacher:T1'], classIds: ['class:C3'], roomIds: ['room:R3'], durationPeriods: 1, assignedTime: { dayIndex: 0, periodIndex: 2, sourceValue: '0.2' }, timeframes: { unavailable: ['0.0', '0.1'], desired: [], undesired: [] } },
+  ] : [
+    { id: 'target', sourceIndex: 0, subjectId: 'subject:MATH', teacherIds: ['teacher:T1'], classIds: ['class:C1'], roomIds: ['room:R1'], durationPeriods: 1, assignedTime: { dayIndex: 0, periodIndex: 0, sourceValue: '0.0' }, timeframes: { unavailable: [], desired: [], undesired: [] } },
+  ];
+  return {
+    schemaVersion: 1,
+    name: 'Solver test',
+    source: { format: 'fixture', version: '1', xml: '<SOURCE/>' },
+    calendar: { unitMinutes: 60, days: [{ index: 0, shortName: 'MON', name: 'Monday' }], periods: Array.from({ length: slotCount }, (_, index) => ({ index, beginMinute: 480 + 60 * index, endMinute: 540 + 60 * index })) },
+    entities: {
+      teachers: [{ id: 'teacher:T1', name: 'Teacher One', constraints: { timeframes: { unavailable: [], desired: [], undesired: chain ? [] : ['0.1'] } } }],
+      classes: Array.from({ length: chain ? 3 : 1 }, (_, index) => ({ id: `class:C${index + 1}`, name: `Class ${index + 1}` })),
+      rooms: Array.from({ length: chain ? 3 : 1 }, (_, index) => ({ id: `room:R${index + 1}`, name: `Room ${index + 1}` })),
+      subjects: [{ id: 'subject:MATH', name: 'Mathematics' }, { id: 'subject:HIST', name: 'History' }],
+    },
+    lessons,
     links: [],
     parameters: [],
   };

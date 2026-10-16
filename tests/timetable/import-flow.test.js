@@ -39,6 +39,7 @@ test('import screen labels file selection, reports validation, and loads only on
   assert.match(document.querySelector('#current-status').textContent, /caricato/i);
   assert.equal(document.querySelector('.import-card').hidden, true, 'the timetable workspace becomes primary after loading');
   assert.equal(document.querySelector('#timetable-workspace').hidden, false);
+  assert.equal(document.querySelector('#export-edn').disabled, false, 'export stays available while the timetable is the primary screen');
   document.querySelector('#change-timetable').click();
   assert.equal(document.querySelector('.import-card').hidden, false, 'import controls remain reachable');
   dom.window.close();

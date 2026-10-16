@@ -205,7 +205,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
         card.dataset.lessonId = lesson.id;
         card.style.gridColumn = String((laneByLesson.get(lesson.id) || 0) + 1);
         card.style.gridRow = `${lesson.assignedTime.periodIndex + 1} / span ${lesson.durationPeriods}`;
-        card.setAttribute('aria-label', `${subject}, ${timeText}, ${teacherNames}, ${classNames}, ${roomNames}${hasConflict ? ', conflitto' : ''}`);
+        card.setAttribute('aria-label', `${subject}, ${timeText}, ${teacherNames}, ${classNames}, ${roomNames}${hasConflict ? ', conflitto' : hasWarning ? ', avviso' : ''}`);
         card.setAttribute('aria-pressed', selectedLessonId === lesson.id ? 'true' : 'false');
         card.append(make(document, 'strong', 'lesson-subject', subject));
         card.append(make(document, 'span', 'lesson-people', `${teacherNames} · ${classNames}`));
@@ -306,7 +306,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     renderIssues();
   }
 
-  function selectLesson(lessonId, { navigate = false } = {}) {
+  function selectLesson(lessonId, { navigate = false, notify = true } = {}) {
     const lesson = lessonFor(lessonId);
     if (!lesson) return false;
     const activeElement = document.activeElement;
@@ -326,7 +326,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       }
     }
     renderAll();
-    onLessonSelect(lesson);
+    if (notify) onLessonSelect(lesson);
     const target = [...grid.querySelectorAll('[data-lesson-id]')].find(node => node.dataset.lessonId === lessonId);
     if (navigate) {
       target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
@@ -364,15 +364,22 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   });
 
   return {
-    render(nextTimetable, nextDiagnostics = []) {
+    render(nextTimetable, nextDiagnostics = [], { preserveContext = false } = {}) {
+      const previousMode = mode;
+      const previousLessonId = selectedLessonId;
       timetable = nextTimetable;
       diagnostics = [...nextDiagnostics];
       analysis = analyzeSchedule(timetable);
-      selectedLessonId = null;
-      selectedByMode.class = null;
-      selectedByMode.teacher = null;
-      selectedByMode.room = null;
-      mode = 'class';
+      if (preserveContext) {
+        selectedLessonId = timetable.lessons.some(lesson => lesson.id === previousLessonId) ? previousLessonId : null;
+        mode = previousMode;
+      } else {
+        selectedLessonId = null;
+        selectedByMode.class = null;
+        selectedByMode.teacher = null;
+        selectedByMode.room = null;
+        mode = 'class';
+      }
       renderAll();
     },
     selectLesson,

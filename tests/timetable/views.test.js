@@ -51,6 +51,12 @@ test('class, teacher, and room views show the matching schedule and preserve sel
 
 test('lesson detail shows subject, participants, time, and detected conflicts', async () => {
   const { dom, document } = await mount();
+  const entitySelect = document.querySelector('#entity-select');
+  entitySelect.value = 'class:C2';
+  entitySelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.match(document.querySelector('#schedule-grid [data-lesson-id="lesson:3"]').getAttribute('aria-label'), /avviso/i);
+  entitySelect.value = 'class:C1';
+  entitySelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   const lesson = document.querySelector('#schedule-grid [data-lesson-id="lesson:0"]');
   assert.ok(lesson);
   assert.match(lesson.textContent, /Conflitto/);
