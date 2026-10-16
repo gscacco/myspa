@@ -1,5 +1,6 @@
 import { importOFD, OFDImportError } from './ofd-importer.js';
 import { importTimetableEDN, exportTimetableEDN, EDNImportError } from './edn-importer.js';
+import { createTimetableViews } from './views.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 
@@ -38,12 +39,17 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const applyButton = document.querySelector('#apply-import');
   const cancelButton = document.querySelector('#cancel-import');
   const currentStatus = document.querySelector('#current-status');
-  if (![input, report, summary, diagnosticsList, applyButton, cancelButton, currentStatus].every(Boolean)) {
+  const importCard = document.querySelector('#import-card');
+  const changeButton = document.querySelector('#change-timetable');
+  const appWorkspace = document.querySelector('.workspace');
+  if (![input, report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, changeButton, appWorkspace].every(Boolean)) {
     throw new Error('Timetable import screen is missing a required accessible control.');
   }
 
   let current = null;
+  let currentDiagnostics = [];
   let pending = null;
+  const views = createTimetableViews({ document });
 
   function renderDiagnostics(items) {
     diagnosticsList.replaceChildren();
@@ -136,10 +142,17 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     if (!pending) return false;
     if (current && typeof confirm === 'function' && !confirm('Sostituire l’orario attualmente caricato con quello verificato?')) return false;
     current = pending.timetable;
+    currentDiagnostics = [...pending.diagnostics];
+    views.render(current, currentDiagnostics);
     pending = null;
     applyButton.disabled = true;
     cancelButton.disabled = true;
     currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} lezioni`;
+    importCard.hidden = true;
+    appWorkspace.classList.add('has-timetable');
+    changeButton.hidden = false;
+    changeButton.textContent = 'Carica un altro orario';
+    changeButton.setAttribute('aria-expanded', 'false');
     exportButton.disabled = false;
     report.dataset.state = 'ready';
     report.textContent = 'Orario caricato. I dati originali del file sono conservati nel modello.';
@@ -174,6 +187,13 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   });
   applyButton.addEventListener('click', applyImport);
   cancelButton.addEventListener('click', cancelImport);
+  changeButton.addEventListener('click', () => {
+    const open = importCard.hidden;
+    importCard.hidden = !open;
+    changeButton.textContent = open ? 'Nascondi importazione' : 'Carica un altro orario';
+    changeButton.setAttribute('aria-expanded', String(open));
+    if (open) input.focus();
+  });
   exportButton.addEventListener('click', () => {
     try {
       if (exportEDN()) {
@@ -206,7 +226,9 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     applyImport,
     cancelImport,
     exportEDN,
+    views,
     get timetable() { return current; },
+    get diagnostics() { return currentDiagnostics; },
     get pendingTimetable() { return pending?.timetable || null; },
   };
 }

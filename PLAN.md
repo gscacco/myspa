@@ -28,11 +28,11 @@
 1. **Objective and user outcome:** Consult the imported schedule quickly by class, teacher, and room.
 2. **Requirements and acceptance:** Render class and teacher views and room occupancy where assignments exist; navigate days and periods; inspect lessons; show unassigned entries, conflicts, and import warnings; preserve the selected lesson when switching views where possible.
 3. **UX/usability:** Timetable is the primary compact desktop workspace; clear text labels and symbols accompany color; selected lesson details and problem navigation are immediate; keyboard focus, contrast, and responsive layout are checked.
-4. **Design/files:** Add `timetable/js/app.js`, `views.js`, `navigation.js`, view markup/styles, and tests under `tests/timetable/`; use Step 1 domain selectors, with no DOM state stored in the domain model.
+4. **Design/files:** Add `timetable/js/schedule.js` for read-only diagnostics and `views.js` for rendering/navigation, extend app markup/styles, and add tests under `tests/timetable/`; keep view selection and DOM state outside the domain model.
 5. **Tests first:** Red DOM behavior tests for loading/report, class/teacher/room switching, lesson selection/details, warnings and conflict navigation, keyboard access, and context retention.
 6. **Dependency:** Step 1 schema, importer, and validated sample model.
 7. **Risks/questions:** Large grids can overwhelm; avoid rendering unrelated data and measure navigation on the full sample. Room and partial lesson assignments must remain visibly unknown or unassigned.
-8. **Definition of Done:** Tests demonstrate observable navigation and accessibility basics; a staff user can locate a lesson and its details in the sample; warnings and empty states are understandable.
+8. **Definition of Done:** **Complete.** Focused DOM tests demonstrate class/teacher/room navigation, retained selection, lesson details, issue links, keyboard-accessible controls, and import warnings. The supplied sample renders and is navigable; its direct analysis reports 0 hard conflicts, 4 undesired-time warnings, and 6 unassigned lessons. Read-only analysis limits and local jsdom measurements are documented. TDD Red was observed for missing view/analyzer modules and for issue navigation labels before the implementation; targeted tests now pass.
 9. **Git/testing/merge:** Branch `feature/timetable-views` from updated `master`; follow Red-Green-Refactor; run targeted tests, full `npm test`, and timetable build checks; review and merge with `--no-ff`, then rerun the full suite.
 
 ## Step 3 — Safe interactive editing and incremental optimization
