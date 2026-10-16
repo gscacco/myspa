@@ -1,0 +1,60 @@
+# Interactive School Timetable Prototype — Inspection and Plan
+
+## Phase 1 findings
+
+- The repository is a vanilla JavaScript ES module SPA for a spreadsheet, with CSS, `esbuild`, Node's test runner, `jsdom`, and a single-file offline build. It already has undo/redo and a limited custom EDN reader/writer; that codec is not general EDN and does not reject trailing input. There is no timetable implementation.
+- Git is on `master` at `446250f`; the tracked working tree was clean. `OR_30_SETT.ofd` is a newly supplied, untracked 877,947-byte input and is left untouched. No prior `PLAN.md` existed.
+- The sample is XML rooted at `DOCUMENT`, version `5000`. Its declaration says `us-ascii`, but three bytes in Italian comments are non-ASCII, so a strict byte parser rejects the original. For structural inspection only, the declaration was corrected in memory to ISO-8859-1; no file bytes were changed. Import must report this mismatch and decode without rewriting the source.
+- Observed definitions: 118 teachers, 61 rooms, 58 classes, and 40 subjects, named with nested `NAME value=...` elements. Names are unique within each definition type in this sample; lesson references use nested names, not explicit per-entity IDs. A single document ID exists.
+- `PERIODDATA` contains 1,714 `LESSON` entries, 1,708 with a `TIME` and six without one; it also contains entity data, 40 `LINK`s, and 25 `PARAM`s. A lesson has a subject, duration (1 or 2 periods here), site, module, alignment, pause, one or more teachers, optional group and room, timeframes, and optional assigned time. Groups/rooms/teachers can be absent or repeated, so they cannot be modelled as mandatory single references.
+- `TIMEGRID` defines six named days and six 60-minute periods from 08:00 through 14:00. Assigned `TIME` values such as `0.0` and `1.2` are consistent with day/period indexes; confirm the encoding against more OFD evidence before treating it as a specification. Availability and preferences occur under `TIMEFRAMES` as `UNAVAIL`, `DESIRED`, and `UNDESIRED`; teacher/class data include `MIN`, `MAX`, `WEIGHT`, distribution, gap, free-day, and timeframe fields. `PARAM` includes `CODE`, `CUSTOM`, `PRIORITY`, `OPTIMIZED`, `LOCKED`, `FIXED`, and `ALLOW`. `LINK` relates subject pairs and days. The sample contains no explicit constraint labels or stable lesson IDs.
+- One sample cannot establish complete OFD compatibility. Preserve the original source text and unrecognized XML structures in imported metadata; report structures that cannot be interpreted. Do not claim OFD export or exact byte round-trip.
+- Proposed architecture: add a separate timetable app and build entry so the existing spreadsheet remains intact. Reuse the offline, standalone packaging approach and existing JavaScript/CSS/test tooling. Define a strict, documented EDN interchange subset for the application schema (maps, vectors, strings, keywords, numbers, booleans, and nil); reject unsupported forms explicitly rather than claiming general EDN support.
+
+## Step 1 — Domain model, OFD import, and validation foundation
+
+1. **Objective and user outcome:** Load the supplied OFD safely and see a truthful import report before replacing any working timetable.
+2. **Requirements and acceptance:** Define versioned EDN schema and stable references; add a UI-independent OFD importer boundary, validation, diagnostics, and strict EDN import/export. Preserve source metadata and unknown XML. Import the sample with counts matching observed entities and lessons, identify six unassigned lessons and the encoding mismatch, and do not silently discard unsupported data. Malformed XML, absent fields, duplicate names, broken references, unsupported tags, and ambiguous time encodings produce actionable errors or warnings. No OFD export is claimed.
+3. **UX/usability:** File selection is explicit; distinguish fatal errors, warnings, and information; show entities, unassigned lessons, and unsupported structures. Keep the current data until validation succeeds and the user confirms loading. Keyboard accessible controls and readable status messages.
+4. **Design/files:** New `timetable/index.html`, `timetable/css/`, `timetable/js/domain.js`, `edn-codec.js`, `ofd-importer.js`, `validation.js`; new `tests/timetable/` and small synthetic fixtures; document schema and support boundaries in `timetable/README.md`. Use the existing OFD at repository root for local acceptance, without editing it or exposing roster data in synthetic fixtures.
+5. **Tests first:** Red tests for the real sample counts and semantic relationships; EDN round trips and invalid/trailing input; malformed/incomplete XML; encoding mismatch; missing/duplicate names and invalid references; repeated/missing lesson fields; unknown structures preservation/diagnostics; and no replacement on failed or cancelled import.
+6. **Dependency:** None; foundation for Steps 2–4.
+7. **Risks/questions:** One sample is insufficient for full format support; day/period encoding and some constraint semantics remain provisional. The provided file is untracked and contains real roster data; keep its bytes unchanged and do not publish it as a fixture without separate authorization. Establish a performance baseline against this dataset before setting numeric targets.
+8. **Definition of Done:** Tests were observed failing before implementation, then pass after implementation and refactoring; real sample diagnostics/counts are reviewed; schema/version, supported EDN subset, importer boundaries, unknown-data handling, and limitations are documented; acceptance confirms the current timetable survives failed import.
+9. **Git/testing/merge:** Branch `feature/timetable-domain-ofd` from `master`; run targeted `node --test tests/timetable/*.test.js`, current `npm test`, and relevant build checks. Review diff, commit small changes, merge with `git merge --no-ff` into `master`, then rerun the full suite. Preserve unrelated changes and stop on unexpected failures or conflicts.
+
+## Step 2 — Usable timetable interface and navigation
+
+1. **Objective and user outcome:** Consult the imported schedule quickly by class, teacher, and room.
+2. **Requirements and acceptance:** Render class and teacher views and room occupancy where assignments exist; navigate days and periods; inspect lessons; show unassigned entries, conflicts, and import warnings; preserve the selected lesson when switching views where possible.
+3. **UX/usability:** Timetable is the primary compact desktop workspace; clear text labels and symbols accompany color; selected lesson details and problem navigation are immediate; keyboard focus, contrast, and responsive layout are checked.
+4. **Design/files:** Add `timetable/js/app.js`, `views.js`, `navigation.js`, view markup/styles, and tests under `tests/timetable/`; use Step 1 domain selectors, with no DOM state stored in the domain model.
+5. **Tests first:** Red DOM behavior tests for loading/report, class/teacher/room switching, lesson selection/details, warnings and conflict navigation, keyboard access, and context retention.
+6. **Dependency:** Step 1 schema, importer, and validated sample model.
+7. **Risks/questions:** Large grids can overwhelm; avoid rendering unrelated data and measure navigation on the full sample. Room and partial lesson assignments must remain visibly unknown or unassigned.
+8. **Definition of Done:** Tests demonstrate observable navigation and accessibility basics; a staff user can locate a lesson and its details in the sample; warnings and empty states are understandable.
+9. **Git/testing/merge:** Branch `feature/timetable-views` from updated `master`; follow Red-Green-Refactor; run targeted tests, full `npm test`, and timetable build checks; review and merge with `--no-ff`, then rerun the full suite.
+
+## Step 3 — Safe interactive editing and incremental optimization
+
+1. **Objective and user outcome:** Compare and apply a proposed lesson change with a clear explanation and reliable undo.
+2. **Requirements and acceptance:** Keep current/proposed/applied states distinct. Validate teacher, class, room, availability, and hard constraints. Show soft-preference trade-offs. Implement immediate alternatives, local search, and bounded/interruption-capable move chains; never sacrifice hard constraints, apply stale proposals, or mutate the schedule during search. Support atomic apply and undo.
+3. **UX/usability:** Explain affected lessons and people, why an option is feasible, hard-constraint status, preference changes, and before/after differences. Require confirmation for multi-lesson changes; provide progress, cancellation, and clear feedback.
+4. **Design/files:** Add pure `timetable/js/solver.js`, `proposals.js`, `history.js`, editing controls, and unit/integration tests. Keep scoring criteria named, documented, configurable, and separate from feasibility checks.
+5. **Tests first:** Red tests for direct collisions and availability, hard-constraint protection, soft-score trade-offs, alternatives, deterministic local/chain search, cancellation and partial results, stale proposal rejection, atomic apply, and exact undo/redo restoration.
+6. **Dependency:** Steps 1–2 domain validation and selectable views.
+7. **Risks/questions:** Search quality is heuristic, not global optimality. Set measurable response targets only after Step 1 benchmark; guard UI responsiveness and interruption with the existing offline runtime constraints.
+8. **Definition of Done:** All proposals are explicit and revalidated at application; rejected/cancelled searches preserve the last valid schedule; targeted and full regression tests pass; scoring and limitations are documented; sample-backed flows are reviewed.
+9. **Git/testing/merge:** Branch `feature/timetable-edit-optimize` from updated `master`; Red-Green-Refactor; run targeted tests and full suite/build before review, merge with `--no-ff`, then rerun the full suite.
+
+## Step 4 — Integration, end-to-end testing, and usability assessment
+
+1. **Objective and user outcome:** Deliver a standalone offline prototype with a repeatable, documented workflow from import through verification and undo.
+2. **Requirements and acceptance:** Integrate import, views, editing, optimization, EDN export, diagnostics, and packaging. Verify the single HTML artifact has no network/runtime file dependencies. Record actual performance with conditions and document OFD/EDN boundaries, launch/import/export, constraints, scoring, and known issues.
+3. **UX/usability:** Run the eight specified workflows with realistic sample data: load/report, find/inspect, diagnose conflict, compare alternatives, apply/verify both views, undo, cancel search, and recover from invalid/unsupported input without losing work. Provide a repeatable manual checklist and record observed results; do not infer usability from unit tests.
+4. **Design/files:** Add `tools/build-timetable.js`, `dist/timetable.html` generation, end-to-end tests, `timetable/README.md`, and `PLAN.md` actual status/deviations. Keep the spreadsheet build/output working.
+5. **Tests first:** Red end-to-end tests for bundled offline startup, real-file import, cross-view edit consistency, undo, cancelled optimization, diagnostics, EDN export/reimport, and failed import preserving prior work; add manual usability checklist before feature completion.
+6. **Dependency:** Steps 1–3 complete.
+7. **Risks/questions:** Browser file selection and standalone launch vary; verify supported flows in `jsdom` and the available browser/manual environment. Usability results apply only to tested staff and sample data.
+8. **Definition of Done:** Full test suite passes before and after merge; built artifact is verified offline; all eight usability scenarios and actual performance are recorded with limitations; docs and plan match delivered behavior.
+9. **Git/testing/merge:** Branch `feature/timetable-integration-ux` from updated `master`; run targeted, full, build, artifact, and end-to-end checks; review diff; merge with `git merge --no-ff`; rerun all checks on `master` and report branches, commits, commands, results, and remaining limitations.

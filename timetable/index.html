@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#214f73">
+  <title>Orario scolastico</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">O</div>
+    <div>
+      <p class="eyebrow">Strumento per il coordinamento</p>
+      <h1>Orario scolastico</h1>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="import-card" aria-labelledby="import-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Inizia da un orario esistente</p>
+          <h2 id="import-heading">Carica un file OFD</h2>
+        </div>
+        <span class="file-badge">.OFD</span>
+      </div>
+      <p class="intro">Il file viene verificato prima del caricamento. L’originale non viene modificato.</p>
+      <label class="file-picker" for="ofd-file">
+        <span class="upload-icon" aria-hidden="true">↑</span>
+        <span><strong>Seleziona il file</strong><small>Orario Facile XML (.ofd)</small></span>
+      </label>
+      <input id="ofd-file" type="file" accept=".ofd" aria-describedby="file-help">
+      <p class="field-help" id="file-help">I dati restano in questa scheda. Il caricamento richiede una conferma esplicita.</p>
+
+      <div class="interchange-tools" aria-label="Scambio dati EDN">
+        <label for="edn-file">Importa dati da EDN</label>
+        <input id="edn-file" type="file" accept=".edn" aria-label="Importa timetable da file EDN">
+        <button id="export-edn" class="secondary-button" type="button" title="Include i dati del modello e il sorgente OFD conservato" disabled>Esporta EDN</button>
+      </div>
+      <p class="field-help">L’export EDN contiene anche il sorgente OFD conservato e può includere nomi e dati della scuola.</p>
+
+      <section id="import-report" class="report" role="status" aria-live="polite" aria-atomic="true">
+        <p class="empty-report">Seleziona un file per avviare il controllo.</p>
+      </section>
+      <dl id="import-summary" class="summary" hidden></dl>
+      <ul id="import-diagnostics" class="diagnostics" aria-label="Esito del controllo"></ul>
+      <div class="import-actions">
+        <button id="apply-import" class="primary-button" type="button" disabled>Carica questo orario</button>
+        <button id="cancel-import" class="secondary-button" type="button" disabled>Annulla importazione</button>
+      </div>
+    </section>
+
+    <section class="current-card" aria-labelledby="current-heading">
+      <div class="current-icon" aria-hidden="true">✓</div>
+      <div>
+        <p class="eyebrow">Orario di lavoro</p>
+        <h2 id="current-heading">Stato corrente</h2>
+        <p id="current-status" role="status" aria-live="polite">Nessun orario caricato</p>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
