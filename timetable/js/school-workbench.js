@@ -4,13 +4,15 @@ const COLLECTION_LABELS = Object.freeze({ teachers: 'Docente', classes: 'Classe'
 const COLLECTION_IMPORTED = Object.freeze({ teachers: 'docenti importati', classes: 'classi importate', rooms: 'aule importate', students: 'studenti importati' });
 const COLLECTION_TYPES = Object.freeze({ teachers: 'teacher', classes: 'class', subjects: 'subject', rooms: 'room', students: 'student' });
 const CONSTRAINT_PAGE_SIZE = 80;
+const normalizedName = value => String(value || '').trim().toLocaleLowerCase();
+const idPart = value => String(value || 'ofd').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'ofd';
 
 export function createEmptySchool() {
   const days = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì'];
   return {
     schemaVersion: TIMETABLE_SCHEMA_VERSION,
     name: 'Nuova scuola',
-    source: { format: 'native', version: '1', xml: '', unsupportedStructures: [], assignmentHints: {} },
+    source: { format: 'native', version: '1', xml: '', unsupportedStructures: [], assignmentHints: {}, lessonImports: [] },
     calendar: {
       unitMinutes: 60,
       days: days.map((name, index) => ({ index, name, shortName: name.slice(0, 3).toLocaleUpperCase() })),
@@ -392,6 +394,57 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         onChange(timetable);
       }
       return { imported: additions.length, duplicates };
+    },
+    importLessons(incoming = [], incomingSubjects = [], sourceInfo = null) {
+      const subjects = timetable.entities.subjects;
+      const knownNames = new Map(subjects.map(item => [normalizedName(item.name), item]));
+      const knownIds = new Set(Object.values(timetable.entities).flat().map(item => item.id));
+      const subjectIds = new Map();
+      const subjectAdditions = [];
+      for (const item of incomingSubjects) {
+        const key = normalizedName(item.name);
+        const existing = knownNames.get(key);
+        if (existing) { subjectIds.set(item.id, existing.id); continue; }
+        const next = structuredClone(item);
+        if (!next.id || knownIds.has(next.id)) next.id = uniqueId('subjects', next.name, [...subjects, ...subjectAdditions]);
+        subjectAdditions.push(next);
+        knownNames.set(key, next);
+        knownIds.add(next.id);
+        subjectIds.set(item.id, next.id);
+      }
+      for (const item of incomingSubjects) {
+        const matched = knownNames.get(normalizedName(item.name));
+        if (matched) subjectIds.set(item.id, matched.id);
+      }
+      const knownLessonIds = new Set(timetable.lessons.map(item => item.id));
+      const sourceId = idPart(sourceInfo?.source?.documentId || sourceInfo?.filename || 'ofd');
+      const additions = incoming.map(item => {
+        const { sourceAssignment = null, ...lesson } = structuredClone(item);
+        lesson.subjectId = subjectIds.get(item.subjectId) || item.subjectId;
+        const stem = `lesson:ofd-${sourceId}-${Number.isInteger(item.sourceIndex) ? item.sourceIndex : 'x'}`;
+        let id = stem, suffix = 1;
+        while (knownLessonIds.has(id)) id = `${stem}-${++suffix}`;
+        lesson.id = id;
+        knownLessonIds.add(id);
+        return { lesson, sourceAssignment };
+      });
+      if (additions.length || subjectAdditions.length || sourceInfo) {
+        remember();
+        subjects.push(...subjectAdditions);
+        timetable.lessons.push(...additions.map(item => item.lesson));
+        if (sourceInfo) {
+          timetable.source.lessonImports ||= [];
+          timetable.source.lessonImports.push(structuredClone(sourceInfo));
+        }
+        timetable.source.assignmentHints ||= {};
+        for (const { lesson, sourceAssignment } of additions) if (sourceAssignment) {
+          timetable.source.assignmentHints[lesson.id] = structuredClone(sourceAssignment);
+        }
+        render();
+        status.textContent = `${additions.length} lezioni importate${subjectAdditions.length ? ` · ${subjectAdditions.length} materie aggiunte` : ''}.`;
+        onChange(timetable);
+      }
+      return { imported: additions.length, subjects: subjectAdditions.length };
     },
     setName(value) { if (value && value !== timetable.name) { remember(); timetable.name = value; commit('Nome scuola aggiornato.'); } },
     undo() { if (undoButton.disabled) return false; undoButton.click(); return true; },
