@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { createTimetableEditor } from '../../timetable/js/editor.js';
 import { createTimetableApp } from '../../timetable/js/app.js';
+import { importTimetableEDN } from '../../timetable/js/edn-importer.js';
 import { solverFixture } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
@@ -76,12 +77,33 @@ test('the editor can find a first assignment for a lesson without an existing ti
   dom.window.close();
 });
 
+test('the cancel-search control stops optimization without changing the current timetable', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const current = solverFixture({ chain: true });
+  const before = structuredClone(current);
+  const editor = createTimetableEditor({ document, getTimetable: () => current });
+  editor.selectLesson('target');
+  document.querySelector('#search-depth').value = 'chain';
+  document.querySelector('#find-alternatives').click();
+  assert.equal(document.querySelector('#cancel-search').disabled, false);
+  document.querySelector('#cancel-search').click();
+  await editor.searchComplete;
+  assert.match(document.querySelector('#edit-status').textContent, /Ricerca annullata/i);
+  assert.deepEqual(current, before);
+  assert.equal(document.querySelector('#apply-proposal').disabled, true);
+  dom.window.close();
+});
+
 test('the application refreshes class and teacher views after apply and restores both after undo', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const fixture = solverFixture();
   const app = createTimetableApp({
     document: dom.window.document,
-    importer: async () => ({ timetable: fixture, diagnostics: [], summary: { lessons: 1, assignedLessons: 1, unassignedLessons: 0, teachers: 1, classes: 1, rooms: 1, subjects: 2 } }),
+    importer: async bytes => {
+      if (bytes.length) throw new Error('Synthetic malformed OFD.');
+      return { timetable: fixture, diagnostics: [], summary: { lessons: 1, assignedLessons: 1, unassignedLessons: 0, teachers: 1, classes: 1, rooms: 1, subjects: 2 } };
+    },
     confirm: () => true,
   });
   await app.stageFile({ name: 'synthetic.ofd', arrayBuffer: async () => new ArrayBuffer(0) });
@@ -98,6 +120,10 @@ test('the application refreshes class and teacher views after apply and restores
   assert.match(document.querySelector('#edit-status').textContent, /Modifica applicata/i);
   assert.equal(document.querySelector('[data-view="teacher"]').getAttribute('aria-pressed'), 'true', 'applying a change retains the active view');
   assert.ok(document.querySelector(`#schedule-grid [data-lesson-id="target"]`).style.gridRow.includes(String(selectedPeriod + 1)));
+  const exported = importTimetableEDN(app.exportEDN()).timetable;
+  assert.deepEqual(exported, app.timetable, 'EDN export preserves applied changes');
+  await app.stageFile({ name: 'invalid.ofd', arrayBuffer: async () => new Uint8Array([1]).buffer });
+  assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, selectedPeriod, 'invalid import preserves unsaved edits');
 
   document.querySelector('[data-view="class"]').click();
   assert.ok(document.querySelector('#schedule-grid [data-lesson-id="target"]').style.gridRow.includes(String(selectedPeriod + 1)));

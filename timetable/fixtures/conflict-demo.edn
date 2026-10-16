@@ -1,0 +1,39 @@
+{:schemaVersion 1
+ :name "Synthetic coordination demo"
+ :source {:format :synthetic-demo :version "1" :xml "<SYNTHETIC-DEMO/>"}
+ :calendar {:unitMinutes 60
+            :days [{:index 0 :shortName "MON" :name "Lunedì"}]
+            :periods [{:index 0 :beginMinute 480 :endMinute 540}
+                      {:index 1 :beginMinute 540 :endMinute 600}
+                      {:index 2 :beginMinute 600 :endMinute 660}
+                      {:index 3 :beginMinute 660 :endMinute 720}]}
+ :entities {:teachers [{:id "teacher:T1" :name "Docente Alfa"
+                        :constraints {:timeframes {:unavailable [] :desired [] :undesired ["0.2"]}}}
+                       {:id "teacher:T2" :name "Docente Beta"
+                        :constraints {:timeframes {:unavailable ["0.3"] :desired [] :undesired []}}}]
+            :rooms [{:id "room:R1" :name "Aula 1"}
+                    {:id "room:R2" :name "Aula 2"}
+                    {:id "room:R3" :name "Aula 3"}
+                    {:id "room:R4" :name "Aula 4"}]
+            :classes [{:id "class:C1" :name "Classe 1"}
+                      {:id "class:C2" :name "Classe 2"}]
+            :subjects [{:id "subject:MATH" :name "Matematica"}
+                       {:id "subject:HISTORY" :name "Storia"}]}
+ :lessons [{:id "lesson:demo-1" :sourceIndex 0 :subjectId "subject:MATH"
+            :teacherIds ["teacher:T1"] :classIds ["class:C1"] :roomIds ["room:R1"]
+            :durationPeriods 1 :assignedTime {:dayIndex 0 :periodIndex 0 :sourceValue "0.0"}
+            :timeframes {:unavailable [] :desired [] :undesired []}}
+           {:id "lesson:demo-2" :sourceIndex 1 :subjectId "subject:HISTORY"
+            :teacherIds ["teacher:T1"] :classIds ["class:C2"] :roomIds ["room:R2"]
+            :durationPeriods 1 :assignedTime {:dayIndex 0 :periodIndex 0 :sourceValue "0.0"}
+            :timeframes {:unavailable [] :desired [] :undesired []}}
+           {:id "lesson:demo-3" :sourceIndex 2 :subjectId "subject:MATH"
+            :teacherIds ["teacher:T2"] :classIds ["class:C1"] :roomIds ["room:R3"]
+            :durationPeriods 1 :assignedTime {:dayIndex 0 :periodIndex 1 :sourceValue "0.1"}
+            :timeframes {:unavailable [] :desired [] :undesired []}}
+           {:id "lesson:demo-4" :sourceIndex 3 :subjectId "subject:HISTORY"
+            :teacherIds ["teacher:T2"] :classIds ["class:C2"] :roomIds ["room:R4"]
+            :durationPeriods 1 :assignedTime nil
+            :timeframes {:unavailable [] :desired [] :undesired []}}]
+ :links []
+ :parameters []}

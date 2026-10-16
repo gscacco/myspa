@@ -9,6 +9,7 @@ import { domParser, minimalOFD, lessonXML } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
 const samplePath = fileURLToPath(new URL('../../OR_30_SETT.ofd', import.meta.url));
+const unsupportedPath = fileURLToPath(new URL('../../timetable/fixtures/unsupported-demo.ofd', import.meta.url));
 const fileFrom = source => ({ name: 'schedule.ofd', arrayBuffer: async () => {
   const bytes = typeof source === 'string' ? new TextEncoder().encode(source) : source;
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
@@ -71,6 +72,20 @@ test('discarding a valid pending import leaves the current timetable unchanged',
   document.querySelector('#apply-import').click();
   const original = app.timetable;
   await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML({ time: '0.1' }) })));
+  document.querySelector('#cancel-import').click();
+  assert.equal(app.timetable, original);
+  assert.match(document.querySelector('#import-report').textContent, /annullat/i);
+  dom.window.close();
+});
+
+test('unsupported OFD warnings can be reviewed and cancelled without replacing current data', async () => {
+  const { app, dom, document } = await mount();
+  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML() })));
+  document.querySelector('#apply-import').click();
+  const original = app.timetable;
+  await app.stageFile(fileFrom(await readFile(unsupportedPath)));
+  assert.equal(app.timetable, original);
+  assert.match(document.querySelector('#import-diagnostics').textContent, /FUTURE_RULE/);
   document.querySelector('#cancel-import').click();
   assert.equal(app.timetable, original);
   assert.match(document.querySelector('#import-report').textContent, /annullat/i);

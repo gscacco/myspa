@@ -7,6 +7,7 @@ import { exportTimetableEDN, importTimetableEDN } from '../../timetable/js/edn-i
 import { domParser, lessonXML, minimalOFD } from './helpers.js';
 
 const samplePath = fileURLToPath(new URL('../../OR_30_SETT.ofd', import.meta.url));
+const unsupportedPath = fileURLToPath(new URL('../../timetable/fixtures/unsupported-demo.ofd', import.meta.url));
 const parse = (source, options = {}) => importOFD(source, { DOMParser: domParser, ...options });
 
 test('imports observed entities, lesson relationships, calendar, constraints, and diagnostics from the supplied OFD', async () => {
@@ -67,6 +68,12 @@ test('fatal malformed XML, missing required data, invalid references, duplicates
 test('reports unsupported XML without discarding it from the preserved source', () => {
   const xml = minimalOFD({ additions: '<FUTURE_RULE value="opaque"/>' });
   const { timetable, diagnostics } = parse(xml);
+  assert.ok(diagnostics.some(item => item.code === 'unsupported-structure' && item.path.includes('FUTURE_RULE')));
+  assert.match(timetable.source.xml, /<FUTURE_RULE value="opaque"\/>/);
+});
+
+test('the repeatable synthetic unsupported OFD fixture reports and preserves its unknown structure', async () => {
+  const { timetable, diagnostics } = parse(await readFile(unsupportedPath));
   assert.ok(diagnostics.some(item => item.code === 'unsupported-structure' && item.path.includes('FUTURE_RULE')));
   assert.match(timetable.source.xml, /<FUTURE_RULE value="opaque"\/>/);
 });
