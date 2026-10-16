@@ -137,3 +137,74 @@ test('the application refreshes class and teacher views after apply and restores
   assert.ok(document.querySelector('#schedule-grid [data-lesson-id="target"]').style.gridRow.includes('1 / span'));
   dom.window.close();
 });
+
+test('full timetable recalculation stays a proposal until explicitly confirmed and can be undone', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const current = solverFixture();
+  current.lessons[0].assignedTime = null;
+  let applied = current;
+  let allow = false;
+  let confirms = 0;
+  const editor = createTimetableEditor({ document, getTimetable: () => applied, onApply: next => { applied = next; }, confirm: () => { confirms++; return allow; } });
+  assert.equal(document.querySelector('#recalculate-all').disabled, false);
+  assert.equal(document.querySelector('#prefer-source-hints').checked, true);
+  document.querySelector('#recalculate-all').click();
+  await editor.recalculationComplete;
+  assert.ok(document.querySelector('.proposal-option'));
+  assert.equal(current.lessons[0].assignedTime, null, 'search leaves the current timetable unchanged');
+  document.querySelector('.proposal-option').click();
+  assert.match(document.querySelector('#proposal-impact').textContent, /assegnazione completa/i);
+  document.querySelector('#apply-proposal').click();
+  assert.equal(confirms, 1);
+  assert.equal(applied.lessons[0].assignedTime, null, 'declining the complete reassignment keeps current data');
+  allow = true;
+  document.querySelector('#apply-proposal').click();
+  assert.equal(confirms, 2);
+  assert.ok(applied.lessons[0].assignedTime);
+  document.querySelector('#undo-change').click();
+  assert.equal(applied.lessons[0].assignedTime, null);
+  dom.window.close();
+});
+
+test('constraint controls add, edit, and delete an active unavailability rule', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  let current = solverFixture();
+  const editor = createTimetableEditor({ document, getTimetable: () => current, onApply: next => { current = next; } });
+  editor.selectLesson('target');
+  document.querySelector('#constraint-target').value = 'teacher|teacher:T1';
+  document.querySelector('#constraint-day').value = '0';
+  document.querySelector('#constraint-period').value = '1';
+  document.querySelector('#add-constraint').click();
+  assert.deepEqual(current.entities.teachers[0].constraints.timeframes.unavailable, ['0.1']);
+  const edit = document.querySelector('.constraint-edit');
+  edit.click();
+  document.querySelector('#constraint-period').value = '2';
+  document.querySelector('#add-constraint').click();
+  assert.deepEqual(current.entities.teachers[0].constraints.timeframes.unavailable, ['0.2']);
+  document.querySelector('.constraint-delete').click();
+  assert.deepEqual(current.entities.teachers[0].constraints.timeframes.unavailable, []);
+  document.querySelector('#undo-change').click();
+  assert.deepEqual(current.entities.teachers[0].constraints.timeframes.unavailable, ['0.2']);
+  dom.window.close();
+});
+
+test('cancelling a full recalculation leaves the current timetable intact', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const current = solverFixture();
+  const before = structuredClone(current);
+  const editor = createTimetableEditor({
+    document,
+    getTimetable: () => current,
+    recalculator: (timetable, { signal }) => new Promise(resolve => signal.addEventListener('abort', () => resolve({ status: 'cancelled', visited: 0 }), { once: true })),
+  });
+  document.querySelector('#recalculate-all').click();
+  assert.equal(document.querySelector('#cancel-recalculation').disabled, false);
+  document.querySelector('#cancel-recalculation').click();
+  await editor.recalculationComplete;
+  assert.deepEqual(current, before);
+  assert.match(document.querySelector('#edit-status').textContent, /ricalcolo annullato/i);
+  dom.window.close();
+});

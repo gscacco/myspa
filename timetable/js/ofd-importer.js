@@ -404,3 +404,31 @@ export function importOFD(input, { DOMParser: Parser = globalThis.DOMParser } = 
   };
   return { timetable, diagnostics, summary };
 }
+
+/** Returns a faithful OFD model with active lesson placements cleared. */
+export function withoutOFDAssignments(result) {
+  const timetable = structuredClone(result.timetable);
+  const cleared = timetable.lessons.filter(lesson => lesson.assignedTime !== null).length;
+  timetable.source.assignmentHints = Object.fromEntries(timetable.lessons
+    .filter(lesson => lesson.assignedTime !== null)
+    .map(lesson => [lesson.id, structuredClone(lesson.assignedTime)]));
+  for (const lesson of timetable.lessons) lesson.assignedTime = null;
+  const diagnostics = (result.diagnostics || []).filter(item => item.code !== 'unassigned-lessons');
+  diagnostics.push({
+    severity: 'info', code: 'assignments-omitted',
+    message: 'Source placements were omitted from the active timetable; they remain available as optional recalculation suggestions.',
+    details: { count: cleared }, path: 'PERIODDATA/LESSON/TIME',
+  });
+  const summary = {
+    ...result.summary,
+    assignedLessons: 0,
+    unassignedLessons: timetable.lessons.length,
+  };
+  if (timetable.lessons.length) diagnostics.push({
+    severity: 'warning', code: 'unassigned-lessons',
+    message: 'All imported lesson placements were omitted.',
+    details: { count: timetable.lessons.length }, path: 'PERIODDATA/LESSON',
+  });
+  summary.warningCount = diagnostics.filter(item => item.severity === 'warning').length;
+  return { ...result, timetable, diagnostics, summary };
+}

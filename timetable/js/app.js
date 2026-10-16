@@ -1,4 +1,4 @@
-import { importOFD, OFDImportError } from './ofd-importer.js';
+import { importOFD, withoutOFDAssignments, OFDImportError } from './ofd-importer.js';
 import { importTimetableEDN, exportTimetableEDN, EDNImportError } from './edn-importer.js';
 import { createTimetableViews } from './views.js';
 import { createTimetableEditor } from './editor.js';
@@ -15,6 +15,7 @@ function diagnosticText(item) {
   if (item.code === 'encoding-mismatch') return `La codifica dichiarata (${item.declaredEncoding || ''}) non corrisponde ai byte del file; è stata usata ${item.decodedEncoding || 'una codifica compatibile'}.`;
   if (item.code === 'period-name-mismatch') return 'Il nome del documento e quello dei dati non coincidono; entrambi sono conservati.';
   if (item.code === 'unassigned-lessons') return `${numberFormat.format(item.details?.count ?? 0)} lezioni senza orario assegnato nel file.`;
+  if (item.code === 'assignments-omitted') return `${numberFormat.format(item.details?.count ?? 0)} collocazioni OFD omesse; docenti, classi e vincoli sono conservati. Gli orari originali restano disponibili solo come preferenze iniziali del ricalcolo.`;
   if (item.code === 'unsupported-structure') return `Elemento OFD non riconosciuto ${item.path || ''}: resta conservato nel sorgente.`;
   if (item.code === 'unsupported-attribute') return `Attributo OFD non riconosciuto ${item.path || ''}: resta conservato nel sorgente.`;
   if (item.code === 'unsupported-schema-version') return `Versione dello schema EDN non supportata (${item.path}).`;
@@ -34,6 +35,7 @@ function diagnosticText(item) {
 export function createTimetableApp({ document = globalThis.document, DOMParser = document?.defaultView?.DOMParser, confirm = document?.defaultView?.confirm?.bind(document.defaultView), importer = source => importOFD(source, { DOMParser }) } = {}) {
   if (!document) throw new TypeError('A document is required to mount the timetable import screen.');
   const input = document.querySelector('#ofd-file');
+  const omitAssignments = document.querySelector('#ofd-without-assignments');
   const report = document.querySelector('#import-report');
   const summary = document.querySelector('#import-summary');
   const diagnosticsList = document.querySelector('#import-diagnostics');
@@ -43,7 +45,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const importCard = document.querySelector('#import-card');
   const changeButton = document.querySelector('#change-timetable');
   const appWorkspace = document.querySelector('.workspace');
-  if (![input, report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, changeButton, appWorkspace].every(Boolean)) {
+  if (![input, omitAssignments, report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, changeButton, appWorkspace].every(Boolean)) {
     throw new Error('Timetable import screen is missing a required accessible control.');
   }
 
@@ -141,7 +143,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   }
 
   function stageFile(file) {
-    return stageWith(file, async selected => importer(new Uint8Array(await selected.arrayBuffer())));
+    return stageWith(file, async selected => {
+      const result = await importer(new Uint8Array(await selected.arrayBuffer()));
+      return omitAssignments.checked ? withoutOFDAssignments(result) : result;
+    });
   }
 
   function stageEDNFile(file) {
@@ -161,7 +166,8 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     pending = null;
     applyButton.disabled = true;
     cancelButton.disabled = true;
-    currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} lezioni`;
+    const unassigned = current.lessons.filter(lesson => !lesson.assignedTime).length;
+    currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} lezioni · ${numberFormat.format(unassigned)} da assegnare`;
     importCard.hidden = true;
     appWorkspace.classList.add('has-timetable');
     changeButton.hidden = false;

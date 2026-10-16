@@ -16,6 +16,11 @@ export function createTimetableHistory(initial) {
       current = next;
       return clone(current);
     },
+    commit(timetable) {
+      previous.push(clone(current));
+      current = clone(timetable);
+      return clone(current);
+    },
     undo() {
       if (!previous.length) return false;
       current = previous.pop();

@@ -17,10 +17,17 @@ For the source app, run `npm run dev` and open `http://localhost:8080/timetable/
 7. [ ] On the full sample, start a longer search and cancel while progress is shown. Confirm the current timetable remains unchanged and any partial proposals remain unapplied.
 8. [ ] With a timetable loaded, stage `unsupported-demo.ofd`. Confirm the `FUTURE_RULE` warning is actionable, cancel the staged import, and verify the loaded timetable remains available. Repeat with malformed XML to see the fatal error path.
 
+## Added assignment and constraint workflow
+
+1. [ ] Import `OR_30_SETT.ofd` with “senza gli orari assegnati”. Confirm 1,714 lessons show as unassigned while teachers, classes, constraints, and original source data remain available.
+2. [ ] Run “Ricalcola tutte le assegnazioni”. Review progress and the full-schedule proposal, cancel once to verify preservation, then run again and explicitly apply. Verify class and teacher views and test undo.
+3. [ ] Add an unavailable period to a teacher, edit it to another period, delete it, and undo. Confirm any resulting conflict is visible and the recalculation respects the updated rule.
+4. [ ] Disable the original-time preference and observe whether the search finds a solution within its documented attempt cap; do not present a limit result as a valid timetable.
+
 After each session, record the staff role, browser, task completion, points of hesitation, and any data-safety concern. Do not mark a scenario successful solely because the corresponding automated test passes.
 
 ## Automated evidence in this prototype
 
-The repository tests simulate all eight workflows with jsdom. They cover real-sample import and navigation, a synthetic conflict cause, alternative comparison and bounded chain repair, apply across class/teacher views, exact undo, cancellation without mutation, and failed/unsupported imports preserving current data. The standalone test opens the generated file with a `file://` URL and imports the real supplied OFD.
+The repository tests simulate the original eight workflows and the added import-without-placements, full-recalculation proposal/confirmation/cancellation, constraint add/edit/delete/undo, and real-sample import flows with jsdom. They cover a synthetic conflict cause, alternative comparison and bounded chain repair, apply across class/teacher views, exact undo, and failed/unsupported imports preserving current data. The standalone test opens the generated file with a `file://` URL and imports the real supplied OFD.
 
 Current automated result: **all scenarios covered by automated tests pass**. A walkthrough with school staff has **not yet been conducted**, so human usability remains unvalidated. The sample has zero direct hard conflicts; conflict repair is assessed with the synthetic demo, not invented sample data.
