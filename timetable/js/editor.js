@@ -35,6 +35,8 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const list = document.querySelector('#proposal-list');
   const impact = document.querySelector('#proposal-impact');
   const status = document.querySelector('#edit-status');
+  const calculationStatus = document.querySelector('#recalculation-status');
+  const reviewCalculationButton = document.querySelector('#review-recalculation');
   const applyButton = document.querySelector('#apply-proposal');
   const undoButton = document.querySelector('#undo-change');
   const recalculateButton = document.querySelector('#recalculate-all');
@@ -49,7 +51,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const constraintStatus = document.querySelector('#constraint-status');
   const constraintList = document.querySelector('#constraint-list');
   if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton,
-    recalculateButton, cancelRecalculationButton, sourceHintToggle, constraintFilter, constraintTarget, constraintKind, constraintDay,
+    calculationStatus, reviewCalculationButton, recalculateButton, cancelRecalculationButton, sourceHintToggle, constraintFilter, constraintTarget, constraintKind, constraintDay,
     constraintPeriod, addConstraintButton, constraintStatus, constraintList].every(Boolean)) {
     throw new Error('Timetable editing controls are missing.');
   }
@@ -66,6 +68,12 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const options = new Map();
 
   function renderUndo() { undoButton.disabled = !history?.canUndo; }
+
+  function updateCalculationControl() {
+    recalculateButton.disabled = !timetable?.lessons?.length || Boolean(recalculationController);
+    recalculateButton.textContent = timetable?.lessons?.length && timetable.lessons.every(lesson => !lesson.assignedTime)
+      ? 'Avvia calcolo automatico' : 'Ricalcola assegnazioni';
+  }
 
   function clearOptions() {
     options.clear();
@@ -257,6 +265,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       return before?.dayIndex === change.assignedTime?.dayIndex && before?.periodIndex === change.assignedTime?.periodIndex;
     })) {
       status.textContent = 'L’assegnazione attuale è già completa e rispetta i vincoli rigidi supportati.';
+      calculationStatus.textContent = status.textContent;
       return false;
     }
     const suggestion = {
@@ -272,6 +281,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     button.type = 'button'; button.dataset.optionId = id; button.dataset.changeCount = String(changes.length);
     button.setAttribute('aria-pressed', 'false'); button.addEventListener('click', () => showOption(id));
     list.append(button);
+    reviewCalculationButton.hidden = false;
     return true;
   }
 
@@ -314,27 +324,38 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     searchButton.disabled = true; recalculateButton.disabled = true;
     cancelButton.disabled = true; cancelRecalculationButton.disabled = false;
     status.textContent = 'Ricalcolo completo in corso…';
+    calculationStatus.textContent = 'Ricerca di un’assegnazione completa…';
+    reviewCalculationButton.hidden = true;
     const result = await recalculator(timetable, {
       signal: activeController.signal,
       useSourceHints: sourceHintToggle.checked,
-      onProgress: progress => { status.textContent = `Ricalcolo: ${progress.assigned}/${progress.total} lezioni assegnate · ${progress.visited} tentativi`; },
+      onProgress: progress => {
+        const message = `Ricalcolo: ${progress.assigned}/${progress.total} lezioni · ${progress.visited} tentativi`;
+        status.textContent = message; calculationStatus.textContent = message;
+      },
     });
     if (recalculationController !== activeController) return result;
     recalculationController = null;
-    searchButton.disabled = !currentLesson(); recalculateButton.disabled = false;
+    searchButton.disabled = !currentLesson(); updateCalculationControl();
     cancelRecalculationButton.disabled = true;
     if (result.status === 'solved') {
       const added = addFullScheduleProposal(result);
       if (added) status.textContent = 'Assegnazione completa pronta. Verifica il riepilogo e conferma prima di applicarla.';
-    } else if (result.status === 'cancelled') status.textContent = 'Ricalcolo annullato; l’orario corrente è rimasto invariato.';
+    } else if (result.status === 'cancelled') status.textContent = 'Calcolo annullato; l’orario corrente è rimasto invariato.';
     else if (result.status === 'limit') status.textContent = `Ricerca interrotta al limite (${result.visited} tentativi); nessuna assegnazione applicata.`;
     else status.textContent = 'Nessuna assegnazione completa compatibile trovata; l’orario corrente è rimasto invariato.';
+    calculationStatus.textContent = status.textContent;
     if (result.status !== 'solved') list.append(node(document, 'li', 'muted', 'Nessuna proposta applicabile.'));
     return result;
   }
 
   searchButton.addEventListener('click', () => { activeSearch = search(); });
   recalculateButton.addEventListener('click', () => { activeRecalculation = recalculate(); });
+  reviewCalculationButton.addEventListener('click', () => {
+    panel.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    list.querySelector('.proposal-option')?.click();
+    applyButton.focus();
+  });
   cancelButton.addEventListener('click', () => {
     if (!controller) return;
     controller.abort();
@@ -360,9 +381,12 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       const next = history.apply(selectedOption.proposal);
       const lessonId = selectedLessonId;
       status.textContent = 'Modifica applicata. Verifica l’orario nelle viste di classe e docente.';
+      calculationStatus.textContent = status.textContent;
+      reviewCalculationButton.hidden = true;
       clearOptions();
       renderUndo();
       timetable = next;
+      updateCalculationControl();
       refreshConstraintControls();
       onApply(next, lessonId, 'apply');
     } catch (error) {
@@ -375,6 +399,9 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     const restored = history.current;
     const lessonId = selectedLessonId;
     timetable = restored;
+    calculationStatus.textContent = 'Ultima modifica annullata.';
+    reviewCalculationButton.hidden = true;
+    updateCalculationControl();
     clearOptions();
     renderUndo();
     refreshConstraintControls();
@@ -382,7 +409,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     onApply(restored, lessonId, 'undo');
   });
 
-  recalculateButton.disabled = !timetable?.lessons?.length;
+  updateCalculationControl();
   refreshConstraintControls();
 
   return {
@@ -411,8 +438,10 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       selectedLessonId = null;
       searchButton.disabled = true;
       cancelButton.disabled = true;
-      recalculateButton.disabled = !next?.lessons?.length;
+      updateCalculationControl();
       cancelRecalculationButton.disabled = true;
+      reviewCalculationButton.hidden = true;
+      calculationStatus.textContent = '';
       clearOptions();
       editingConstraint = null;
       status.textContent = 'Seleziona una lezione per esplorare alternative.';
