@@ -104,7 +104,7 @@
         <div><p class="eyebrow">Ottimizzazione</p><h2 id="calculation-heading">Calcolo dell’orario</h2><p class="intro">Le proposte rispettano i vincoli obbligatori. Il valore mostrato è il migliore trovato: più scende, più rispetta le preferenze.</p></div>
         <button id="recalculate-all" class="primary-button" type="button" aria-describedby="calculation-readiness" disabled>Avvia calcolo</button>
       </header>
-      <p id="calculation-readiness" class="field-help" role="status" aria-live="polite">Aggiungi docenti, classi, materie e almeno una lezione.</p>
+      <div id="calculation-readiness" class="calculation-readiness" role="status" aria-live="polite"><strong>Calcolo disabilitato.</strong><p>Completa docenti, classi, materie e almeno una lezione.</p></div>
       <div class="optimization-settings" aria-label="Parametri del calcolo">
         <label>Tempo limite (secondi)<input id="optimization-time-limit" type="number" min="1" max="3600" value="30"></label>
         <label>Obiettivo massimo<input id="optimization-target" type="number" min="0" step="1" value="0"></label>

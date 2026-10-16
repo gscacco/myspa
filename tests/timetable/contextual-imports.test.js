@@ -197,6 +197,7 @@ test('lesson sheet imports every lesson from the supplied OFD against its import
   assert.equal(Object.keys(app.timetable.source.assignmentHints).length, parsed.summary.assignedLessons);
   assert.match(document.querySelector('[data-lessons-status]').textContent, /lezioni OFD non hanno una classe/i);
   assert.ok(app.diagnostics.some(item => item.code === 'lesson-without-class'));
+  assert.match(document.querySelector('#calculation-readiness').textContent, /166 lezioni incomplete: 166 senza classe/i);
   assert.equal(document.querySelector('#recalculate-all').disabled, true, 'incomplete source records stay visible and keep calculation disabled');
   assert.match(app.timetable.source.lessonImports[0].source.xml, /<LESSON/);
   dom.window.close();

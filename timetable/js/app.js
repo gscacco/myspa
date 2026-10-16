@@ -4,7 +4,7 @@ import { createTimetableViews } from './views.js';
 import { createTimetableEditor } from './editor.js';
 import { createEmptySchool, createSchoolWorkbench } from './school-workbench.js';
 import { parseRosterCSV } from './roster-importer.js';
-import { getCalculationReadiness } from './validation.js';
+import { getCalculationReadiness, validateTimetable } from './validation.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 const rosterWarningCodes = new Set(['encoding-mismatch', 'period-name-mismatch', 'unsupported-structure', 'unsupported-attribute']);
@@ -98,10 +98,76 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
 
   function updateCalculationReadiness() {
     const missing = getCalculationReadiness(current);
-    const labels = { teachers: 'docenti', classes: 'classi', subjects: 'materie', lessons: 'lezioni', 'lesson-details': 'riferimenti completi per ogni lezione', 'invalid-data': 'correggi i dati non validi' };
     const output = document.querySelector('#calculation-readiness');
     const button = document.querySelector('#recalculate-all');
-    if (output) output.textContent = missing.length ? `Per avviare il calcolo completa: ${missing.map(item => labels[item]).join(', ')}.` : 'Dati completi: puoi avviare il calcolo quando vuoi.';
+    if (output) {
+      output.replaceChildren();
+      output.dataset.state = missing.length ? 'blocked' : 'ready';
+      const title = element(document, 'strong');
+      title.textContent = missing.length ? 'Calcolo disabilitato: completa questi requisiti.' : 'Requisiti completi.';
+      output.append(title);
+
+      const blockers = [];
+      const destinations = new Map();
+      const addDestination = (screen, label) => destinations.set(screen, label);
+      if (missing.includes('teachers')) { blockers.push('Aggiungi almeno un docente nella scheda Docenti.'); addDestination('teachers', 'Aggiungi docenti'); }
+      if (missing.includes('classes')) { blockers.push('Aggiungi almeno una classe nella scheda Classi.'); addDestination('classes', 'Aggiungi classi'); }
+      if (missing.includes('subjects')) { blockers.push('Aggiungi almeno una materia nella scheda Classi → Materie.'); addDestination('classes', 'Aggiungi materie'); }
+      if (missing.includes('lessons')) { blockers.push('Definisci almeno una lezione collegando materia, docente e classe.'); addDestination('lessons', 'Definisci lezioni'); }
+      if (missing.includes('lesson-details')) {
+        const ids = collection => new Set((Array.isArray(current.entities?.[collection]) ? current.entities[collection] : []).map(item => item.id));
+        const teacherIds = ids('teachers'), classIds = ids('classes'), subjectIds = ids('subjects');
+        const lessons = current.lessons;
+        const withoutSubject = lessons.filter(item => !subjectIds.has(item.subjectId)).length;
+        const withoutTeacher = lessons.filter(item => !item.teacherIds?.length || item.teacherIds.some(id => !teacherIds.has(id))).length;
+        const withoutClass = lessons.filter(item => !item.classIds?.length || item.classIds.some(id => !classIds.has(id))).length;
+        const gaps = [withoutSubject && `${withoutSubject} senza materia`, withoutTeacher && `${withoutTeacher} senza docente`, withoutClass && `${withoutClass} senza classe`].filter(Boolean);
+        blockers.push(`${lessons.filter(item => !subjectIds.has(item.subjectId) || !item.teacherIds?.length || item.teacherIds.some(id => !teacherIds.has(id)) || !item.classIds?.length || item.classIds.some(id => !classIds.has(id))).length} lezioni incomplete${gaps.length ? `: ${gaps.join(', ')}` : ''}.`);
+        addDestination('lessons', 'Completa lezioni');
+      }
+      if (missing.includes('invalid-data')) {
+        const errors = validateTimetable(current).errors;
+        const describe = issue => {
+          if (issue.code === 'invalid-timeframe') return 'Un vincolo usa una fascia fuori dal calendario.';
+          if (issue.code === 'invalid-assignment') return 'Un orario assegnato non rientra nel calendario.';
+          if (issue.code === 'invalid-duration') return 'Una lezione ha una durata non valida.';
+          if (issue.code === 'duplicate-name' || issue.code === 'duplicate-id') return 'Ci sono nomi o identificativi duplicati.';
+          if (issue.code === 'missing-reference') return 'Una lezione o uno studente punta a un elemento mancante.';
+          if (issue.path?.startsWith('calendar')) return 'Il calendario ha giorni o fasce orarie non validi.';
+          return 'Ci sono dati non validi da correggere prima del calcolo.';
+        };
+        const messages = [...new Set(errors.map(describe))];
+        blockers.push(...messages.slice(0, 3));
+        if (messages.length > 3) blockers.push(`Altri ${messages.length - 3} tipi di errore da correggere.`);
+        if (errors.some(issue => issue.path?.startsWith('lessons'))) addDestination('lessons', 'Controlla lezioni');
+        if (errors.some(issue => issue.path?.includes('timeframes'))) addDestination('constraints', 'Controlla vincoli');
+      }
+
+      if (blockers.length) {
+        const list = element(document, 'ul', { class: 'calculation-blockers' });
+        blockers.forEach(message => { const item = element(document, 'li'); item.textContent = message; list.append(item); });
+        output.append(list);
+        if (destinations.size) {
+          const actions = element(document, 'div', { class: 'readiness-actions', 'aria-label': 'Vai ai dati da completare' });
+          for (const [screen, label] of destinations) {
+            const action = element(document, 'button', { type: 'button', class: 'secondary-button', 'data-readiness-screen': screen });
+            action.textContent = label;
+            action.addEventListener('click', () => showScreen(screen));
+            actions.append(action);
+          }
+          output.append(actions);
+        }
+      } else {
+        const ready = element(document, 'p', { class: 'calculation-readiness-note' });
+        ready.textContent = 'Il motore calcola le assegnazioni: non serve inserire giorno e ora a mano.';
+        output.append(ready);
+      }
+      if (missing.length) {
+        const note = element(document, 'p', { class: 'calculation-readiness-note' });
+        note.textContent = 'Le aule e i vincoli aggiuntivi sono facoltativi; gli orari vengono assegnati dal motore.';
+        output.append(note);
+      }
+    }
     if (button && !editor?.recalculationRunning) button.disabled = missing.length > 0;
   }
 

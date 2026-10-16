@@ -45,12 +45,19 @@ test('the app opens as a new school and adds its first class, teacher, subjects 
   document.querySelector('[data-screen="calculation"]').click();
   assert.equal(app.activeScreen, 'calculation');
   assert.equal(document.querySelector('#recalculate-all').disabled, true, 'the calculation remains reachable but inactive while required data is missing');
+  assert.match(document.querySelector('#calculation-readiness').textContent, /calcolo disabilitato.*docenti.*classi.*materie.*lezione/i);
+  assert.ok(document.querySelector('[data-readiness-screen="lessons"]'), 'the blocker offers a direct route to the lesson sheet');
   document.querySelector('[data-screen="teachers"]').click();
   for (const [type, name] of [['teachers', 'Ada Rossi'], ['classes', '1A'], ['subjects', 'Matematica'], ['rooms', 'Aula 1']]) {
     const input = document.querySelector(`#school-grid-${type} [data-new-row="true"] input`);
     input.value = name;
     input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   }
+  document.querySelector('[data-screen="calculation"]').click();
+  assert.equal(document.querySelector('#recalculate-all').disabled, true);
+  assert.match(document.querySelector('#calculation-readiness').textContent, /definisci almeno una lezione.*materia.*docente.*classe/i);
+  document.querySelector('[data-readiness-screen="lessons"]').click();
+  assert.equal(document.querySelector('[data-school-panel="lessons"]').hidden, false);
   const lessonRow = document.querySelector('#school-grid-lessons [data-new-row="true"]');
   const lessonFields = lessonRow.querySelectorAll('input');
   ['Matematica', 'Ada Rossi', '1A', 'Aula 1'].forEach((value, index) => { lessonFields[index].value = value; });
@@ -62,5 +69,6 @@ test('the app opens as a new school and adds its first class, teacher, subjects 
   assert.equal(app.activeScreen, 'calculation');
   assert.equal(document.querySelector('#calculation-page').hidden, false);
   assert.equal(document.querySelector('#recalculate-all').disabled, false);
+  assert.match(document.querySelector('#calculation-readiness').textContent, /requisiti completi.*motore calcola/i);
   dom.window.close();
 });
