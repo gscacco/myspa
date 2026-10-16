@@ -1,5 +1,5 @@
 import { findAlternatives } from './solver.js';
-import { recalculateAssignments } from './recalculator.js';
+import { optimizeTimetable } from './optimization.js';
 import { updateTimeframeConstraint } from './constraints.js';
 import { analyzeSchedule } from './schedule.js';
 import { createProposal } from './proposals.js';
@@ -26,7 +26,7 @@ function entityName(timetable, collection, id) {
 }
 
 /** Owns proposal preview, explicit application, cancellation, and undo controls. */
-export function createTimetableEditor({ document = globalThis.document, getTimetable = () => null, onApply = () => {}, confirm = document?.defaultView?.confirm?.bind(document.defaultView), recalculator = recalculateAssignments } = {}) {
+export function createTimetableEditor({ document = globalThis.document, getTimetable = () => null, onApply = () => {}, confirm = document?.defaultView?.confirm?.bind(document.defaultView), recalculator = optimizeTimetable } = {}) {
   if (!document) throw new TypeError('A document is required to mount the timetable editor.');
   const panel = document.querySelector('#editor-panel');
   const searchButton = document.querySelector('#find-alternatives');
@@ -36,6 +36,14 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const impact = document.querySelector('#proposal-impact');
   const status = document.querySelector('#edit-status');
   const calculationStatus = document.querySelector('#recalculation-status');
+  const iterationOutput = document.querySelector('#optimization-iteration');
+  const objectiveOutput = document.querySelector('#optimization-objective');
+  const optimizationStatus = document.querySelector('#optimization-status');
+  const objectivePath = document.querySelector('#objective-chart-line');
+  const objectiveEmpty = document.querySelector('#objective-chart-empty');
+  const timeLimitInput = document.querySelector('#optimization-time-limit');
+  const targetInput = document.querySelector('#optimization-target');
+  const workersInput = document.querySelector('#optimization-workers');
   const reviewCalculationButton = document.querySelector('#review-recalculation');
   const applyButton = document.querySelector('#apply-proposal');
   const undoButton = document.querySelector('#undo-change');
@@ -52,7 +60,8 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const constraintStatus = document.querySelector('#constraint-status');
   const constraintList = document.querySelector('#constraint-list');
   if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton, structureUndoButton,
-    calculationStatus, reviewCalculationButton, recalculateButton, cancelRecalculationButton, sourceHintToggle, constraintFilter, constraintTarget, constraintKind, constraintDay,
+    calculationStatus, iterationOutput, objectiveOutput, optimizationStatus, objectivePath, objectiveEmpty, timeLimitInput, targetInput, workersInput,
+    reviewCalculationButton, recalculateButton, cancelRecalculationButton, sourceHintToggle, constraintFilter, constraintTarget, constraintKind, constraintDay,
     constraintPeriod, addConstraintButton, constraintStatus, constraintList].every(Boolean)) {
     throw new Error('Timetable editing controls are missing.');
   }
@@ -67,6 +76,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   let selectedOption = null;
   let editingConstraint = null;
   const options = new Map();
+  let objectiveHistory = [];
 
   function renderUndo() {
     const disabled = !history?.canUndo;
@@ -325,6 +335,16 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
 
   async function recalculate() {
     if (!timetable?.lessons.length || recalculationController) return null;
+    const timeLimitSeconds = Number(timeLimitInput.value);
+    const maxObjective = Number(targetInput.value);
+    const workers = Number(workersInput.value);
+    if (!Number.isInteger(timeLimitSeconds) || timeLimitSeconds < 1 || timeLimitSeconds > 3600
+      || !Number.isFinite(maxObjective) || maxObjective < 0
+      || !Number.isInteger(workers) || workers < 1 || workers > 8) {
+      calculationStatus.textContent = 'Controlla i parametri: tempo 1–3600 secondi, obiettivo non negativo, worker 1–8.';
+      optimizationStatus.textContent = 'Parametri non validi';
+      return { status: 'invalid-options' };
+    }
     controller?.abort(); controller = null;
     recalculationController = new AbortController();
     const activeController = recalculationController;
@@ -332,34 +352,66 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     searchButton.disabled = true; recalculateButton.disabled = true;
     cancelButton.disabled = true; cancelRecalculationButton.disabled = false;
     status.textContent = 'Ricalcolo completo in corso…';
-    calculationStatus.textContent = 'Ricerca di un’assegnazione completa…';
+    calculationStatus.textContent = 'Preparazione della ricerca…';
+    iterationOutput.textContent = '0';
+    objectiveOutput.textContent = '—';
+    optimizationStatus.textContent = 'Avvio';
+    objectiveHistory = [];
+    objectivePath.setAttribute('d', '');
+    objectiveEmpty.hidden = false;
     reviewCalculationButton.hidden = true;
+    const timeLimitMs = timeLimitSeconds * 1000;
     const result = await recalculator(timetable, {
       signal: activeController.signal,
       useSourceHints: sourceHintToggle.checked,
+      timeLimitMs,
+      maxObjective,
+      workers,
       onProgress: progress => {
-        const message = `Ricalcolo: ${progress.assigned}/${progress.total} lezioni · ${progress.visited} tentativi`;
+        const iteration = progress.iterations ?? progress.visited ?? 0;
+        const objective = progress.bestObjective;
+        iterationOutput.textContent = Number(iteration).toLocaleString('it-IT');
+        if (Number.isFinite(objective)) {
+          objectiveOutput.textContent = Number(objective).toLocaleString('it-IT');
+          if (!objectiveHistory.length || objective < objectiveHistory.at(-1)) objectiveHistory.push(objective);
+          if (objectiveHistory.length > 60) objectiveHistory = objectiveHistory.filter((_, index) => index % 2 === 0);
+          const maximum = Math.max(1, ...objectiveHistory);
+          const points = objectiveHistory.map((value, index) => `${objectiveHistory.length === 1 ? 0 : index * 720 / (objectiveHistory.length - 1)},${160 - value / maximum * 145}`);
+          objectivePath.setAttribute('d', points.map((point, index) => `${index ? 'L' : 'M'} ${point}`).join(' '));
+          objectiveEmpty.hidden = true;
+        }
+        const workerLabel = progress.workersTotal ? ` · worker ${progress.workersCompleted || 0}/${progress.workersTotal}` : '';
+        const message = `Iterazione ${Number(iteration).toLocaleString('it-IT')}${Number.isFinite(objective) ? ` · obiettivo ${Number(objective).toLocaleString('it-IT')}` : ''}${workerLabel}`;
         status.textContent = message; calculationStatus.textContent = message;
+        optimizationStatus.textContent = progress.phase === 'feasibility' ? 'Ricerca soluzione valida' : 'In miglioramento';
       },
     });
     if (recalculationController !== activeController) return result;
     recalculationController = null;
     searchButton.disabled = !currentLesson(); updateCalculationControl();
     cancelRecalculationButton.disabled = true;
-    if (result.status === 'solved') {
+    if (result.objective != null) objectiveOutput.textContent = Number(result.objective).toLocaleString('it-IT');
+    if (result.iterations != null) iterationOutput.textContent = Number(result.iterations).toLocaleString('it-IT');
+    const hasCompleteProposal = result.assignments instanceof Map && result.assignments.size === timetable.lessons.length;
+    if (result.status === 'solved' || (hasCompleteProposal && ['cancelled', 'time-limit'].includes(result.status))) {
       const added = addFullScheduleProposal(result);
-      if (added) status.textContent = 'Assegnazione completa pronta. Verifica il riepilogo e conferma prima di applicarla.';
-    } else if (result.status === 'cancelled') status.textContent = 'Calcolo annullato; l’orario corrente è rimasto invariato.';
+      if (added && result.status === 'solved') status.textContent = `Ricerca conclusa: ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni · obiettivo ${Number(result.objective || 0).toLocaleString('it-IT')}${result.workersFallback ? ' · worker non disponibili, calcolo locale' : ''}. Rivedi la proposta prima di applicarla.`;
+      else if (added && result.status === 'cancelled') status.textContent = `Calcolo fermato; la proposta valida trovata è pronta per la revisione. L’orario corrente è invariato.`;
+      else if (added && result.status === 'time-limit') status.textContent = `Tempo limite raggiunto; proposta valida con obiettivo ${Number(result.objective ?? 0).toLocaleString('it-IT')}. Rivedila prima di applicarla.`;
+    } else if (result.status === 'cancelled') status.textContent = `Calcolo fermato a ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni; l’orario corrente è invariato.`;
+    else if (result.status === 'time-limit') status.textContent = `Tempo limite raggiunto; non è stata trovata una proposta completa.`;
     else if (result.status === 'limit') status.textContent = `Ricerca interrotta al limite (${result.visited} tentativi); nessuna assegnazione applicata.`;
     else status.textContent = 'Nessuna assegnazione completa compatibile trovata; l’orario corrente è rimasto invariato.';
     calculationStatus.textContent = status.textContent;
-    if (result.status !== 'solved') list.append(node(document, 'li', 'muted', 'Nessuna proposta applicabile.'));
+    optimizationStatus.textContent = result.workersFallback ? 'Concluso · calcolo locale' : result.status === 'solved' ? 'Concluso' : result.status === 'cancelled' ? 'Fermato' : result.status === 'time-limit' ? 'Tempo esaurito' : 'Nessuna soluzione';
+    if (result.status !== 'solved' && !hasCompleteProposal) list.append(node(document, 'li', 'muted', 'Nessuna proposta applicabile.'));
     return result;
   }
 
   searchButton.addEventListener('click', () => { activeSearch = search(); });
   recalculateButton.addEventListener('click', () => { activeRecalculation = recalculate(); });
   reviewCalculationButton.addEventListener('click', () => {
+    document.querySelector('[data-screen="schedule"]')?.click();
     panel.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
     list.querySelector('.proposal-option')?.click();
     applyButton.focus();

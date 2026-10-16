@@ -148,11 +148,12 @@ test('full timetable recalculation stays a proposal until explicitly confirmed a
   let confirms = 0;
   const editor = createTimetableEditor({ document, getTimetable: () => applied, onApply: next => { applied = next; }, confirm: () => { confirms++; return allow; } });
   assert.equal(document.querySelector('#recalculate-all').disabled, false);
-  assert.ok(document.querySelector('.timetable-heading #recalculate-all'), 'the global calculation action is at the top of the timetable workspace');
+  assert.ok(document.querySelector('.calculation-heading #recalculate-all'), 'the calculation action has its own phase screen');
   assert.equal(document.querySelector('#prefer-source-hints').checked, true);
   document.querySelector('#recalculate-all').click();
   await editor.recalculationComplete;
   assert.ok(document.querySelector('.proposal-option'));
+  assert.ok(Number(document.querySelector('#optimization-iteration').textContent.replace(/\D/g, '')) > 0);
   assert.equal(document.querySelector('#review-recalculation').hidden, false);
   assert.equal(current.lessons[0].assignedTime, null, 'search leaves the current timetable unchanged');
   document.querySelector('#review-recalculation').click();
@@ -205,10 +206,11 @@ test('editing an imported constraint from the structure screen keeps the overvie
   await app.stageFile({ name: 'structure.ofd', arrayBuffer: async () => new ArrayBuffer(0) });
   app.applyImport();
   assert.equal(app.timetable.lessons.every(lesson => lesson.assignedTime === null), true);
-  assert.equal(document.querySelector('#structure-page').hidden, false, 'structure-only imports open directly on the school overview');
+  assert.equal(document.querySelector('#school-page').hidden, false, 'structure-only imports open directly in the editable school workspace');
   assert.equal(document.querySelector('#timetable-workspace').hidden, true);
   document.querySelector('#go-to-schedule-calculation').click();
   assert.equal(document.querySelector('#structure-page').hidden, true);
+  assert.equal(document.querySelector('#calculation-page').hidden, false);
   assert.equal(document.activeElement.id, 'recalculate-all', 'the structure screen has a direct route to assignment calculation');
   document.querySelector('#open-structure').click();
   assert.match(document.querySelector('#structure-summary').textContent, /Senza assegnazione1/);
@@ -242,6 +244,6 @@ test('cancelling a full recalculation leaves the current timetable intact', asyn
   document.querySelector('#cancel-recalculation').click();
   await editor.recalculationComplete;
   assert.deepEqual(current, before);
-  assert.match(document.querySelector('#edit-status').textContent, /calcolo annullato/i);
+  assert.match(document.querySelector('#edit-status').textContent, /calcolo fermato/i);
   dom.window.close();
 });

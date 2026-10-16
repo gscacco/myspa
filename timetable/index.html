@@ -3,22 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#214f73">
-  <title>Orario scolastico</title>
+  <meta name="theme-color" content="#2563eb">
+  <title>Chronos Engine · Orario scolastico</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header class="app-header">
-    <div class="brand-mark" aria-hidden="true">O</div>
-    <div>
-      <p class="eyebrow">Strumento per il coordinamento</p>
-      <h1>Orario scolastico</h1>
-    </div>
-  </header>
+  <div class="app-shell">
+    <aside id="app-sidebar" class="app-sidebar">
+      <div class="sidebar-main">
+        <div class="sidebar-brand">
+          <div class="brand-mark" aria-hidden="true">C</div>
+          <div><h1>Chronos Engine</h1><p>Orario scolastico</p></div>
+        </div>
+        <button class="sidebar-cta" type="button" data-screen="calculation">✦ <span>Genera orario</span></button>
+        <nav aria-label="Navigazione principale">
+          <button type="button" data-screen="schedule" aria-pressed="false"><span aria-hidden="true">▦</span> Orario</button>
+          <button type="button" data-screen="calculation" aria-pressed="false"><span aria-hidden="true">⚙</span> Calcolo &amp; Motore</button>
+          <button type="button" data-screen="teachers" aria-pressed="true"><span aria-hidden="true">♙</span> Docenti</button>
+          <button type="button" data-screen="classes" aria-pressed="false"><span aria-hidden="true">♧</span> Classi e piani di studio</button>
+          <button type="button" data-screen="lessons" aria-pressed="false"><span aria-hidden="true">▤</span> Lezioni</button>
+          <button type="button" data-screen="rooms" aria-pressed="false"><span aria-hidden="true">⌂</span> Aule</button>
+          <button type="button" data-screen="constraints" aria-pressed="false"><span aria-hidden="true">☷</span> Vincoli</button>
+        </nav>
+      </div>
+      <div class="sidebar-footer">
+        <button id="show-import-tools" type="button" aria-expanded="false"><span aria-hidden="true">⇄</span> Importa / esporta EDN</button>
+        <p><span class="offline-dot" aria-hidden="true"></span> Applicazione locale</p>
+      </div>
+    </aside>
+    <div class="app-main">
+      <header class="app-topbar">
+        <div><span class="topbar-label">Scuola</span><strong id="topbar-school-name">Nuova scuola</strong><span class="draft-badge">Bozza</span></div>
+        <span class="topbar-local">Dati conservati in questa scheda</span>
+      </header>
 
   <main class="workspace">
-    <section id="import-card" class="import-card" aria-labelledby="import-heading">
+    <section id="school-page" class="school-page" aria-labelledby="school-heading">
+      <header class="school-heading">
+        <div><p class="eyebrow">Prima fase · definisci la struttura</p><h2 id="school-heading">La tua scuola</h2><p class="intro">Aggiungi o modifica i dati direttamente nelle griglie. La riga vuota in fondo serve per inserire nuovi elementi.</p></div>
+        <button id="school-next" class="primary-button" type="button">Continua al calcolo →</button>
+      </header>
+      <div class="school-meta">
+        <label for="school-name">Nome scuola<input id="school-name" type="text" value="Nuova scuola"></label>
+        <p id="school-edit-status" role="status" aria-live="polite">Pronta per iniziare da zero. Importa una struttura esistente quando serve.</p>
+        <button id="undo-school-edit" class="secondary-button" type="button" disabled>Annulla ultima modifica</button>
+      </div>
+      <div class="school-rosters">
+        <section class="sheet-panel" data-school-panel="teachers"><h3>Docenti</h3><p class="panel-description">Anagrafica e risorse disponibili per la pianificazione.</p><div class="sheet-scroll"><table id="school-grid-teachers" class="school-grid" aria-label="Docenti"></table></div></section>
+        <section class="sheet-panel" data-school-panel="classes"><h3>Classi</h3><p class="panel-description">Gruppi scolastici che condividono le lezioni.</p><div class="sheet-scroll"><table id="school-grid-classes" class="school-grid" aria-label="Classi"></table></div></section>
+        <section class="sheet-panel" data-school-panel="classes"><h3>Materie</h3><div class="sheet-scroll"><table id="school-grid-subjects" class="school-grid" aria-label="Materie"></table></div></section>
+        <section class="sheet-panel" data-school-panel="rooms"><h3>Aule <span class="muted">facoltative</span></h3><p class="panel-description">Spazi assegnabili e soggetti a indisponibilità.</p><div class="sheet-scroll"><table id="school-grid-rooms" class="school-grid" aria-label="Aule"></table></div></section>
+      </div>
+      <section class="sheet-panel lesson-sheet" data-school-panel="lessons"><h3>Lezioni da pianificare</h3><p class="field-help">Ogni riga definisce una lezione senza assegnare giorno e ora.</p><div class="sheet-scroll"><table id="school-grid-lessons" class="school-grid" aria-label="Lezioni da pianificare"></table></div></section>
+      <section class="sheet-panel constraint-sheet" data-school-panel="constraints"><h3>Vincoli e preferenze</h3><p class="field-help">“Obbligatorio” blocca la fascia; “Da evitare” e “Preferita” guidano il calcolo. Modifica una riga o inizia da quella vuota.</p><div class="sheet-tools"><input id="school-constraint-filter" type="search" placeholder="Filtra per docente, classe o tipo"><span id="school-constraint-count" role="status" aria-live="polite"></span><button id="school-constraint-previous" class="secondary-button" type="button" aria-label="Pagina vincoli precedente">←</button><button id="school-constraint-next" class="secondary-button" type="button" aria-label="Pagina vincoli successiva">→</button></div><div class="sheet-scroll"><table id="school-grid-constraints" class="school-grid" aria-label="Vincoli temporali"></table></div></section>
+    </section>
+
+    <section id="import-card" class="import-card" aria-labelledby="import-heading" hidden>
       <div class="section-heading">
         <div>
           <p class="eyebrow">Inizia da un orario esistente</p>
@@ -27,7 +68,6 @@
         <span class="file-badge">.OFD</span>
       </div>
       <p class="intro">Il file viene verificato prima del caricamento. L’originale non viene modificato.</p>
-      <button id="open-blank-builder" class="secondary-button start-empty" type="button">Crea orario da zero</button>
       <label class="file-picker" for="ofd-file">
         <span class="upload-icon" aria-hidden="true">↑</span>
         <span><strong>Seleziona il file</strong><small>Orario Facile XML (.ofd)</small></span>
@@ -39,6 +79,7 @@
       <div class="interchange-tools" aria-label="Scambio dati EDN">
         <label for="edn-file">Importa dati da EDN</label>
         <input id="edn-file" type="file" accept=".edn" aria-label="Importa timetable da file EDN">
+        <button id="export-edn-tools" class="secondary-button" type="button" disabled>Esporta EDN</button>
       </div>
       <p class="field-help">L’export EDN contiene anche il sorgente OFD conservato e può includere nomi e dati della scuola.</p>
 
@@ -53,42 +94,7 @@
       </div>
     </section>
 
-    <section id="blank-builder" class="blank-builder" aria-labelledby="blank-heading" hidden>
-      <header class="section-heading">
-        <div><p class="eyebrow">Nuova scuola</p><h2 id="blank-heading">Crea un orario da zero</h2></div>
-        <button id="cancel-blank-builder" class="secondary-button" type="button">Torna al caricamento</button>
-      </header>
-      <p class="intro">Definisci calendario, persone, classi, materie e lezioni. Il calcolo assegnerà poi giorni e ore.</p>
-      <div class="blank-calendar">
-        <label>Nome orario<input id="new-timetable-name" value="Nuovo orario" required></label>
-        <label>Giorni, separati da virgola<input id="new-days" value="Lunedì, Martedì, Mercoledì, Giovedì, Venerdì"></label>
-        <label>Ore al giorno<input id="new-period-count" type="number" min="1" max="16" value="6"></label>
-        <label>Prima ora<input id="new-start-time" type="time" value="08:00"></label>
-        <label>Minuti per ora<input id="new-unit-minutes" type="number" min="15" max="180" step="5" value="60"></label>
-      </div>
-      <div class="blank-entities">
-        <fieldset><legend>Docenti</legend><div class="blank-add"><input id="new-teacher-name" aria-label="Nome docente"><button id="add-new-teacher" type="button">Aggiungi</button></div><ul id="new-teacher-list"></ul></fieldset>
-        <fieldset><legend>Classi</legend><div class="blank-add"><input id="new-class-name" aria-label="Nome classe"><button id="add-new-class" type="button">Aggiungi</button></div><ul id="new-class-list"></ul></fieldset>
-        <fieldset><legend>Materie</legend><div class="blank-add"><input id="new-subject-name" aria-label="Nome materia"><button id="add-new-subject" type="button">Aggiungi</button></div><ul id="new-subject-list"></ul></fieldset>
-        <fieldset><legend>Aule <span class="muted">(facoltative)</span></legend><div class="blank-add"><input id="new-room-name" aria-label="Nome aula"><button id="add-new-room" type="button">Aggiungi</button></div><ul id="new-room-list"></ul></fieldset>
-      </div>
-      <section class="blank-lessons" aria-labelledby="new-lessons-heading">
-        <h3 id="new-lessons-heading">Lezioni da pianificare</h3>
-        <div class="blank-lesson-form">
-          <label>Materia<select id="lesson-subject"></select></label>
-          <label>Docente<select id="lesson-teacher"></select></label>
-          <label>Classe<select id="lesson-class"></select></label>
-          <label>Aula<select id="lesson-room"></select></label>
-          <label>Durata in ore<select id="lesson-duration"><option value="1">1</option><option value="2">2</option></select></label>
-          <button id="add-new-lesson" type="button" disabled>Aggiungi lezione</button>
-        </div>
-        <ul id="new-lesson-list" aria-label="Lezioni aggiunte"></ul>
-      </section>
-      <p id="blank-builder-status" class="muted" role="status" aria-live="polite"></p>
-      <button id="create-new-timetable" class="primary-button" type="button" disabled>Crea orario e passa al calcolo</button>
-    </section>
-
-    <section class="current-card" aria-labelledby="current-heading">
+    <section class="current-card" aria-labelledby="current-heading" hidden>
       <div class="current-icon" aria-hidden="true">✓</div>
       <div>
         <p class="eyebrow">Orario di lavoro</p>
@@ -101,6 +107,33 @@
       </div>
     </section>
 
+    <section id="calculation-page" class="calculation-page" aria-labelledby="calculation-heading" hidden>
+      <header class="calculation-heading">
+        <div><p class="eyebrow">Seconda fase · ricerca guidata</p><h2 id="calculation-heading">Calcolo dell’orario</h2><p class="intro">Le proposte rispettano i vincoli obbligatori. Il valore mostrato è il migliore trovato: più scende, più rispetta le preferenze.</p></div>
+        <button id="recalculate-all" class="primary-button" type="button" disabled>Avvia calcolo</button>
+      </header>
+      <div class="optimization-settings" aria-label="Parametri del calcolo">
+        <label>Tempo limite (secondi)<input id="optimization-time-limit" type="number" min="1" max="3600" value="30"></label>
+        <label>Obiettivo massimo<input id="optimization-target" type="number" min="0" step="1" value="0"></label>
+        <label>Worker in parallelo<input id="optimization-workers" type="number" min="1" max="8" step="1" value="2"></label>
+        <p>Il calcolo usa worker separati quando disponibili. Puoi fermarlo in qualsiasi momento.</p>
+      </div>
+      <label class="hint-mode calculation-hint" for="prefer-source-hints"><input id="prefer-source-hints" type="checkbox" checked> Usa gli orari OFD conservati come preferenza iniziale</label>
+      <p class="field-help">Questi orari originali non vengono importati come assegnazioni; puoi disattivare la preferenza in qualsiasi momento.</p>
+      <p class="field-help objective-help">Obiettivo: 100 punti per fascia “da evitare” usata, 25 per una preferenza non rispettata, 1 per ogni lezione spostata dall’ora OFD conservata. Meno punti è meglio. I vincoli obbligatori non entrano nel punteggio: una proposta che li viola viene scartata.</p>
+      <div class="optimization-live" aria-live="polite">
+        <div><span>Iterazioni</span><strong id="optimization-iteration">0</strong></div>
+        <div><span>Obiettivo migliore</span><strong id="optimization-objective">—</strong></div>
+        <div><span>Stato</span><strong id="optimization-status">Pronto</strong></div>
+      </div>
+      <div class="objective-chart-wrap"><svg id="objective-chart" viewBox="0 0 720 180" role="img" aria-labelledby="objective-chart-title objective-chart-desc"><title id="objective-chart-title">Andamento della funzione obiettivo</title><desc id="objective-chart-desc">Il grafico scende quando il calcolo trova un orario migliore.</desc><path id="objective-chart-line" d="" fill="none" stroke="#1769aa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg><p id="objective-chart-empty" class="muted">Il grafico si aggiorna quando parte il calcolo.</p></div>
+      <div class="calculation-actions">
+        <button id="cancel-recalculation" class="secondary-button" type="button" disabled>Ferma calcolo</button>
+        <button id="review-recalculation" class="secondary-button" type="button" hidden>Rivedi proposta nell’orario</button>
+      </div>
+      <p id="recalculation-status" role="status" aria-live="polite">Completa le classi, i docenti e le lezioni nella prima fase.</p>
+    </section>
+
     <section id="timetable-workspace" class="timetable-workspace" aria-labelledby="timetable-heading" hidden>
       <header class="timetable-heading">
         <div>
@@ -110,10 +143,6 @@
         <div class="timetable-actions">
           <button id="open-structure" class="secondary-button" type="button" aria-controls="structure-page">Struttura e vincoli</button>
           <button id="open-issues" class="issue-count" type="button" aria-controls="issues-page" data-count="0">Avvisi e conflitti · 0</button>
-          <button id="recalculate-all" class="primary-button" type="button" disabled>Calcola orario</button>
-          <button id="cancel-recalculation" class="secondary-button" type="button" disabled>Annulla calcolo</button>
-          <button id="review-recalculation" class="secondary-button" type="button" hidden>Rivedi proposta</button>
-          <p id="recalculation-status" role="status" aria-live="polite"></p>
           <p id="schedule-status" role="status" aria-live="polite"></p>
         </div>
       </header>
@@ -145,8 +174,6 @@
               <button id="find-alternatives" class="secondary-button" type="button" disabled>Trova alternative</button>
               <button id="cancel-search" class="secondary-button" type="button" disabled>Annulla ricerca</button>
             </div>
-            <label class="hint-mode" for="prefer-source-hints"><input id="prefer-source-hints" type="checkbox" checked> Preferisci, come punto di partenza, gli orari originali OFD conservati</label>
-            <p class="field-help">Questi orari non sono caricati come assegnazioni. Il ricalcolo li usa solo come preferenza modificabile.</p>
             <p id="edit-status" class="muted" role="status" aria-live="polite">Seleziona una lezione assegnata per esplorare alternative.</p>
             <div id="proposal-list" class="proposal-list" role="group" aria-label="Alternative verificate"></div>
             <div id="proposal-impact" class="proposal-impact" aria-live="polite"><p class="muted">Scegli un’alternativa per confrontarne gli effetti.</p></div>
@@ -229,6 +256,9 @@
       </div>
     </section>
   </main>
+    </div>
+  </div>
+  <script id="optimization-worker-source" type="text/plain"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

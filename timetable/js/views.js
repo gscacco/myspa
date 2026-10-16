@@ -547,9 +547,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   openStructureButton.addEventListener('click', () => { screen = 'structure'; renderAll(); backFromStructureButton.focus(); });
   backFromStructureButton.addEventListener('click', () => { screen = 'schedule'; renderAll(); openStructureButton.focus(); });
   goToCalculationButton.addEventListener('click', () => {
-    screen = 'schedule';
-    renderAll();
-    document.querySelector('#recalculate-all').focus();
+    document.querySelector('[data-screen="calculation"]')?.click();
   });
   structureRosters.addEventListener('click', event => {
     const button = event.target.closest('[data-entity-id][data-view]');
@@ -569,6 +567,10 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   });
 
   return {
+    showSchedule() {
+      screen = 'schedule';
+      renderAll();
+    },
     showStructure() {
       screen = 'structure';
       renderAll();
@@ -596,6 +598,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     selectLesson,
     get selectedLessonId() { return selectedLessonId; },
     get mode() { return mode; },
+    get screen() { return screen; },
     get analysis() { return analysis; },
   };
 }

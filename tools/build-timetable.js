@@ -11,16 +11,20 @@ const HTML_FAVICON_LINK = '<link rel="icon" type="image/svg+xml" href="favicon.s
 const HTML_LINK = '<link rel="stylesheet" href="css/style.css">';
 const HTML_SCRIPT = '<script type="module" src="js/main.js"></script>';
 
-export function inlineTimetableBundle(html, css, js, favicon) {
+export function inlineTimetableBundle(html, css, js, favicon, worker = '') {
   if (!html.includes(HTML_FAVICON_LINK)) throw new Error('Timetable build: expected favicon link is missing.');
   if (!html.includes(HTML_LINK)) throw new Error('Timetable build: expected stylesheet link is missing.');
   if (!html.includes(HTML_SCRIPT)) throw new Error('Timetable build: expected module entry point is missing.');
+  const workerSlot = '<script id="optimization-worker-source" type="text/plain"></script>';
+  if (!html.includes(workerSlot)) throw new Error('Timetable build: expected inline worker slot is missing.');
   if (/<\/script/i.test(js)) throw new Error('Timetable build: script contains a closing tag sequence.');
+  if (/<\/script/i.test(worker)) throw new Error('Timetable build: worker contains a closing tag sequence.');
   const faviconData = `data:image/svg+xml;base64,${Buffer.from(favicon, 'utf8').toString('base64')}`;
   const output = html
     .replace(HTML_FAVICON_LINK, () => `<link rel="icon" type="image/svg+xml" href="${faviconData}">`)
     .replace(HTML_LINK, () => `<style>\n${css}\n</style>`)
-    .replace(HTML_SCRIPT, () => `<script>\n${js}\n</script>`);
+    .replace(HTML_SCRIPT, () => `<script>\n${js}\n</script>`)
+    .replace(workerSlot, () => `<script id="optimization-worker-source" type="text/plain">${worker}</script>`);
   if (/<link[^>]+stylesheet|<script[^>]+src=|type="module"/i.test(output)) {
     throw new Error('Timetable build: output still has an external runtime asset.');
   }
@@ -28,7 +32,7 @@ export function inlineTimetableBundle(html, css, js, favicon) {
 }
 
 export async function buildTimetableArtifact({ minify = true } = {}) {
-  const [html, cssSource, favicon, result] = await Promise.all([
+  const [html, cssSource, favicon, result, workerResult] = await Promise.all([
     readFile(join(ROOT, 'timetable/index.html'), 'utf8'),
     readFile(join(ROOT, 'timetable/css/style.css'), 'utf8'),
     readFile(join(ROOT, 'timetable/favicon.svg'), 'utf8'),
@@ -43,9 +47,21 @@ export async function buildTimetableArtifact({ minify = true } = {}) {
       write: false,
       logLevel: 'silent',
     }),
+    build({
+      entryPoints: [join(ROOT, 'timetable/js/optimization-worker.js')],
+      bundle: true,
+      format: 'iife',
+      platform: 'browser',
+      target: ['es2022'],
+      charset: 'utf8',
+      legalComments: 'none',
+      minify,
+      write: false,
+      logLevel: 'silent',
+    }),
   ]);
   const css = minify ? (await transform(cssSource, { loader: 'css', minify: true, charset: 'utf8' })).code : cssSource;
-  const output = inlineTimetableBundle(html, css, result.outputFiles[0].text, favicon);
+  const output = inlineTimetableBundle(html, css, result.outputFiles[0].text, favicon, workerResult.outputFiles[0].text);
   const destination = join(ROOT, 'dist/timetable.html');
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, output, 'utf8');

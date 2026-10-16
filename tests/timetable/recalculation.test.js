@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { recalculateAssignments } from '../../timetable/js/recalculator.js';
+import { optimizeTimetable } from '../../timetable/js/optimization.js';
 import { importOFD, withoutOFDAssignments } from '../../timetable/js/ofd-importer.js';
 import { domParser, timetableFixture } from './helpers.js';
 import { solverFixture } from './helpers.js';
@@ -43,6 +44,25 @@ test('the supplied OFD retains requirements and can be fully recalculated withou
   assert.equal(recalculated.status, 'solved');
   assert.equal(recalculated.assignments.size, 1714);
   assert.ok(recalculated.visited < 250_000);
+});
+
+test('optimization improves the objective on the supplied school while returning a complete hard-valid proposal', async () => {
+  const source = await readFile(samplePath);
+  const timetable = withoutOFDAssignments(importOFD(source, { DOMParser: domParser })).timetable;
+  const progress = [];
+  const result = await optimizeTimetable(timetable, {
+    workers: 1, timeLimitMs: 30_000, maxObjective: 0,
+    onProgress: item => { if (Number.isFinite(item.bestObjective)) progress.push(item.bestObjective); },
+  });
+  assert.equal(result.status, 'solved');
+  assert.equal(result.assignments.size, 1714);
+  assert.ok(result.iterations > 0);
+  assert.ok(result.objective < result.initialObjective);
+  assert.ok(progress.every((value, index) => index === 0 || value <= progress[index - 1]));
+  const candidate = structuredClone(timetable);
+  for (const lesson of candidate.lessons) lesson.assignedTime = result.assignments.get(lesson.id);
+  const { analyzeSchedule } = await import('../../timetable/js/schedule.js');
+  assert.equal(analyzeSchedule(candidate).issues.filter(issue => issue.severity === 'error').length, 0);
 });
 
 test('recalculation can prefer original OFD placements as suggestions without applying them directly', async () => {

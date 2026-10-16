@@ -1,0 +1,331 @@
+import { TIMETABLE_SCHEMA_VERSION } from './domain.js';
+
+const COLLECTION_LABELS = Object.freeze({ teachers: 'Docente', classes: 'Classe', subjects: 'Materia', rooms: 'Aula' });
+const COLLECTION_TYPES = Object.freeze({ teachers: 'teacher', classes: 'class', subjects: 'subject', rooms: 'room' });
+const CONSTRAINT_PAGE_SIZE = 80;
+
+export function createEmptySchool() {
+  const days = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì'];
+  return {
+    schemaVersion: TIMETABLE_SCHEMA_VERSION,
+    name: 'Nuova scuola',
+    source: { format: 'native', version: '1', xml: '', unsupportedStructures: [], assignmentHints: {} },
+    calendar: {
+      unitMinutes: 60,
+      days: days.map((name, index) => ({ index, name, shortName: name.slice(0, 3).toLocaleUpperCase() })),
+      periods: Array.from({ length: 6 }, (_, index) => ({ index, beginMinute: 480 + index * 60, endMinute: 540 + index * 60 })),
+    },
+    entities: { teachers: [], classes: [], subjects: [], rooms: [] },
+    lessons: [], links: [], parameters: [],
+  };
+}
+
+function element(document, tag, attrs = {}, text = '') {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  if (text) node.textContent = text;
+  return node;
+}
+
+function resourceType(collection) { return collection.slice(0, -1); }
+function uniqueId(collection, name, values) {
+  const stem = String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'elemento';
+  let suffix = 1, id = `${COLLECTION_TYPES[collection]}:${stem}-${suffix}`;
+  while (values.some(value => value.id === id)) id = `${COLLECTION_TYPES[collection]}:${stem}-${++suffix}`;
+  return id;
+}
+
+export function createSchoolWorkbench({ document = globalThis.document, onChange = () => {} } = {}) {
+  if (!document) throw new TypeError('A document is required to mount the school workbench.');
+  const tables = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms'].map(key => [key, document.querySelector(`#school-grid-${key}`)]));
+  const lessonTable = document.querySelector('#school-grid-lessons');
+  const constraintTable = document.querySelector('#school-grid-constraints');
+  const constraintFilter = document.querySelector('#school-constraint-filter');
+  const constraintCount = document.querySelector('#school-constraint-count');
+  const previousConstraints = document.querySelector('#school-constraint-previous');
+  const nextConstraints = document.querySelector('#school-constraint-next');
+  const undoButton = document.querySelector('#undo-school-edit');
+  const status = document.querySelector('#school-edit-status');
+  if ([...Object.values(tables), lessonTable, constraintTable, constraintFilter, constraintCount, previousConstraints, nextConstraints, undoButton, status].some(item => !item)) throw new Error('School workbench controls are missing.');
+  let timetable = createEmptySchool();
+  let constraintPage = 0;
+  const undoStack = [];
+
+  function remember() {
+    undoStack.push(structuredClone(timetable));
+    if (undoStack.length > 100) undoStack.shift();
+    undoButton.disabled = false;
+  }
+
+  function commit(message) {
+    status.textContent = message;
+    onChange(timetable);
+  }
+
+  function editableTable(table, gridName, headers) {
+    table.replaceChildren();
+    table.dataset.grid = gridName;
+    const head = element(document, 'thead');
+    const row = element(document, 'tr');
+    headers.forEach(label => row.append(element(document, 'th', { scope: 'col' }, label)));
+    head.append(row);
+    table.append(head, element(document, 'tbody'));
+    return table.querySelector('tbody');
+  }
+
+  function renderEntities(collection) {
+    const table = tables[collection];
+    const body = editableTable(table, collection, ['Nome', 'Uso']);
+    const values = timetable.entities[collection];
+    const addRow = (entity, index, fresh = false) => {
+      const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      const nameCell = element(document, 'td');
+      const input = element(document, 'input', {
+        type: 'text', 'data-field': 'name', 'data-row': index, 'data-grid': collection,
+        'aria-label': `${COLLECTION_LABELS[collection]} ${index + 1}`,
+        placeholder: fresh ? 'Scrivi per aggiungere…' : '', value: entity?.name || '',
+      });
+      nameCell.append(input);
+      row.append(nameCell);
+      const usageCell = element(document, 'td', { class: 'grid-usage' }, fresh ? 'Nuova riga' : `${timetable.lessons.filter(lesson => lesson[collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : collection === 'rooms' ? 'roomIds' : 'subjectId']?.includes?.(entity.id) || lesson.subjectId === entity.id).length} lezioni`);
+      row.append(usageCell);
+      body.append(row);
+      input.addEventListener('change', () => {
+        const value = input.value.trim();
+        if (fresh && !value) return;
+        if (values.some(item => item.id !== entity?.id && item.name.trim().toLocaleLowerCase() === value.toLocaleLowerCase())) {
+          status.textContent = `Esiste già ${COLLECTION_LABELS[collection].toLocaleLowerCase()} “${value}”.`;
+          input.value = entity?.name || '';
+          return;
+        }
+        if (!value && entity) {
+          const referenced = timetable.lessons.some(lesson => lesson.teacherIds?.includes(entity.id) || lesson.classIds?.includes(entity.id) || lesson.roomIds?.includes(entity.id) || lesson.subjectId === entity.id);
+          const constrained = ['unavailable', 'desired', 'undesired'].some(kind => entity.constraints?.timeframes?.[kind]?.length);
+          if (referenced || constrained) {
+            status.textContent = `“${entity.name}” è usato da una lezione o ha vincoli: rimuovi prima i riferimenti.`;
+            input.value = entity.name;
+            return;
+          }
+          remember();
+          values.splice(index, 1);
+          render();
+          commit(`${COLLECTION_LABELS[collection]} rimosso.`);
+          return;
+        }
+        if (!value) return;
+        if (fresh) {
+          const next = { id: uniqueId(collection, value, values), name: value };
+          if (collection !== 'subjects') next.constraints = { timeframes: { unavailable: [], desired: [], undesired: [] } };
+          remember();
+          values.push(next);
+          render();
+          const newInput = table.querySelector('[data-new-row="true"] input');
+          newInput?.focus();
+          commit(`${COLLECTION_LABELS[collection]} aggiunto.`);
+        } else if (entity.name !== value) {
+          remember();
+          entity.name = value;
+          commit(`${COLLECTION_LABELS[collection]} aggiornato.`);
+          render();
+          table.querySelector(`[data-row="${index}"] input`)?.focus();
+        }
+      });
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
+      });
+    };
+    values.forEach((entity, index) => addRow(entity, index));
+    addRow(null, values.length, true);
+  }
+
+  function option(select, value, label) {
+    const item = element(document, 'option', { value }, label);
+    select.append(item);
+  }
+
+  function renderLessons() {
+    const body = editableTable(lessonTable, 'lessons', ['Materia', 'Docente', 'Classe', 'Aula', 'Ore']);
+    const values = timetable.lessons;
+    const choiceLists = Object.fromEntries(['subjects', 'teachers', 'classes', 'rooms'].map(collection => {
+      const id = `school-lesson-choices-${collection}`;
+      const datalist = element(document, 'datalist', { id });
+      timetable.entities[collection].forEach(entity => datalist.append(element(document, 'option', { value: entity.name })));
+      lessonTable.parentElement.querySelector(`#${id}`)?.remove();
+      lessonTable.parentElement.append(datalist);
+      return [collection, id];
+    }));
+    const appendLesson = (lesson, index, fresh = false) => {
+      const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      const fields = [
+        ['subjects', lesson?.subjectId, 'Materia'], ['teachers', lesson?.teacherIds?.[0], 'Docente'],
+        ['classes', lesson?.classIds?.[0], 'Classe'], ['rooms', lesson?.roomIds?.[0], 'Aula'],
+      ];
+      const inputs = fields.map(([collection, selectedId, label]) => {
+        const input = element(document, 'input', { type: 'text', list: choiceLists[collection], 'aria-label': label, placeholder: fresh ? 'Scegli…' : '' });
+        input.value = timetable.entities[collection].find(entity => entity.id === selectedId)?.name || '';
+        const cell = element(document, 'td'); cell.append(input); row.append(cell);
+        return input;
+      });
+      const durationCell = element(document, 'td');
+      const duration = element(document, 'select', { 'aria-label': 'Durata in ore' });
+      [1, 2, 3, 4].forEach(value => option(duration, String(value), String(value)));
+      duration.value = String(lesson?.durationPeriods || 1);
+      durationCell.append(duration); row.append(durationCell); body.append(row);
+      const save = () => {
+        const resolved = inputs.map((input, fieldIndex) => {
+          const collection = fields[fieldIndex][0];
+          return timetable.entities[collection].find(entity => entity.name.trim().toLocaleLowerCase() === input.value.trim().toLocaleLowerCase());
+        });
+        if (fresh && inputs.slice(0, 3).every(input => !input.value.trim())) return;
+        if (resolved.slice(0, 3).some(item => !item)) {
+          status.textContent = 'Completa materia, docente e classe scegliendo elementi già presenti nelle griglie.';
+          if (lesson) render();
+          return;
+        }
+        const [subject, teacher, schoolClass, room] = resolved;
+        const next = {
+          id: lesson?.id || `lesson:school-${Date.now()}-${values.length + 1}`,
+          sourceIndex: lesson?.sourceIndex ?? values.length,
+          subjectId: subject.id, teacherIds: [teacher.id], classIds: [schoolClass.id], roomIds: room ? [room.id] : [],
+          durationPeriods: Number(duration.value), assignedTime: lesson?.assignedTime || null,
+          timeframes: lesson?.timeframes || { unavailable: [], desired: [], undesired: [] },
+        };
+        remember();
+        if (fresh) values.push(next); else values[index] = next;
+        render();
+        commit(fresh ? 'Requisito lezione aggiunto.' : 'Requisito lezione aggiornato.');
+      };
+      [...inputs, duration].forEach(input => input.addEventListener('change', save));
+      row.addEventListener('keydown', event => {
+        if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !fresh) {
+          if (lesson.timeframes?.unavailable?.length || lesson.timeframes?.undesired?.length || lesson.timeframes?.desired?.length) {
+            status.textContent = 'Rimuovi prima i vincoli collegati a questa lezione.';
+            return;
+          }
+          event.preventDefault(); remember(); values.splice(index, 1); render(); commit('Lezione rimossa.');
+        }
+      });
+    };
+    values.forEach((lesson, index) => appendLesson(lesson, index));
+    appendLesson(null, values.length, true);
+  }
+
+  function allConstraints() {
+    const rows = [];
+    const addScopes = (collection, scope) => timetable.entities[collection].forEach(entity => {
+      for (const kind of ['unavailable', 'undesired', 'desired']) for (const slot of entity.constraints?.timeframes?.[kind] || []) rows.push({ scope, id: entity.id, name: entity.name, kind, slot });
+    });
+    addScopes('teachers', 'teachers'); addScopes('classes', 'classes'); addScopes('rooms', 'rooms');
+    timetable.lessons.forEach(lesson => {
+      const subject = timetable.entities.subjects.find(item => item.id === lesson.subjectId)?.name || 'Lezione';
+      for (const kind of ['unavailable', 'undesired', 'desired']) for (const slot of lesson.timeframes?.[kind] || []) rows.push({ scope: 'lessons', id: lesson.id, name: subject, kind, slot });
+    });
+    return rows;
+  }
+
+  function constraintTarget(scope, id) {
+    return scope === 'lessons' ? timetable.lessons.find(item => item.id === id) : timetable.entities[scope]?.find(item => item.id === id);
+  }
+
+  function renderConstraints() {
+    const body = editableTable(constraintTable, 'constraints', ['Elemento', 'Vincolo', 'Giorno', 'Ora']);
+    const allRows = allConstraints();
+    const query = constraintFilter.value.trim().toLocaleLowerCase();
+    const rows = query ? allRows.filter(row => `${row.name} ${row.scope} ${row.kind}`.toLocaleLowerCase().includes(query)) : allRows;
+    const pageCount = Math.max(1, Math.ceil(rows.length / CONSTRAINT_PAGE_SIZE));
+    constraintPage = Math.min(constraintPage, pageCount - 1);
+    const offset = constraintPage * CONSTRAINT_PAGE_SIZE;
+    const pageRows = rows.slice(offset, offset + CONSTRAINT_PAGE_SIZE);
+    constraintCount.textContent = rows.length ? `${offset + 1}–${Math.min(offset + CONSTRAINT_PAGE_SIZE, rows.length)} di ${rows.length}` : 'Nessun vincolo';
+    previousConstraints.disabled = constraintPage === 0;
+    nextConstraints.disabled = constraintPage >= pageCount - 1;
+    const targets = [];
+    for (const scope of ['teachers', 'classes', 'rooms']) for (const item of timetable.entities[scope]) {
+      const label = scope === 'teachers' ? 'Docente' : scope === 'classes' ? 'Classe' : 'Aula';
+      targets.push({ key: `${scope}|${item.id}`, label: `${label} · ${item.name}` });
+    }
+    if (timetable.lessons.length <= 100) for (const item of timetable.lessons) {
+      targets.push({ key: `lessons|${item.id}`, label: `Lezione · ${timetable.entities.subjects.find(s => s.id === item.subjectId)?.name || item.id}` });
+    }
+    for (const item of allRows.filter(row => row.scope === 'lessons')) {
+      if (!targets.some(target => target.key === `lessons|${item.id}`)) targets.push({ key: `lessons|${item.id}`, label: `Lezione · ${item.name}` });
+    }
+    const listId = 'school-constraint-targets';
+    const datalist = element(document, 'datalist', { id: listId });
+    targets.forEach(item => { const choice = element(document, 'option', { value: item.label }); choice.dataset.target = item.key; datalist.append(choice); });
+    constraintTable.parentElement.querySelector(`#${listId}`)?.remove();
+    constraintTable.parentElement.append(datalist);
+    const renderRow = (constraint, index, fresh = false) => {
+      const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      const target = element(document, 'input', { type: 'text', list: listId, 'aria-label': 'Elemento soggetto al vincolo', placeholder: fresh ? 'Cerca elemento…' : '' });
+      target.value = targets.find(item => item.key === `${constraint?.scope}|${constraint?.id}`)?.label || '';
+      const kind = element(document, 'select', { 'aria-label': 'Tipo di vincolo' });
+      option(kind, '', '—'); option(kind, 'unavailable', 'Obbligatorio'); option(kind, 'undesired', 'Da evitare'); option(kind, 'desired', 'Preferita');
+      kind.value = constraint?.kind || '';
+      const [dayValue, periodValue] = constraint?.slot?.split('.') || ['', ''];
+      const day = element(document, 'select', { 'aria-label': 'Giorno' }); option(day, '', '—');
+      timetable.calendar.days.forEach(item => option(day, String(item.index), item.name)); day.value = dayValue;
+      const period = element(document, 'select', { 'aria-label': 'Ora' }); option(period, '', '—');
+      timetable.calendar.periods.forEach(item => option(period, String(item.index), `${String(Math.floor(item.beginMinute / 60)).padStart(2, '0')}:${String(item.beginMinute % 60).padStart(2, '0')}`)); period.value = periodValue;
+      for (const control of [target, kind, day, period]) { const cell = element(document, 'td'); cell.append(control); row.append(cell); }
+      body.append(row);
+      const save = () => {
+        if (fresh && (!target.value || !kind.value || day.value === '' || period.value === '')) return;
+        if (!target.value || !kind.value || day.value === '' || period.value === '') return;
+        const targetKey = targets.find(item => item.label === target.value)?.key;
+        if (!targetKey) { status.textContent = 'Scegli un elemento presente nell’elenco.'; return; }
+        const [scope, id] = targetKey.split('|');
+        const owner = constraintTarget(scope, id);
+        if (!owner) return;
+        const old = constraint;
+        remember();
+        const frames = owner.constraints?.timeframes || owner.timeframes || { unavailable: [], desired: [], undesired: [] };
+        if (owner.constraints) owner.constraints.timeframes = frames; else owner.timeframes = frames;
+        if (old) frames[old.kind] = (frames[old.kind] || []).filter(slot => slot !== old.slot);
+        const slot = `${day.value}.${period.value}`;
+        frames[kind.value] ||= [];
+        if (!frames[kind.value].includes(slot)) frames[kind.value].push(slot);
+        render(); commit(fresh ? 'Vincolo aggiunto.' : 'Vincolo aggiornato.');
+      };
+      [target, kind, day, period].forEach(control => control.addEventListener('change', save));
+      row.addEventListener('keydown', event => {
+        if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !fresh) {
+          event.preventDefault();
+          remember();
+          const owner = constraintTarget(constraint.scope, constraint.id);
+          const frames = owner?.constraints?.timeframes || owner?.timeframes;
+          if (frames) frames[constraint.kind] = (frames[constraint.kind] || []).filter(slot => slot !== constraint.slot);
+          render(); commit('Vincolo rimosso.');
+        }
+      });
+    };
+    pageRows.forEach((constraint, index) => renderRow(constraint, offset + index));
+    renderRow(null, offset + pageRows.length, true);
+  }
+
+  function render() {
+    for (const collection of Object.keys(tables)) renderEntities(collection);
+    renderLessons();
+    renderConstraints();
+  }
+
+  constraintFilter.addEventListener('input', () => { constraintPage = 0; renderConstraints(); });
+  previousConstraints.addEventListener('click', () => { constraintPage = Math.max(0, constraintPage - 1); renderConstraints(); });
+  nextConstraints.addEventListener('click', () => { constraintPage++; renderConstraints(); });
+  undoButton.addEventListener('click', () => {
+    if (!undoStack.length) return;
+    timetable = undoStack.pop();
+    undoButton.disabled = !undoStack.length;
+    render();
+    status.textContent = 'Ultima modifica annullata.';
+    onChange(timetable);
+  });
+
+  return {
+    setTimetable(value) { timetable = value || createEmptySchool(); undoStack.length = 0; undoButton.disabled = true; render(); },
+    setName(value) { if (value && value !== timetable.name) { remember(); timetable.name = value; commit('Nome scuola aggiornato.'); } },
+    undo() { if (undoButton.disabled) return false; undoButton.click(); return true; },
+    render,
+    get timetable() { return timetable; },
+  };
+}
