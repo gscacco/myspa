@@ -9,11 +9,13 @@
   },
   "scripts": {
     "build": "node tools/build.js",
+    "build:timetable": "node tools/build-timetable.js",
     "dev": "node tools/serve.js",
     "test": "npm run test:unit && npm run test:integration && npm run test:timetable",
     "test:unit": "node --import ./tools/load-scittle.js --test tests/unit/*.test.js",
     "test:integration": "node --import ./tools/load-scittle.js --test tests/integration/*.test.js",
     "test:timetable": "node --test tests/timetable/*.test.js",
+    "test:e2e:timetable": "node --test tests/timetable/standalone.test.js",
     "test:e2e": "node tools/build.js && node --test tests/e2e/*.test.js",
     "check": "npm test && npm run build && node tools/verify-artifact.js && node --test tests/e2e/*.test.js"
   },

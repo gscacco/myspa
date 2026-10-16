@@ -26,6 +26,8 @@ The importer is based on `OR_30_SETT.ofd`, an XML document with version `5000`. 
 
 The supplied file declares `us-ascii` while containing non-ASCII comment bytes. Byte imports report this mismatch and decode those bytes as Windows-1252 (the same mapping as ISO-8859-1 for the bytes present). DTD declarations are rejected and external entities are never resolved. The original file is read-only; import preserves decoded source text, not original byte identity. No OFD export or complete-format compatibility is claimed.
 
+`timetable/fixtures/conflict-demo.edn` and `unsupported-demo.ofd` are explicitly synthetic examples for testing conflicts, preferences, unassigned lessons, and unknown XML. They are not real school timetables or evidence of other OFD variants.
+
 ## Schedule analysis and views
 
 The read-only analyzer checks simultaneous teacher, class, and room use across each lesson's duration, assigned timeframes marked unavailable, undesired starting slots, and unassigned lessons. These are direct checks only: constraints such as MIN/MAX, distribution, gaps, free days, links, LOCKED, FIXED, and broader preferences are preserved as source data but are not interpreted as hard or soft rules yet. Counts describe detected issue rows; one conflict spanning multiple periods can produce multiple rows.
@@ -48,4 +50,4 @@ One Node 24.21.0/jsdom run on the supplied 877,947-byte sample (1,714 lessons) i
 
 ## Current import workflow
 
-Run `npm run dev` from the repository root and open `http://localhost:8080/timetable/`. Choose an `.ofd` or `.edn` file, review counts and warnings, then explicitly load it. Select a lesson, choose a search breadth, compare a proposal, and explicitly apply it. **Annulla ultima modifica** restores the prior schedule. Export the current timetable with **Esporta EDN**. This is a development source screen served locally; the single-file standalone build is planned for Step 4. The application uses no backend or runtime network services. Run all tests with `npm test`; timetable-only tests use `npm run test:timetable`.
+For development, run `npm run dev` from the repository root and open `http://localhost:8080/timetable/`. For a standalone file, run `npm run build:timetable` and open `dist/timetable.html`; its markup, CSS, and JavaScript are bundled inline, with no runtime network or backend requirement. Choose an `.ofd` or `.edn` file, review counts and warnings, then explicitly load it. Select a lesson, choose a search breadth, compare a proposal, and explicitly apply it. **Annulla ultima modifica** restores the prior schedule. Export the current timetable with **Esporta EDN**. Run all automated tests with `npm test`; timetable tests use `npm run test:timetable`. See [USABILITY.md](USABILITY.md) for the repeatable staff checklist and the limits of the current evaluation.
