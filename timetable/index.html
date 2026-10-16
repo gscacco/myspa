@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#214f73">
   <title>Orario scolastico</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -32,7 +33,7 @@
         <span><strong>Seleziona il file</strong><small>Orario Facile XML (.ofd)</small></span>
       </label>
       <input id="ofd-file" type="file" accept=".ofd" aria-describedby="file-help">
-      <label class="import-mode" for="ofd-without-assignments"><input id="ofd-without-assignments" type="checkbox"> Importa docenti, classi, lezioni e vincoli senza gli orari assegnati</label>
+      <label class="import-mode" for="ofd-without-assignments"><input id="ofd-without-assignments" type="checkbox"> Importa la struttura (docenti, classi, materie, aule, lezioni e vincoli) senza assegnazioni</label>
       <p class="field-help" id="file-help">I dati restano in questa scheda. Il caricamento richiede una conferma esplicita.</p>
 
       <div class="interchange-tools" aria-label="Scambio dati EDN">
@@ -107,6 +108,7 @@
           <h2 id="timetable-heading">Orario corrente</h2>
         </div>
         <div class="timetable-actions">
+          <button id="open-structure" class="secondary-button" type="button" aria-controls="structure-page">Struttura e vincoli</button>
           <button id="open-issues" class="issue-count" type="button" aria-controls="issues-page" data-count="0">Avvisi e conflitti · 0</button>
           <button id="recalculate-all" class="primary-button" type="button" disabled>Calcola orario</button>
           <button id="cancel-recalculation" class="secondary-button" type="button" disabled>Annulla calcolo</button>
@@ -152,28 +154,60 @@
               <button id="apply-proposal" class="primary-button" type="button" disabled>Applica proposta</button>
               <button id="undo-change" class="secondary-button" type="button" disabled>Annulla ultima modifica</button>
             </div>
-            <section class="constraint-editor" aria-labelledby="constraints-heading">
-              <h4 id="constraints-heading">Vincoli di orario</h4>
-              <label for="constraint-filter">Cerca l’elemento</label>
-              <input id="constraint-filter" type="search" placeholder="Docente, classe, aula o lezione" disabled>
-              <label for="constraint-target">Applica a</label>
-              <select id="constraint-target" aria-label="Elemento soggetto al vincolo" disabled></select>
-              <label for="constraint-kind">Tipo di vincolo</label>
-              <select id="constraint-kind" disabled>
-                <option value="unavailable">Non disponibile (obbligatorio)</option>
-                <option value="undesired">Evitare questa fascia (preferenza)</option>
-              </select>
-              <div class="constraint-time">
-                <label for="constraint-day">Giorno</label><select id="constraint-day" disabled></select>
-                <label for="constraint-period">Ora</label><select id="constraint-period" disabled></select>
-              </div>
-              <button id="add-constraint" class="secondary-button" type="button" disabled>Aggiungi vincolo</button>
-              <p id="constraint-status" class="muted" role="status" aria-live="polite">Importa un orario per gestire i vincoli.</p>
-              <ul id="constraint-list" class="constraint-list" aria-label="Vincoli di orario esistenti"></ul>
-            </section>
           </section>
         </section>
       </div>
+    </section>
+
+    <section id="structure-page" class="structure-page" aria-labelledby="structure-heading" hidden>
+      <header class="issues-heading">
+        <div class="structure-page-actions">
+          <button id="back-to-timetable-from-structure" class="secondary-button" type="button">← Torna all’orario</button>
+          <button id="go-to-schedule-calculation" class="primary-button" type="button">Vai al calcolo automatico</button>
+        </div>
+        <div><p class="eyebrow">Dati importati</p><h2 id="structure-heading">Struttura della scuola e vincoli</h2><p id="structure-description" class="muted"></p></div>
+      </header>
+      <dl id="structure-summary" class="summary" aria-label="Riepilogo della struttura scolastica"></dl>
+      <label class="structure-search">Filtra classi, docenti, aule e vincoli<input id="structure-search" type="search" placeholder="Cerca un nome o una fascia"></label>
+      <p id="structure-filter-status" class="muted" role="status" aria-live="polite"></p>
+      <div class="structure-rosters">
+        <section aria-labelledby="structure-classes-heading"><h3 id="structure-classes-heading">Classi</h3><ul id="structure-classes" class="structure-list"></ul></section>
+        <section aria-labelledby="structure-teachers-heading"><h3 id="structure-teachers-heading">Docenti</h3><ul id="structure-teachers" class="structure-list"></ul></section>
+        <section aria-labelledby="structure-rooms-heading"><h3 id="structure-rooms-heading">Aule</h3><ul id="structure-rooms" class="structure-list"></ul></section>
+      </div>
+      <div class="structure-constraints">
+        <section aria-labelledby="structure-timeframes-heading">
+          <h3 id="structure-timeframes-heading">Vincoli temporali importati</h3>
+          <p id="structure-constraint-summary" class="muted"></p>
+          <ul id="structure-constraints" class="structure-list constraint-inventory"></ul>
+        </section>
+        <section aria-labelledby="preserved-fields-heading">
+          <h3 id="preserved-fields-heading">Altri parametri OFD conservati</h3>
+          <p class="field-help">I campi originali restano nei dati esportati; quelli non interpretati non sono modificabili né usati dal calcolo.</p>
+          <ul id="preserved-constraint-fields" class="structure-list"></ul>
+        </section>
+      </div>
+      <section id="constraint-editor" class="constraint-editor structure-constraint-editor" aria-labelledby="constraints-heading">
+        <h3 id="constraints-heading">Modifica vincoli temporali</h3>
+        <p class="field-help">Qui puoi aggiungere, modificare o eliminare indisponibilità e fasce da evitare per una classe, un docente, un’aula o una lezione.</p>
+        <label for="constraint-filter">Cerca docente, classe, aula o lezione</label>
+        <input id="constraint-filter" type="search" placeholder="Inizia a digitare un nome" disabled>
+        <label for="constraint-target">Elemento</label>
+        <select id="constraint-target" aria-label="Elemento soggetto al vincolo" disabled></select>
+        <label for="constraint-kind">Tipo di vincolo</label>
+        <select id="constraint-kind" disabled>
+          <option value="unavailable">Non disponibile (obbligatorio)</option>
+          <option value="undesired">Evitare questa fascia (preferenza)</option>
+        </select>
+        <div class="constraint-time">
+          <label for="constraint-day">Giorno</label><select id="constraint-day" disabled></select>
+          <label for="constraint-period">Ora</label><select id="constraint-period" disabled></select>
+        </div>
+        <button id="add-constraint" class="secondary-button" type="button" disabled>Aggiungi vincolo</button>
+        <button id="undo-structure-change" class="secondary-button" type="button" disabled>Annulla ultima modifica</button>
+        <p id="constraint-status" class="muted" role="status" aria-live="polite">Importa un orario per gestire i vincoli.</p>
+        <ul id="constraint-list" class="constraint-list" aria-label="Vincoli di orario esistenti sull’elemento selezionato"></ul>
+      </section>
     </section>
 
     <section id="issues-page" class="issues-page" aria-labelledby="issues-heading" hidden>

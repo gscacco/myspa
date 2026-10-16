@@ -36,6 +36,8 @@ The read-only analyzer checks simultaneous teacher, class, and room use across e
 
 The timetable is the primary workspace after loading. Users can view schedules by class, teacher, or room, select lessons for details, and follow issue links to affected lessons. Switching views retains the selected lesson when that lesson has a corresponding entity. Unassigned lessons remain reachable from diagnostics and are shown in their details rather than placed into a fabricated time slot. Import warnings remain visible.
 
+The import option **Importa la struttura … senza assegnazioni** removes active lesson times while preserving classes, teachers, subjects, rooms, lessons, source hints, and imported constraints. After confirming this import, the app opens **Struttura e vincoli** automatically. It lists classes, teachers, rooms, unassigned lesson count, supported unavailable/undesired timeframes, and preserved OFD constraint fields. Selecting a class, teacher, or room opens its timetable view. The same page contains controls for adding, editing, and deleting unavailable and undesirable timeframes, with undo available there. A direct action returns to automatic assignment. Desired timeframes and other OFD fields are shown as preserved data where supported, but are not editable or interpreted by this prototype.
+
 On the supplied sample, direct analysis found 0 hard conflicts, 4 undesired-time warnings, and 6 unassigned lessons. One local run with Node 24.21.0 and jsdom measured 3,429 ms for import, 28 ms for analysis, and 69 ms for rendering. These measurements are local structural-test observations, not browser performance claims or targets.
 
 ## Safe editing and incremental search
@@ -56,7 +58,7 @@ One Node 24.21.0/jsdom run on the supplied 877,947-byte sample (1,714 lessons) i
 
 ## Current import workflow
 
-For development, run `npm run dev` from the repository root and open `http://localhost:8080/timetable/`. For a standalone file, run `npm run build:timetable` and open `dist/timetable.html`; its markup, CSS, and JavaScript are bundled inline, with no runtime network or backend requirement.
+For development, run `npm run dev` from the repository root and open the printed timetable URL, `http://localhost:8080/timetable/`. The static server redirects `/timetable` to `/timetable/`, serves CSS with the correct MIME type, and serves the development favicon. For a standalone file, run `npm run build:timetable` and open `dist/timetable.html`; its markup, CSS, JavaScript, and SVG favicon are embedded, with no runtime network or backend requirement.
 
 To start from zero, choose **Crea orario da zero**, set the school name and calendar, add teachers, classes, subjects, optional rooms, then add lesson rows. The app creates an empty native timetable; no sample lessons or times are invented. Repeated weekly lessons are entered as separate rows. Choose **Avvia calcolo automatico** at the top of the timetable workspace to search for a complete assignment. Review and confirm the proposal before applying it. Existing timetables use **Ricalcola assegnazioni** in the same place.
 

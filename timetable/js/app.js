@@ -76,12 +76,11 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const editor = createTimetableEditor({
     document,
     getTimetable: () => current,
-    onApply: (next, lessonId, action) => {
+    onApply: (next, _lessonId, action) => {
       current = next;
       const stateLabel = action === 'undo' ? 'Modifica annullata' : 'Modifiche applicate';
       currentStatus.textContent = `${stateLabel} · Esporta EDN per salvarle`;
       views.render(current, currentDiagnostics, { preserveContext: true });
-      if (lessonId) views.selectLesson(lessonId, { navigate: true, notify: false });
     },
   });
   views = createTimetableViews({ document, onLessonSelect: lesson => editor.selectLesson(lesson.id) });
@@ -183,6 +182,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     currentDiagnostics = [...pending.diagnostics];
     editor.setTimetable(current);
     views.render(current, currentDiagnostics);
+    if (currentDiagnostics.some(item => item.code === 'assignments-omitted')) views.showStructure();
     pending = null;
     applyButton.disabled = true;
     cancelButton.disabled = true;
