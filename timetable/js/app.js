@@ -2,7 +2,7 @@ import { importOFD, withoutOFDAssignments, OFDImportError } from './ofd-importer
 import { importTimetableEDN, exportTimetableEDN, EDNImportError } from './edn-importer.js';
 import { createTimetableViews } from './views.js';
 import { createTimetableEditor } from './editor.js';
-import { createBlankTimetableBuilder } from './blank-builder.js';
+import { createEmptySchool, createSchoolWorkbench } from './school-workbench.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 
@@ -50,40 +50,95 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     throw new Error('Timetable import screen is missing a required accessible control.');
   }
 
-  let current = null;
+  let current = createEmptySchool();
   let currentDiagnostics = [];
   let pending = null;
   let views;
-  const blankBuilder = createBlankTimetableBuilder({
+  let editor;
+  let activeScreen = 'school';
+  let activeSchoolView = 'teachers';
+  const schoolWorkbench = createSchoolWorkbench({
     document,
-    onCreate: timetable => {
-      pending = {
-        timetable,
-        diagnostics: [],
-        summary: {
-          teachers: timetable.entities.teachers.length,
-          classes: timetable.entities.classes.length,
-          rooms: timetable.entities.rooms.length,
-          subjects: timetable.entities.subjects.length,
-          lessons: timetable.lessons.length,
-          assignedLessons: 0,
-          unassignedLessons: timetable.lessons.length,
-        },
-      };
-      return applyImport();
+    onChange: next => {
+      current = next;
+      editor?.setTimetable(current);
+      if (views) refreshViews(true);
+      document.querySelector('#topbar-school-name').textContent = current.name;
+      document.querySelector('#school-name').value = current.name;
+      currentStatus.textContent = 'Modifiche alla scuola · Esporta EDN per salvarle';
+      exportButton.disabled = false;
+      exportToolsButton.disabled = false;
     },
   });
-  const editor = createTimetableEditor({
+  editor = createTimetableEditor({
     document,
     getTimetable: () => current,
     onApply: (next, _lessonId, action) => {
       current = next;
+      schoolWorkbench.setTimetable(current);
       const stateLabel = action === 'undo' ? 'Modifica annullata' : 'Modifiche applicate';
       currentStatus.textContent = `${stateLabel} · Esporta EDN per salvarle`;
-      views.render(current, currentDiagnostics, { preserveContext: true });
+      refreshViews(true);
     },
   });
   views = createTimetableViews({ document, onLessonSelect: lesson => editor.selectLesson(lesson.id) });
+  schoolWorkbench.setTimetable(current);
+  editor.setTimetable(current);
+  views.render(current, currentDiagnostics);
+
+  function showScreen(screen) {
+    const schoolViews = ['teachers', 'classes', 'lessons', 'rooms', 'constraints'];
+    if (schoolViews.includes(screen)) {
+      activeSchoolView = screen;
+      screen = 'school';
+    }
+    activeScreen = screen;
+    if (screen === 'schedule' && views.screen !== 'schedule') views.showSchedule();
+    if (screen !== 'school') {
+      importCard.hidden = true;
+      importToolsButton?.setAttribute('aria-expanded', 'false');
+    }
+    document.querySelector('#school-page').hidden = screen !== 'school';
+    document.querySelector('#calculation-page').hidden = screen !== 'calculation';
+    document.querySelector('#timetable-workspace').hidden = screen !== 'schedule';
+    document.querySelector('.current-card').hidden = screen !== 'schedule' || !current.lessons.length;
+    document.querySelector('#issues-page').hidden = true;
+    document.querySelector('#structure-page').hidden = true;
+    for (const panel of document.querySelectorAll('[data-school-panel]')) panel.hidden = panel.dataset.schoolPanel !== activeSchoolView;
+    for (const button of document.querySelectorAll('[data-screen]')) {
+      const active = button.dataset.screen === screen || (screen === 'school' && button.dataset.screen === activeSchoolView);
+      button.setAttribute('aria-pressed', String(active));
+    }
+    document.documentElement.dataset.screen = screen;
+    if (screen === 'calculation') document.querySelector('#recalculate-all').focus();
+    if (screen === 'schedule') document.querySelector('#timetable-heading').setAttribute('tabindex', '-1');
+  }
+  function refreshViews(preserveContext = false) {
+    views.render(current, currentDiagnostics, { preserveContext });
+    if (activeScreen !== 'schedule') document.querySelector('#timetable-workspace').hidden = true;
+  }
+  for (const button of document.querySelectorAll('[data-screen]')) button.addEventListener('click', () => showScreen(button.dataset.screen));
+  document.querySelector('#school-next').addEventListener('click', () => showScreen('calculation'));
+  document.querySelector('#go-to-schedule')?.addEventListener('click', () => showScreen('schedule'));
+  const importToolsButton = document.querySelector('#show-import-tools');
+  importToolsButton?.addEventListener('click', () => {
+    showScreen('school');
+    importCard.hidden = !importCard.hidden;
+    importToolsButton.setAttribute('aria-expanded', String(!importCard.hidden));
+    if (!importCard.hidden) input.focus();
+  });
+  document.querySelector('#school-name').addEventListener('change', event => {
+    const name = event.currentTarget.value.trim();
+    if (!name) { event.currentTarget.value = current.name; return; }
+    schoolWorkbench.setName(name);
+    document.querySelector('#topbar-school-name').textContent = name;
+    document.querySelector('#school-heading').dataset.name = name;
+    currentStatus.textContent = `Scuola: ${name} · Esporta EDN per salvarla`;
+    exportButton.disabled = false;
+    exportToolsButton.disabled = false;
+    refreshViews(true);
+  });
+  showScreen('school');
 
   function renderDiagnostics(items) {
     diagnosticsList.replaceChildren();
@@ -177,25 +232,31 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
 
   function applyImport() {
     if (!pending) return false;
-    if (current && typeof confirm === 'function' && !confirm('Sostituire l’orario attualmente caricato con quello verificato?')) return false;
+    const hasSchoolData = current.lessons.length || Object.values(current.entities).some(items => items.length);
+    if (hasSchoolData && typeof confirm === 'function' && !confirm('Sostituire i dati della scuola attualmente aperta?')) return false;
     current = pending.timetable;
     currentDiagnostics = [...pending.diagnostics];
     editor.setTimetable(current);
-    views.render(current, currentDiagnostics);
-    if (currentDiagnostics.some(item => item.code === 'assignments-omitted')) views.showStructure();
+    schoolWorkbench.setTimetable(current);
+    refreshViews();
+    document.querySelector('#school-name').value = current.name;
+    document.querySelector('#topbar-school-name').textContent = current.name;
     pending = null;
     applyButton.disabled = true;
     cancelButton.disabled = true;
     const unassigned = current.lessons.filter(lesson => !lesson.assignedTime).length;
     currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} lezioni · ${numberFormat.format(unassigned)} da assegnare`;
+    document.querySelector('.current-card').hidden = false;
     importCard.hidden = true;
     appWorkspace.classList.add('has-timetable');
     changeButton.hidden = false;
     changeButton.textContent = 'Carica un altro orario';
     changeButton.setAttribute('aria-expanded', 'false');
     exportButton.disabled = false;
+    exportToolsButton.disabled = false;
     report.dataset.state = 'ready';
     report.textContent = 'Orario caricato. I dati originali del file sono conservati nel modello.';
+    showScreen(currentDiagnostics.some(item => item.code === 'assignments-omitted') ? 'school' : 'schedule');
     return true;
   }
 
@@ -219,7 +280,8 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   });
   const ednInput = document.querySelector('#edn-file');
   const exportButton = document.querySelector('#export-edn');
-  if (!ednInput || !exportButton) throw new Error('EDN interchange controls are missing.');
+  const exportToolsButton = document.querySelector('#export-edn-tools');
+  if (!ednInput || !exportButton || !exportToolsButton) throw new Error('EDN interchange controls are missing.');
   ednInput.addEventListener('change', () => {
     const file = ednInput.files?.[0];
     if (file) void stageEDNFile(file);
@@ -230,11 +292,18 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   changeButton.addEventListener('click', () => {
     const open = importCard.hidden;
     importCard.hidden = !open;
+    importToolsButton?.setAttribute('aria-expanded', String(open));
     changeButton.textContent = open ? 'Nascondi importazione' : 'Carica un altro orario';
     changeButton.setAttribute('aria-expanded', String(open));
     if (open) input.focus();
   });
+  currentStatus.textContent = 'Nuova scuola pronta · aggiungi classi, docenti e lezioni';
   exportButton.addEventListener('click', () => {
+    handleExportEDN();
+  });
+  exportToolsButton.addEventListener('click', () => { handleExportEDN(); });
+
+  function handleExportEDN() {
     try {
       if (exportEDN()) {
         report.dataset.state = 'ready';
@@ -243,7 +312,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     } catch (error) {
       showError(error);
     }
-  });
+  }
 
   function exportEDN() {
     if (!current) return null;
@@ -268,9 +337,11 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     exportEDN,
     views,
     editor,
-    blankBuilder,
     get timetable() { return current; },
     get diagnostics() { return currentDiagnostics; },
     get pendingTimetable() { return pending?.timetable || null; },
+    get activeScreen() { return activeScreen; },
+    showScreen,
+    schoolWorkbench,
   };
 }

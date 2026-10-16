@@ -16,6 +16,7 @@ test('standalone build is a single-file offline document with a bootable timetab
   assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+">/);
   assert.doesNotMatch(html, /(?:href|src)=["'](?:https?:|\/\/)|url\(["']?(?:https?:|\/\/)/i);
   assert.equal((html.match(/<style>/g) || []).length, 1);
+  assert.match(html, /<script id="optimization-worker-source" type="text\/plain">[\s\S]+?<\/script>/);
   const script = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].find(match => !/application\/edn/i.test(match[1]));
   assert.ok(script, 'bundled application JavaScript is inline');
   assert.doesNotThrow(() => new Script(script[2]));
@@ -24,9 +25,9 @@ test('standalone build is a single-file offline document with a bootable timetab
   const errors = [];
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', error => errors.push(error.message));
-  const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously', virtualConsole });
+  const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously', virtualConsole, beforeParse: window => { window.structuredClone = structuredClone; } });
   const { document } = dom.window;
-  assert.equal(document.querySelector('h1').textContent, 'Orario scolastico');
+  assert.equal(document.querySelector('h1').textContent, 'Chronos Engine');
   assert.ok(document.querySelector('#ofd-file'));
   assert.ok(document.querySelector('#view-controls'));
   assert.ok(document.querySelector('#find-alternatives'));
@@ -39,7 +40,7 @@ test('standalone build is a single-file offline document with a bootable timetab
 test('the offline artifact imports the supplied OFD and displays its real timetable', async () => {
   const html = await buildTimetableArtifact();
   const bytes = await readFile(samplePath);
-  const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously' });
+  const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously', beforeParse: window => { window.structuredClone = structuredClone; } });
   const { document } = dom.window;
   dom.window.TextDecoder = TextDecoder;
   dom.window.structuredClone = structuredClone;

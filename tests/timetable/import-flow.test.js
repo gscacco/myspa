@@ -31,7 +31,8 @@ test('import screen labels file selection, reports validation, and loads only on
   Object.defineProperty(fileInput, 'files', { configurable: true, value: [fileFrom(bytes)] });
   fileInput.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(app.timetable, null);
+  assert.equal(app.timetable.lessons.length, 0, 'the app starts with an editable empty school');
+  assert.equal(app.activeScreen, 'school');
   assert.equal(document.querySelector('#apply-import').disabled, false);
   assert.match(document.querySelector('#import-summary').textContent, /1[.,]?714/);
   assert.match(document.querySelector('#import-diagnostics').textContent, /6 lezioni senza orario/i);
@@ -112,11 +113,12 @@ test('validates EDN before loading and exports the current domain model as EDN',
   const { app, dom, document } = await mount();
   const input = document.querySelector('#edn-file');
   assert.equal(input.accept, '.edn');
-  assert.equal(document.querySelector('#export-edn').disabled, true);
+  assert.equal(document.querySelector('#export-edn-tools').disabled, true);
   await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML() })));
   document.querySelector('#apply-import').click();
   const original = app.timetable;
   assert.equal(document.querySelector('#export-edn').disabled, false);
+  assert.equal(document.querySelector('#export-edn-tools').disabled, false);
   assert.deepEqual(readEDN(app.exportEDN()), original);
 
   await app.stageEDNFile(fileFrom('{:schemaVersion 1}'));
