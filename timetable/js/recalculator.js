@@ -1,11 +1,11 @@
 import { OPTIMIZATION_WEIGHTS } from './solver.js';
 
-function resources(lesson) {
-  return new Set([...(lesson.teacherIds || []), ...(lesson.classIds || []), ...(lesson.roomIds || [])]);
+function resources(lesson, unknownClassIds = new Set()) {
+  return new Set([...(lesson.teacherIds || []), ...(lesson.classIds || []).filter(id => !unknownClassIds.has(id)), ...(lesson.roomIds || [])]);
 }
 
-function constraintSlots(lesson, timetable) {
-  const ids = resources(lesson);
+function constraintSlots(lesson, timetable, unknownClassIds) {
+  const ids = resources(lesson, unknownClassIds);
   const entities = [...timetable.entities.teachers, ...timetable.entities.classes, ...timetable.entities.rooms];
   const scoped = entities.filter(entity => ids.has(entity.id));
   return {
@@ -23,12 +23,13 @@ function constraintSlots(lesson, timetable) {
 function slotKey(time) { return `${time.dayIndex}.${time.periodIndex}`; }
 
 function buildDomains(timetable, useSourceHints) {
+  const unknownClassIds = new Set(timetable.entities.classes.filter(entity => entity.placeholder === 'unknown').map(entity => entity.id));
   const slots = timetable.calendar.days.flatMap(day => timetable.calendar.periods.map(period => ({
     dayIndex: day.index, periodIndex: period.index, sourceValue: `${day.index}.${period.index}`,
   })));
   const domains = new Map();
   for (const lesson of timetable.lessons) {
-    const restrictions = constraintSlots(lesson, timetable);
+    const restrictions = constraintSlots(lesson, timetable, unknownClassIds);
     const domain = slots.filter(time => {
       if (time.periodIndex + lesson.durationPeriods > timetable.calendar.periods.length) return false;
       for (let offset = 0; offset < lesson.durationPeriods; offset++) {
@@ -65,8 +66,9 @@ export async function recalculateAssignments(timetable, {
   const domains = buildDomains(timetable, useSourceHints);
   if ([...domains.values()].some(domain => domain.length === 0)) return { status: 'unsatisfiable', visited: 0 };
   const degree = new Map(timetable.lessons.map(lesson => [lesson.id, 0]));
+  const unknownClassIds = new Set(timetable.entities.classes.filter(entity => entity.placeholder === 'unknown').map(entity => entity.id));
   const resourceMembers = new Map();
-  for (const lesson of timetable.lessons) for (const id of resources(lesson)) {
+  for (const lesson of timetable.lessons) for (const id of resources(lesson, unknownClassIds)) {
     if (!resourceMembers.has(id)) resourceMembers.set(id, []);
     resourceMembers.get(id).push(lesson.id);
   }
@@ -79,14 +81,14 @@ export async function recalculateAssignments(timetable, {
   let visited = 0, cancelled = false, limitReached = false, softCost = 0;
 
   function compatible(lesson, time) {
-    for (const id of resources(lesson)) for (let offset = 0; offset < lesson.durationPeriods; offset++) {
+    for (const id of resources(lesson, unknownClassIds)) for (let offset = 0; offset < lesson.durationPeriods; offset++) {
       if (occupied.has(`${id}|${time.dayIndex}.${time.periodIndex + offset}`)) return false;
     }
     return true;
   }
 
   function occupy(lesson, time, add) {
-    for (const id of resources(lesson)) for (let offset = 0; offset < lesson.durationPeriods; offset++) {
+    for (const id of resources(lesson, unknownClassIds)) for (let offset = 0; offset < lesson.durationPeriods; offset++) {
       const key = `${id}|${time.dayIndex}.${time.periodIndex + offset}`;
       if (add) occupied.add(key); else occupied.delete(key);
     }

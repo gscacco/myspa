@@ -195,10 +195,10 @@ test('lesson sheet imports every lesson from the supplied OFD against its import
   assert.equal(app.timetable.lessons.length, parsed.timetable.lessons.length);
   assert.ok(app.timetable.lessons.every(lesson => lesson.assignedTime === null));
   assert.equal(Object.keys(app.timetable.source.assignmentHints).length, parsed.summary.assignedLessons);
-  assert.match(document.querySelector('[data-lessons-status]').textContent, /lezioni OFD non hanno una classe/i);
+  assert.match(document.querySelector('[data-lessons-status]').textContent, /lezioni OFD.*UNKNOWN/i);
   assert.ok(app.diagnostics.some(item => item.code === 'lesson-without-class'));
-  assert.match(document.querySelector('#calculation-readiness').textContent, /166 lezioni incomplete: 166 senza classe/i);
-  assert.equal(document.querySelector('#recalculate-all').disabled, true, 'incomplete source records stay visible and keep calculation disabled');
+  assert.equal(app.timetable.lessons.filter(lesson => app.timetable.entities.classes.find(item => item.id === lesson.classIds[0])?.placeholder === 'unknown').length, 166);
+  assert.equal(document.querySelector('#recalculate-all').disabled, false, 'unknown class placeholders let the calculation proceed');
   assert.match(app.timetable.source.lessonImports[0].source.xml, /<LESSON/);
   dom.window.close();
 });

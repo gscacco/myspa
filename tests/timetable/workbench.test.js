@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { createSchoolWorkbench } from '../../timetable/js/school-workbench.js';
 import { createTimetableApp } from '../../timetable/js/app.js';
+import { getCalculationReadiness } from '../../timetable/js/validation.js';
 import { timetableFixture } from './helpers.js';
 
 const htmlPath = new URL('../../timetable/index.html', import.meta.url);
@@ -75,6 +76,11 @@ test('editing a lesson keeps unrelated and lesson table rows in place', () => {
   document.querySelector('#undo-school-edit').click();
   assert.equal(workbench.timetable.lessons[0].subjectId, 'subject:MATH');
 
+  const firstClass = document.querySelector('#school-grid-lessons tbody tr[data-row="0"] input[aria-label="Classe"]');
+  const secondClass = document.querySelector('#school-grid-lessons tbody tr[data-row="1"] input[aria-label="Classe"]');
+  firstClass.dispatchEvent(new document.defaultView.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.equal(document.activeElement, secondClass, 'Enter on a lesson class moves to the class cell below');
+
   const freshRow = document.querySelector('#school-grid-lessons tbody tr[data-new-row="true"]');
   const [newSubject, newTeacher, newClass] = freshRow.querySelectorAll('input');
   for (const [input, value] of [[newSubject, 'Mathematics'], [newTeacher, 'Teacher Two'], [newClass, 'Class Two']]) {
@@ -84,7 +90,74 @@ test('editing a lesson keeps unrelated and lesson table rows in place', () => {
   assert.equal(workbench.timetable.lessons.length, 6);
   assert.ok(document.querySelector('#school-grid-lessons tbody tr[data-new-row="true"]'));
   document.querySelector('#undo-school-edit').click();
+  assert.equal(workbench.timetable.lessons.length, 6, 'undo first restores the previous UNKNOWN class value');
+  assert.equal(workbench.timetable.entities.classes.find(item => item.id === workbench.timetable.lessons[5].classIds[0]).name, 'UNKNOWN');
+  document.querySelector('#undo-school-edit').click();
   assert.equal(workbench.timetable.lessons.length, 5);
+});
+
+test('missing lesson class and subject become UNKNOWN placeholders and no longer block calculation', () => {
+  const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-students"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
+  const workbench = createSchoolWorkbench({ document });
+  const school = timetableFixture();
+  workbench.setTimetable(school);
+  workbench.importLessons([{
+    id: 'lesson:missing-details', subjectId: null, teacherIds: ['teacher:T1'], classIds: [], roomIds: [],
+    durationPeriods: 1, assignedTime: null, timeframes: { unavailable: [], desired: [], undesired: [] },
+  }]);
+  const lesson = school.lessons.at(-1);
+  const unknownSubject = school.entities.subjects.find(item => item.id === lesson.subjectId);
+  const unknownClass = school.entities.classes.find(item => item.id === lesson.classIds[0]);
+  assert.equal(unknownSubject.name, 'UNKNOWN');
+  assert.equal(unknownClass.name, 'UNKNOWN');
+  assert.equal(unknownSubject.placeholder, 'unknown');
+  assert.equal(unknownClass.placeholder, 'unknown');
+  assert.ok(!getCalculationReadiness(school).includes('lesson-details'));
+  assert.ok(!getCalculationReadiness(school).includes('invalid-data'));
+  const freshRow = document.querySelector('#school-grid-lessons [data-new-row="true"]');
+  const teacher = freshRow.querySelectorAll('input')[1];
+  teacher.value = 'Teacher Two';
+  teacher.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  assert.equal(school.lessons.length, 7);
+  assert.equal(school.lessons.at(-1).subjectId, unknownSubject.id);
+  assert.deepEqual(school.lessons.at(-1).classIds, [unknownClass.id]);
+  assert.ok(freshRow.isConnected, 'lesson rows stay stable while the fallback is applied');
+  document.querySelector('#undo-school-edit').click();
+  assert.equal(school.lessons.length, 6);
+  const unknownClassInput = document.querySelector(`#school-grid-classes [data-row="${school.entities.classes.indexOf(unknownClass)}"] input`);
+  unknownClassInput.value = '1A';
+  unknownClassInput.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  assert.equal(unknownClass.placeholder, undefined, 'renaming UNKNOWN to a real class restores normal conflict checks');
+});
+
+test('every table column can filter and sort its own values', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const app = createTimetableApp({ document: dom.window.document });
+  app.schoolWorkbench.setTimetable(timetableFixture());
+  for (const grid of ['teachers', 'classes', 'subjects', 'rooms', 'students', 'lessons', 'constraints']) {
+    const columns = [...dom.window.document.querySelectorAll(`#school-grid-${grid} thead th`)];
+    assert.ok(columns.length > 0, `missing columns in ${grid}`);
+    for (const column of columns) {
+      assert.ok(column.querySelector('[data-grid-column-filter]'), `${grid} column has no filter`);
+      assert.ok(column.querySelector('[data-grid-sort]'), `${grid} column has no sort control`);
+    }
+  }
+  const nameFilter = dom.window.document.querySelector('#school-grid-teachers [data-grid-column-filter][data-column-index="0"]');
+  nameFilter.value = 'Teacher Two';
+  nameFilter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.deepEqual([...dom.window.document.querySelectorAll('#school-grid-teachers tbody tr[data-row]:not([data-new-row="true"])')].filter(row => !row.hidden).map(row => Number(row.dataset.row)), [1]);
+  nameFilter.value = '';
+  nameFilter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const sort = dom.window.document.querySelector('#school-grid-teachers [data-grid-sort][data-column-index="0"]');
+  sort.click();
+  assert.deepEqual([...dom.window.document.querySelectorAll('#school-grid-teachers tbody tr[data-row]:not([data-new-row="true"])')].map(row => Number(row.dataset.row)), [0, 1]);
+  sort.click();
+  assert.deepEqual([...dom.window.document.querySelectorAll('#school-grid-teachers tbody tr[data-row]:not([data-new-row="true"])')].map(row => Number(row.dataset.row)), [1, 0]);
+  const dayFilter = dom.window.document.querySelector('#school-grid-constraints [data-grid-column-filter][data-column-index="2"]');
+  dayFilter.value = 'Monday';
+  dayFilter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.match(dom.window.document.querySelector('#school-constraint-count').textContent, /di 2$/);
+  dom.window.close();
 });
 
 test('the school grids edit names in place, add by blank row, and undo the latest edit', () => {

@@ -24,6 +24,22 @@ test('immediate validation rejects hard conflicts and unavailable periods across
   assert.equal(validateAssignment(timetable, 'target', { dayIndex: 0, periodIndex: 3 }).issues[0].code, 'invalid-time');
 });
 
+test('missing class placeholders do not block assignments as a shared resource', () => {
+  const timetable = solverFixture();
+  timetable.entities.classes[0].placeholder = 'unknown';
+  timetable.entities.classes[0].name = 'UNKNOWN';
+  const other = structuredClone(timetable.lessons[0]);
+  other.id = 'other';
+  other.teacherIds = ['teacher:T2'];
+  other.roomIds = [];
+  other.assignedTime = { dayIndex: 0, periodIndex: 0, sourceValue: '0.0' };
+  timetable.entities.teachers.push({ id: 'teacher:T2', name: 'Teacher Two' });
+  timetable.lessons.push(other);
+  const result = validateAssignment(timetable, 'target', { dayIndex: 0, periodIndex: 0 });
+  assert.equal(result.valid, true);
+  assert.equal(result.issues.some(issue => issue.code === 'resource-collision' && issue.resourceType === 'class'), false);
+});
+
 test('alternatives are hard-valid, rank soft-preference trade-offs, and do not mutate current data', async () => {
   const timetable = solverFixture();
   const before = structuredClone(timetable);
