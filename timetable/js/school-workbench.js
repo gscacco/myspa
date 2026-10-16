@@ -5,6 +5,7 @@ const COLLECTION_IMPORTED = Object.freeze({ teachers: 'docenti importati', class
 const COLLECTION_TYPES = Object.freeze({ teachers: 'teacher', classes: 'class', subjects: 'subject', rooms: 'room', students: 'student' });
 const CONSTRAINT_PAGE_SIZE = 80;
 const normalizedName = value => String(value || '').trim().toLocaleLowerCase();
+const normalizedSearch = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
 const idPart = value => String(value || 'ofd').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'ofd';
 
 export function createEmptySchool() {
@@ -45,6 +46,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   const lessonTable = document.querySelector('#school-grid-lessons');
   const constraintTable = document.querySelector('#school-grid-constraints');
   const constraintFilter = document.querySelector('#school-constraint-filter');
+  const gridFilters = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms', 'students', 'lessons'].map(key => [key, document.querySelector(`#school-filter-${key}`)]));
+  const gridFilterCounts = Object.fromEntries(Object.keys(gridFilters).map(key => [key, document.querySelector(`[data-grid-filter-count="${key}"]`)]));
   const constraintCount = document.querySelector('#school-constraint-count');
   const previousConstraints = document.querySelector('#school-constraint-previous');
   const nextConstraints = document.querySelector('#school-constraint-next');
@@ -56,7 +59,13 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   const undoStack = [];
 
   function remember() {
-    undoStack.push(structuredClone(timetable));
+    undoStack.push({ type: 'snapshot', timetable: structuredClone(timetable) });
+    if (undoStack.length > 100) undoStack.shift();
+    undoButton.disabled = false;
+  }
+
+  function rememberLesson(index, previous) {
+    undoStack.push({ type: 'lesson', index, previous: previous ? structuredClone(previous) : null });
     if (undoStack.length > 100) undoStack.shift();
     undoButton.disabled = false;
   }
@@ -77,12 +86,31 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     return table.querySelector('tbody');
   }
 
+  function applyGridFilter(gridName) {
+    const table = document.querySelector(`#school-grid-${gridName}`);
+    const filter = gridFilters[gridName];
+    const count = gridFilterCounts[gridName];
+    if (!table) return;
+    const query = normalizedSearch(filter?.value);
+    let matching = 0;
+    let total = 0;
+    for (const row of table.querySelectorAll('tbody tr')) {
+      if (row.dataset.newRow === 'true') { row.hidden = false; continue; }
+      total++;
+      const visible = !query || normalizedSearch(row.dataset.search).includes(query);
+      row.hidden = !visible;
+      if (visible) matching++;
+    }
+    if (count) count.textContent = query ? `${matching} di ${total}` : `${total} elementi`;
+  }
+
   function renderEntities(collection) {
     const table = tables[collection];
     const body = editableTable(table, collection, ['Nome', 'Uso']);
     const values = timetable.entities[collection];
     const addRow = (entity, index, fresh = false) => {
       const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      row.dataset.search = `${entity?.name || ''} ${JSON.stringify(entity || {})} ${fresh ? '' : `${COLLECTION_LABELS[collection]} ${timetable.lessons.filter(lesson => lesson[collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : collection === 'rooms' ? 'roomIds' : 'subjectId']?.includes?.(entity.id) || lesson.subjectId === entity.id).length} lezioni`}`;
       const nameCell = element(document, 'td');
       const input = element(document, 'input', {
         type: 'text', 'data-field': 'name', 'data-row': index, 'data-grid': collection,
@@ -141,6 +169,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     };
     values.forEach((entity, index) => addRow(entity, index));
     addRow(null, values.length, true);
+    applyGridFilter(collection);
   }
 
   function option(select, value, label) {
@@ -153,6 +182,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     const values = timetable.entities.students || (timetable.entities.students = []);
     const addRow = (student, index, fresh = false) => {
       const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      const schoolClass = timetable.entities.classes.find(item => item.id === student?.classId);
+      row.dataset.search = `${student?.name || ''} ${schoolClass?.name || ''} ${JSON.stringify(student || {})}`;
       const nameCell = element(document, 'td');
       const name = element(document, 'input', { type: 'text', 'data-field': 'name', 'aria-label': `Studente ${index + 1}`, placeholder: fresh ? 'Scrivi per aggiungere…' : '', value: student?.name || '' });
       nameCell.append(name); row.append(nameCell);
@@ -186,11 +217,15 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     };
     values.forEach((student, index) => addRow(student, index));
     addRow(null, values.length, true);
+    applyGridFilter('students');
   }
 
   function renderLessons() {
     const body = editableTable(lessonTable, 'lessons', ['Materia', 'Docente', 'Classe', 'Aula', 'Ore']);
     const values = timetable.lessons;
+    const collections = ['subjects', 'teachers', 'classes', 'rooms'];
+    const byId = Object.fromEntries(collections.map(collection => [collection, new Map(timetable.entities[collection].map(item => [item.id, item]))]));
+    const byName = Object.fromEntries(collections.map(collection => [collection, new Map(timetable.entities[collection].map(item => [normalizedName(item.name), item]))]));
     const choiceLists = Object.fromEntries(['subjects', 'teachers', 'classes', 'rooms'].map(collection => {
       const id = `school-lesson-choices-${collection}`;
       const datalist = element(document, 'datalist', { id });
@@ -199,60 +234,111 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       lessonTable.parentElement.append(datalist);
       return [collection, id];
     }));
-    const appendLesson = (lesson, index, fresh = false) => {
-      const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+    const appendLesson = state => {
+      const row = element(document, 'tr', { 'data-row': state.index, ...(state.fresh ? { 'data-new-row': 'true' } : {}) });
       const fields = [
-        ['subjects', lesson?.subjectId, 'Materia'], ['teachers', lesson?.teacherIds?.[0], 'Docente'],
-        ['classes', lesson?.classIds?.[0], 'Classe'], ['rooms', lesson?.roomIds?.[0], 'Aula'],
+        ['subjects', 'subjectId', 'Materia'], ['teachers', 'teacherId', 'Docente'],
+        ['classes', 'classId', 'Classe'], ['rooms', 'roomId', 'Aula'],
       ];
-      const inputs = fields.map(([collection, selectedId, label]) => {
-        const input = element(document, 'input', { type: 'text', list: choiceLists[collection], 'aria-label': label, placeholder: fresh ? 'Scegli…' : '' });
-        input.value = timetable.entities[collection].find(entity => entity.id === selectedId)?.name || '';
+      const inputs = fields.map(([collection, , label]) => {
+        const input = element(document, 'input', { type: 'text', list: choiceLists[collection], 'aria-label': label, placeholder: state.fresh ? 'Scegli…' : '' });
         const cell = element(document, 'td'); cell.append(input); row.append(cell);
         return input;
       });
       const durationCell = element(document, 'td');
       const duration = element(document, 'select', { 'aria-label': 'Durata in ore' });
       [1, 2, 3, 4].forEach(value => option(duration, String(value), String(value)));
-      duration.value = String(lesson?.durationPeriods || 1);
       durationCell.append(duration); row.append(durationCell); body.append(row);
+      const syncRow = () => {
+        const lesson = state.lesson;
+        inputs[0].value = byId.subjects.get(lesson?.subjectId)?.name || '';
+        inputs[1].value = byId.teachers.get(lesson?.teacherIds?.[0])?.name || '';
+        inputs[2].value = byId.classes.get(lesson?.classIds?.[0])?.name || '';
+        inputs[3].value = byId.rooms.get(lesson?.roomIds?.[0])?.name || '';
+        duration.value = String(lesson?.durationPeriods || 1);
+        row.dataset.search = normalizedSearch([
+          lesson?.id, byId.subjects.get(lesson?.subjectId)?.name,
+          byId.teachers.get(lesson?.teacherIds?.[0])?.name,
+          byId.classes.get(lesson?.classIds?.[0])?.name,
+          byId.rooms.get(lesson?.roomIds?.[0])?.name,
+          lesson?.durationPeriods, lesson?.sourceIndex,
+        ].join(' '));
+      };
+      syncRow();
       const save = () => {
         const resolved = inputs.map((input, fieldIndex) => {
           const collection = fields[fieldIndex][0];
-          return timetable.entities[collection].find(entity => entity.name.trim().toLocaleLowerCase() === input.value.trim().toLocaleLowerCase());
+          return byName[collection].get(normalizedName(input.value));
         });
-        if (fresh && inputs.slice(0, 3).every(input => !input.value.trim())) return;
+        if (state.fresh && inputs.slice(0, 3).every(input => !input.value.trim())) return;
         if (resolved.slice(0, 3).some(item => !item)) {
           status.textContent = 'Completa materia, docente e classe scegliendo elementi già presenti nelle griglie.';
-          if (lesson) render();
+          if (state.lesson) syncRow();
           return;
         }
         const [subject, teacher, schoolClass, room] = resolved;
         const next = {
-          id: lesson?.id || `lesson:school-${Date.now()}-${values.length + 1}`,
-          sourceIndex: lesson?.sourceIndex ?? values.length,
+          id: state.lesson?.id || `lesson:school-${Date.now()}-${values.length + 1}`,
+          sourceIndex: state.lesson?.sourceIndex ?? values.length,
           subjectId: subject.id, teacherIds: [teacher.id], classIds: [schoolClass.id], roomIds: room ? [room.id] : [],
-          durationPeriods: Number(duration.value), assignedTime: lesson?.assignedTime || null,
-          timeframes: lesson?.timeframes || { unavailable: [], desired: [], undesired: [] },
+          durationPeriods: Number(duration.value), assignedTime: state.lesson?.assignedTime || null,
+          timeframes: state.lesson?.timeframes || { unavailable: [], desired: [], undesired: [] },
         };
-        remember();
-        if (fresh) values.push(next); else values[index] = next;
-        render();
-        commit(fresh ? 'Requisito lezione aggiunto.' : 'Requisito lezione aggiornato.');
+        const previous = state.lesson;
+        const changed = !previous || previous.subjectId !== next.subjectId
+          || previous.teacherIds?.[0] !== next.teacherIds[0] || previous.classIds?.[0] !== next.classIds[0]
+          || previous.roomIds?.[0] !== next.roomIds[0] || previous.durationPeriods !== next.durationPeriods;
+        if (!changed) return;
+        const wasFresh = state.fresh;
+        rememberLesson(state.index, previous);
+        if (wasFresh) {
+          values.push(next);
+          state.index = values.length - 1;
+          state.fresh = false;
+          state.row = row;
+          row.dataset.row = String(state.index);
+          delete row.dataset.newRow;
+          const freshState = { index: values.length, lesson: null, fresh: true };
+          appendLesson(freshState);
+        } else values[state.index] = next;
+        state.lesson = next;
+        syncRow();
+        applyGridFilter('lessons');
+        updateEntityUsage();
+        if (previous?.subjectId !== next.subjectId && ['unavailable', 'desired', 'undesired'].some(kind => previous?.timeframes?.[kind]?.length)) renderConstraints();
+        commit(wasFresh ? 'Requisito lezione aggiunto.' : 'Requisito lezione aggiornato.');
+        if (wasFresh) lessonTable.querySelector('[data-new-row="true"] input')?.focus();
       };
       [...inputs, duration].forEach(input => input.addEventListener('change', save));
       row.addEventListener('keydown', event => {
-        if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !fresh) {
-          if (lesson.timeframes?.unavailable?.length || lesson.timeframes?.undesired?.length || lesson.timeframes?.desired?.length) {
+        if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !state.fresh) {
+          if (state.lesson.timeframes?.unavailable?.length || state.lesson.timeframes?.undesired?.length || state.lesson.timeframes?.desired?.length) {
             status.textContent = 'Rimuovi prima i vincoli collegati a questa lezione.';
             return;
           }
-          event.preventDefault(); remember(); values.splice(index, 1); render(); commit('Lezione rimossa.');
+          event.preventDefault(); remember(); values.splice(state.index, 1); render(); commit('Lezione rimossa.');
         }
       });
     };
-    values.forEach((lesson, index) => appendLesson(lesson, index));
-    appendLesson(null, values.length, true);
+    values.forEach((lesson, index) => appendLesson({ lesson, index, fresh: false }));
+    appendLesson({ lesson: null, index: values.length, fresh: true });
+    applyGridFilter('lessons');
+  }
+
+  function updateEntityUsage() {
+    const counts = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms'].map(collection => [collection, new Map()]));
+    for (const lesson of timetable.lessons) {
+      for (const [collection, ids] of [['teachers', lesson.teacherIds || []], ['classes', lesson.classIds || []], ['rooms', lesson.roomIds || []], ['subjects', lesson.subjectId ? [lesson.subjectId] : []]]) {
+        for (const id of ids) counts[collection].set(id, (counts[collection].get(id) || 0) + 1);
+      }
+    }
+    for (const collection of Object.keys(counts)) {
+      const table = tables[collection];
+      timetable.entities[collection].forEach((entity, index) => {
+        const usage = table.querySelector(`tbody tr[data-row="${index}"] .grid-usage`);
+        if (usage) usage.textContent = `${counts[collection].get(entity.id) || 0} lezioni`;
+      });
+    }
   }
 
   function allConstraints() {
@@ -275,8 +361,16 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   function renderConstraints() {
     const body = editableTable(constraintTable, 'constraints', ['Elemento', 'Vincolo', 'Giorno', 'Ora']);
     const allRows = allConstraints();
-    const query = constraintFilter.value.trim().toLocaleLowerCase();
-    const rows = query ? allRows.filter(row => `${row.name} ${row.scope} ${row.kind}`.toLocaleLowerCase().includes(query)) : allRows;
+    const query = normalizedSearch(constraintFilter.value);
+    const rows = query ? allRows.filter(row => {
+      const [dayIndex, periodIndex] = row.slot.split('.').map(Number);
+      const day = timetable.calendar.days.find(item => item.index === dayIndex)?.name || '';
+      const period = timetable.calendar.periods.find(item => item.index === periodIndex);
+      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
+      const kind = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' }[row.kind] || row.kind;
+      const scope = { teachers: 'Docente', classes: 'Classe', rooms: 'Aula', lessons: 'Lezione' }[row.scope] || row.scope;
+      return normalizedSearch(`${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot} ${day} ${time}`).includes(query);
+    }) : allRows;
     const pageCount = Math.max(1, Math.ceil(rows.length / CONSTRAINT_PAGE_SIZE));
     constraintPage = Math.min(constraintPage, pageCount - 1);
     const offset = constraintPage * CONSTRAINT_PAGE_SIZE;
@@ -355,12 +449,17 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     renderConstraints();
   }
 
+  for (const [gridName, filter] of Object.entries(gridFilters)) filter?.addEventListener('input', () => applyGridFilter(gridName));
   constraintFilter.addEventListener('input', () => { constraintPage = 0; renderConstraints(); });
   previousConstraints.addEventListener('click', () => { constraintPage = Math.max(0, constraintPage - 1); renderConstraints(); });
   nextConstraints.addEventListener('click', () => { constraintPage++; renderConstraints(); });
   undoButton.addEventListener('click', () => {
     if (!undoStack.length) return;
-    timetable = undoStack.pop();
+    const change = undoStack.pop();
+    if (change.type === 'lesson') {
+      if (change.previous) timetable.lessons[change.index] = change.previous;
+      else timetable.lessons.splice(change.index, 1);
+    } else timetable = change.timetable;
     undoButton.disabled = !undoStack.length;
     render();
     status.textContent = 'Ultima modifica annullata.';
