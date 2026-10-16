@@ -1,7 +1,8 @@
 import { TIMETABLE_SCHEMA_VERSION } from './domain.js';
 
-const COLLECTION_LABELS = Object.freeze({ teachers: 'Docente', classes: 'Classe', subjects: 'Materia', rooms: 'Aula' });
-const COLLECTION_TYPES = Object.freeze({ teachers: 'teacher', classes: 'class', subjects: 'subject', rooms: 'room' });
+const COLLECTION_LABELS = Object.freeze({ teachers: 'Docente', classes: 'Classe', subjects: 'Materia', rooms: 'Aula', students: 'Studente' });
+const COLLECTION_IMPORTED = Object.freeze({ teachers: 'docenti importati', classes: 'classi importate', rooms: 'aule importate', students: 'studenti importati' });
+const COLLECTION_TYPES = Object.freeze({ teachers: 'teacher', classes: 'class', subjects: 'subject', rooms: 'room', students: 'student' });
 const CONSTRAINT_PAGE_SIZE = 80;
 
 export function createEmptySchool() {
@@ -15,7 +16,7 @@ export function createEmptySchool() {
       days: days.map((name, index) => ({ index, name, shortName: name.slice(0, 3).toLocaleUpperCase() })),
       periods: Array.from({ length: 6 }, (_, index) => ({ index, beginMinute: 480 + index * 60, endMinute: 540 + index * 60 })),
     },
-    entities: { teachers: [], classes: [], subjects: [], rooms: [] },
+    entities: { teachers: [], classes: [], subjects: [], rooms: [], students: [] },
     lessons: [], links: [], parameters: [],
   };
 }
@@ -38,6 +39,7 @@ function uniqueId(collection, name, values) {
 export function createSchoolWorkbench({ document = globalThis.document, onChange = () => {} } = {}) {
   if (!document) throw new TypeError('A document is required to mount the school workbench.');
   const tables = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms'].map(key => [key, document.querySelector(`#school-grid-${key}`)]));
+  const studentTable = document.querySelector('#school-grid-students');
   const lessonTable = document.querySelector('#school-grid-lessons');
   const constraintTable = document.querySelector('#school-grid-constraints');
   const constraintFilter = document.querySelector('#school-constraint-filter');
@@ -99,7 +101,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           return;
         }
         if (!value && entity) {
-          const referenced = timetable.lessons.some(lesson => lesson.teacherIds?.includes(entity.id) || lesson.classIds?.includes(entity.id) || lesson.roomIds?.includes(entity.id) || lesson.subjectId === entity.id);
+          const referenced = timetable.lessons.some(lesson => lesson.teacherIds?.includes(entity.id) || lesson.classIds?.includes(entity.id) || lesson.roomIds?.includes(entity.id) || lesson.subjectId === entity.id)
+            || (collection === 'classes' && timetable.entities.students?.some(student => student.classId === entity.id));
           const constrained = ['unavailable', 'desired', 'undesired'].some(kind => entity.constraints?.timeframes?.[kind]?.length);
           if (referenced || constrained) {
             status.textContent = `“${entity.name}” è usato da una lezione o ha vincoli: rimuovi prima i riferimenti.`;
@@ -141,6 +144,46 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   function option(select, value, label) {
     const item = element(document, 'option', { value }, label);
     select.append(item);
+  }
+
+  function renderStudents() {
+    const body = editableTable(studentTable, 'students', ['Nome', 'Classe']);
+    const values = timetable.entities.students || (timetable.entities.students = []);
+    const addRow = (student, index, fresh = false) => {
+      const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      const nameCell = element(document, 'td');
+      const name = element(document, 'input', { type: 'text', 'data-field': 'name', 'aria-label': `Studente ${index + 1}`, placeholder: fresh ? 'Scrivi per aggiungere…' : '', value: student?.name || '' });
+      nameCell.append(name); row.append(nameCell);
+      const classCell = element(document, 'td');
+      const select = element(document, 'select', { 'aria-label': `Classe dello studente ${index + 1}` });
+      select.append(element(document, 'option', { value: '' }, 'Scegli classe…'));
+      timetable.entities.classes.forEach(item => select.append(element(document, 'option', { value: item.id }, item.name)));
+      select.value = student?.classId || '';
+      classCell.append(select); row.append(classCell); body.append(row);
+      const save = () => {
+        const value = name.value.trim();
+        if (fresh && !value && !select.value) return;
+        if (!value || !select.value) { status.textContent = 'Per registrare uno studente servono nome e classe.'; return; }
+        if (values.some(item => item.id !== student?.id && item.name.trim().toLocaleLowerCase() === value.toLocaleLowerCase())) {
+          status.textContent = `Esiste già lo studente “${value}”.`; name.value = student?.name || ''; return;
+        }
+        if (fresh) {
+          remember(); values.push({ id: uniqueId('students', value, values), name: value, classId: select.value });
+          render(); status.textContent = 'Studente aggiunto.'; onChange(timetable);
+        } else if (student.name !== value || student.classId !== select.value) {
+          remember(); student.name = value; student.classId = select.value; render(); status.textContent = 'Studente aggiornato.'; onChange(timetable);
+        }
+      };
+      name.addEventListener('change', save); select.addEventListener('change', save);
+      row.addEventListener('keydown', event => {
+        if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !fresh) {
+          event.preventDefault(); remember(); values.splice(index, 1); render(); status.textContent = 'Studente rimosso.'; onChange(timetable);
+        }
+        if (event.key === 'Enter' && event.target === name) { event.preventDefault(); name.blur(); }
+      });
+    };
+    values.forEach((student, index) => addRow(student, index));
+    addRow(null, values.length, true);
   }
 
   function renderLessons() {
@@ -305,6 +348,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
 
   function render() {
     for (const collection of Object.keys(tables)) renderEntities(collection);
+    if (studentTable) renderStudents();
     renderLessons();
     renderConstraints();
   }
@@ -322,7 +366,33 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   });
 
   return {
-    setTimetable(value) { timetable = value || createEmptySchool(); undoStack.length = 0; undoButton.disabled = true; render(); },
+    setTimetable(value) { timetable = value || createEmptySchool(); timetable.entities.students ||= []; undoStack.length = 0; undoButton.disabled = true; render(); },
+    importEntities(collection, incoming = [], sourceInfo = null) {
+      const values = timetable.entities[collection];
+      if (!Array.isArray(values)) throw new TypeError(`Collezione non importabile: ${collection}.`);
+      const knownNames = new Set(values.map(item => item.name.trim().toLocaleLowerCase()));
+      const knownIds = new Set(Object.values(timetable.entities).flat().map(item => item.id));
+      let duplicates = 0;
+      const additions = [];
+      for (const item of incoming) {
+        if (knownNames.has(item.name.trim().toLocaleLowerCase())) { duplicates++; continue; }
+        const next = structuredClone(item);
+        if (!next.id || knownIds.has(next.id)) next.id = uniqueId(collection, next.name, [...values, ...additions]);
+        if (collection !== 'students') next.constraints ||= { timeframes: { unavailable: [], desired: [], undesired: [] } };
+        additions.push(next); knownNames.add(next.name.trim().toLocaleLowerCase()); knownIds.add(next.id);
+      }
+      if (additions.length || sourceInfo) {
+        remember(); values.push(...additions);
+        if (sourceInfo) {
+          timetable.source.rosterImports ||= [];
+          timetable.source.rosterImports.push(structuredClone(sourceInfo));
+        }
+        render();
+        status.textContent = `${additions.length} ${COLLECTION_IMPORTED[collection] || 'elementi importati'}${duplicates ? `; ${duplicates} duplicati ignorati` : ''}.`;
+        onChange(timetable);
+      }
+      return { imported: additions.length, duplicates };
+    },
     setName(value) { if (value && value !== timetable.name) { remember(); timetable.name = value; commit('Nome scuola aggiornato.'); } },
     undo() { if (undoButton.disabled) return false; undoButton.click(); return true; },
     render,

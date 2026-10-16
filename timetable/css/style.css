@@ -360,6 +360,13 @@ body { min-height: 100vh; color: var(--ink); background: var(--canvas); }
 .school-meta label { color: #475569; }
 .school-meta input, .optimization-settings input, .sheet-tools input { border-color: #cbd5e1; border-radius: 5px; }
 .sheet-panel, .optimization-settings, .optimization-live > div, .objective-chart-wrap, .schedule-panel, .issue-results section, .import-card { border-color: var(--line); border-radius: 8px; background: #fff; box-shadow: none; }
+.sheet-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sheet-title-row h3 { margin: 0; }
+.roster-import { display: grid; grid-template-columns: minmax(200px, 1fr) auto auto; align-items: end; gap: 10px; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); }
+.roster-import p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: .9rem; }
+.roster-import label { display: grid; gap: 6px; }
+.roster-import input[type="file"] { max-width: 100%; }
+@media (max-width: 700px) { .roster-import { grid-template-columns: 1fr; } }
 .sheet-panel { padding: 16px; }
 .sheet-panel h3 { color: #0f172a; font-size: 15px; font-weight: 650; }
 .panel-description { margin: -2px 0 12px; color: #64748b; font-size: 11px; }

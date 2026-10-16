@@ -28,7 +28,10 @@ test('standalone build is a single-file offline document with a bootable timetab
   const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously', virtualConsole, beforeParse: window => { window.structuredClone = structuredClone; } });
   const { document } = dom.window;
   assert.equal(document.querySelector('h1').textContent, 'Chronos Engine');
-  assert.ok(document.querySelector('#ofd-file'));
+  assert.equal(document.querySelector('#ofd-file'), null, 'OFD import is contextual to the selected school roster');
+  assert.ok(document.querySelector('#roster-file-classes'));
+  assert.ok(document.querySelector('#roster-file-rooms'));
+  assert.ok(document.querySelector('#roster-file-students'));
   assert.ok(document.querySelector('#view-controls'));
   assert.ok(document.querySelector('#find-alternatives'));
   assert.ok(document.querySelector('link[rel="icon"]'));
@@ -37,28 +40,28 @@ test('standalone build is a single-file offline document with a bootable timetab
   dom.window.close();
 });
 
-test('the offline artifact imports the supplied OFD and displays its real timetable', async () => {
+test('the offline artifact imports selected classes from the supplied OFD without loading the whole timetable', async () => {
   const html = await buildTimetableArtifact();
   const bytes = await readFile(samplePath);
   const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously', beforeParse: window => { window.structuredClone = structuredClone; } });
   const { document } = dom.window;
   dom.window.TextDecoder = TextDecoder;
   dom.window.structuredClone = structuredClone;
-  const input = document.querySelector('#ofd-file');
+  document.querySelector('[data-screen="classes"]').click();
+  document.querySelector('[data-roster-open="classes"]').click();
+  const input = document.querySelector('#roster-file-classes');
   Object.defineProperty(input, 'files', {
     configurable: true,
     value: [{ name: 'OR_30_SETT.ofd', arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }],
   });
   input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-  for (let attempt = 0; attempt < 20 && document.querySelector('#apply-import').disabled; attempt++) {
+  for (let attempt = 0; attempt < 40 && document.querySelector('[data-roster-apply="classes"]').disabled; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 5));
   }
-  assert.equal(document.querySelector('#apply-import').disabled, false, document.querySelector('#import-report').textContent);
-  assert.match(document.querySelector('#import-summary').textContent, /1[.,]?714/);
-  document.querySelector('#apply-import').click();
-  assert.equal(document.querySelector('#timetable-workspace').hidden, false);
-  assert.match(document.querySelector('#current-status').textContent, /1[.,]?714/);
-  assert.equal(document.querySelectorAll('#schedule-grid .day-heading').length, 6);
-  assert.match(document.querySelector('#issues-list').textContent, /senza orario/i);
+  assert.equal(document.querySelector('[data-roster-apply="classes"]').disabled, false, document.querySelector('[data-roster-status="classes"]').textContent);
+  assert.match(document.querySelector('[data-roster-status="classes"]').textContent, /classi pronte/i);
+  document.querySelector('[data-roster-apply="classes"]').click();
+  assert.ok(document.querySelectorAll('#school-grid-classes tbody tr[data-row]').length > 50);
+  assert.equal(document.querySelectorAll('#schedule-grid [data-lesson-id]').length, 0, 'the selected roster import does not import lesson assignments');
   dom.window.close();
 });

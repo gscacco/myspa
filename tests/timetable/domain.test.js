@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateTimetable } from '../../timetable/js/validation.js';
+import { getCalculationReadiness, validateTimetable } from '../../timetable/js/validation.js';
 
 const valid = () => ({
   schemaVersion: 1,
@@ -51,4 +51,22 @@ test('domain validator rejects ambiguous entity names, empty calendars, and non-
   assert.ok(errors.some(error => error.code === 'duplicate-name'));
   assert.ok(errors.some(error => error.code === 'invalid-calendar-index'));
   assert.ok(errors.some(error => error.code === 'empty-calendar'));
+});
+
+test('domain validator accepts optional student rosters and validates their class references', () => {
+  const timetable = valid();
+  timetable.entities.students = [{ id: 'student:ada-1', name: 'Ada Rossi', classId: 'class:C1' }];
+  assert.deepEqual(validateTimetable(timetable).errors, []);
+  timetable.entities.students[0].classId = 'class:missing';
+  assert.ok(validateTimetable(timetable).errors.some(error => error.code === 'missing-reference' && error.path.includes('students')));
+});
+
+test('calculation readiness requires complete lesson references and valid model data', () => {
+  const timetable = valid();
+  assert.deepEqual(getCalculationReadiness(timetable), []);
+  timetable.lessons[0].durationPeriods = 0;
+  assert.ok(getCalculationReadiness(timetable).includes('invalid-data'));
+  timetable.lessons[0].durationPeriods = 1;
+  timetable.lessons[0].teacherIds = [];
+  assert.ok(getCalculationReadiness(timetable).includes('lesson-details'));
 });

@@ -42,6 +42,10 @@ test('the app opens as a new school and adds its first class, teacher, subjects 
   assert.equal(app.activeScreen, 'school');
   assert.equal(document.querySelector('#school-page').hidden, false);
   assert.equal(document.querySelector('#import-card').hidden, true);
+  document.querySelector('[data-screen="calculation"]').click();
+  assert.equal(app.activeScreen, 'calculation');
+  assert.equal(document.querySelector('#recalculate-all').disabled, true, 'the calculation remains reachable but inactive while required data is missing');
+  document.querySelector('[data-screen="teachers"]').click();
   for (const [type, name] of [['teachers', 'Ada Rossi'], ['classes', '1A'], ['subjects', 'Matematica'], ['rooms', 'Aula 1']]) {
     const input = document.querySelector(`#school-grid-${type} [data-new-row="true"] input`);
     input.value = name;
@@ -54,7 +58,7 @@ test('the app opens as a new school and adds its first class, teacher, subjects 
   assert.equal(app.timetable.lessons.length, 1);
   assert.equal(app.timetable.lessons[0].assignedTime, null);
   assert.equal(app.timetable.calendar.days.length, 5);
-  document.querySelector('#school-next').click();
+  document.querySelector('[data-screen="calculation"]').click();
   assert.equal(app.activeScreen, 'calculation');
   assert.equal(document.querySelector('#calculation-page').hidden, false);
   assert.equal(document.querySelector('#recalculate-all').disabled, false);

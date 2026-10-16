@@ -75,7 +75,7 @@ test('the application shell follows the local Chronos mockup without remote runt
   const css = await readFile(new URL('../../timetable/css/style.css', import.meta.url), 'utf8');
   const document = new JSDOM(html).window.document;
   assert.ok(document.querySelector('aside#app-sidebar nav[aria-label="Navigazione principale"]'));
-  for (const view of ['schedule', 'calculation', 'teachers', 'classes', 'rooms', 'constraints', 'lessons']) {
+  for (const view of ['schedule', 'calculation', 'teachers', 'classes', 'students', 'rooms', 'constraints', 'lessons']) {
     assert.ok(document.querySelector(`[data-screen="${view}"]`), `missing ${view} navigation`);
   }
   assert.match(css, /--primary:\s*#2563eb/i);
@@ -109,5 +109,25 @@ test('the school name edit can also be undone', async () => {
   dom.window.document.querySelector('#undo-school-edit').click();
   assert.equal(app.timetable.name, 'Nuova scuola');
   assert.equal(name.value, 'Nuova scuola');
+  dom.window.close();
+});
+
+test('student rows support direct edits, class reassignment, and deletion', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const app = createTimetableApp({ document: dom.window.document });
+  app.schoolWorkbench.importEntities('classes', [{ id: 'class:1a', name: '1A' }, { id: 'class:1b', name: '1B' }]);
+  const { document } = dom.window;
+  const name = document.querySelector('#school-grid-students [data-new-row="true"] input');
+  const classSelect = document.querySelector('#school-grid-students [data-new-row="true"] select');
+  name.value = 'Ada Rossi'; classSelect.value = 'class:1a';
+  name.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.deepEqual(app.timetable.entities.students.map(item => [item.name, item.classId]), [['Ada Rossi', 'class:1a']]);
+  const active = document.querySelector('#school-grid-students tbody tr[data-row="0"]');
+  active.querySelector('input').value = 'Ada Verdi';
+  active.querySelector('select').value = 'class:1b';
+  active.querySelector('select').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.deepEqual(app.timetable.entities.students.map(item => [item.name, item.classId]), [['Ada Verdi', 'class:1b']]);
+  active.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Delete', ctrlKey: true, bubbles: true }));
+  assert.deepEqual(app.timetable.entities.students, []);
   dom.window.close();
 });

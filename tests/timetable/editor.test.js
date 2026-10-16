@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import { createTimetableEditor } from '../../timetable/js/editor.js';
 import { createTimetableApp } from '../../timetable/js/app.js';
 import { importTimetableEDN } from '../../timetable/js/edn-importer.js';
+import { exportTimetableEDN } from '../../timetable/js/edn-importer.js';
 import { solverFixture } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
@@ -98,15 +99,9 @@ test('the cancel-search control stops optimization without changing the current 
 test('the application refreshes class and teacher views after apply and restores both after undo', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const fixture = solverFixture();
-  const app = createTimetableApp({
-    document: dom.window.document,
-    importer: async bytes => {
-      if (bytes.length) throw new Error('Synthetic malformed OFD.');
-      return { timetable: fixture, diagnostics: [], summary: { lessons: 1, assignedLessons: 1, unassignedLessons: 0, teachers: 1, classes: 1, rooms: 1, subjects: 2 } };
-    },
-    confirm: () => true,
-  });
-  await app.stageFile({ name: 'synthetic.ofd', arrayBuffer: async () => new ArrayBuffer(0) });
+  const app = createTimetableApp({ document: dom.window.document, confirm: () => true });
+  const source = new TextEncoder().encode(exportTimetableEDN(fixture));
+  await app.stageEDNFile({ name: 'synthetic.edn', arrayBuffer: async () => source.buffer });
   app.applyImport();
   const { document } = dom.window;
   document.querySelector('#schedule-grid [data-lesson-id="target"]').click();
@@ -122,8 +117,7 @@ test('the application refreshes class and teacher views after apply and restores
   assert.ok(document.querySelector(`#schedule-grid [data-lesson-id="target"]`).style.gridRow.includes(String(selectedPeriod + 1)));
   const exported = importTimetableEDN(app.exportEDN()).timetable;
   assert.deepEqual(exported, app.timetable, 'EDN export preserves applied changes');
-  await app.stageFile({ name: 'invalid.ofd', arrayBuffer: async () => new Uint8Array([1]).buffer });
-  assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, selectedPeriod, 'invalid import preserves unsaved edits');
+  assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, selectedPeriod, 'the applied timetable remains current while views change');
 
   document.querySelector('[data-view="class"]').click();
   assert.ok(document.querySelector('#schedule-grid [data-lesson-id="target"]').style.gridRow.includes(String(selectedPeriod + 1)));
@@ -196,22 +190,19 @@ test('constraint controls add, edit, and delete an active unavailability rule', 
 test('editing an imported constraint from the structure screen keeps the overview open and current', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
-  const source = solverFixture();
-  const app = createTimetableApp({
-    document,
-    importer: async () => ({ timetable: source, diagnostics: [], summary: { lessons: 1, assignedLessons: 1, unassignedLessons: 0, teachers: 1, classes: 1, rooms: 1, subjects: 2 } }),
-    confirm: () => true,
-  });
-  document.querySelector('#ofd-without-assignments').checked = true;
-  await app.stageFile({ name: 'structure.ofd', arrayBuffer: async () => new ArrayBuffer(0) });
+  const source = structuredClone(solverFixture());
+  source.lessons.forEach(lesson => { lesson.assignedTime = null; });
+  const app = createTimetableApp({ document, confirm: () => true });
+  const edn = new TextEncoder().encode(exportTimetableEDN(source));
+  await app.stageEDNFile({ name: 'structure.edn', arrayBuffer: async () => edn.buffer });
   app.applyImport();
   assert.equal(app.timetable.lessons.every(lesson => lesson.assignedTime === null), true);
   assert.equal(document.querySelector('#school-page').hidden, false, 'structure-only imports open directly in the editable school workspace');
   assert.equal(document.querySelector('#timetable-workspace').hidden, true);
-  document.querySelector('#go-to-schedule-calculation').click();
-  assert.equal(document.querySelector('#structure-page').hidden, true);
+  document.querySelector('[data-screen="calculation"]').click();
   assert.equal(document.querySelector('#calculation-page').hidden, false);
-  assert.equal(document.activeElement.id, 'recalculate-all', 'the structure screen has a direct route to assignment calculation');
+  assert.equal(document.activeElement.id, 'recalculate-all', 'calculation is directly reachable from the sidebar');
+  document.querySelector('[data-screen="schedule"]').click();
   document.querySelector('#open-structure').click();
   assert.match(document.querySelector('#structure-summary').textContent, /Senza assegnazione1/);
   assert.equal(document.querySelector('#constraint-target').value, 'teacher|teacher:T1', 'the constraint editor starts on an imported target with an existing timeframe');

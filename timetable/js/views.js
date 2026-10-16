@@ -50,7 +50,6 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   const structurePage = document.querySelector('#structure-page');
   const openStructureButton = document.querySelector('#open-structure');
   const backFromStructureButton = document.querySelector('#back-to-timetable-from-structure');
-  const goToCalculationButton = document.querySelector('#go-to-schedule-calculation');
   const structureSummary = document.querySelector('#structure-summary');
   const structureDescription = document.querySelector('#structure-description');
   const structureClasses = document.querySelector('#structure-classes');
@@ -81,7 +80,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   const issueFilterSummary = document.querySelector('#issue-filter-summary');
   const noIssuesMatch = document.querySelector('#no-issues-match');
   const viewButtons = [...(controls?.querySelectorAll('[data-view]') || [])];
-  if (![workspace, structurePage, openStructureButton, backFromStructureButton, goToCalculationButton, structureSummary, structureDescription,
+  if (![workspace, structurePage, openStructureButton, backFromStructureButton, structureSummary, structureDescription,
     structureClasses, structureTeachers, structureRooms, structureConstraints, structureConstraintSummary, preservedConstraintFields,
     structureRosters, structureSearch, structureFilterStatus, issuesPage, openIssuesButton, backToTimetableButton, controls, entityLabel, entitySelect, grid, status, details,
     issuesList, sourceWarnings, issueSeverity, issueCategory, issueSearch, clearIssueFilters, issueSummary, issueFilterSummary, noIssuesMatch].every(Boolean)
@@ -546,9 +545,6 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   backToTimetableButton.addEventListener('click', () => { screen = 'schedule'; renderAll(); openIssuesButton.focus(); });
   openStructureButton.addEventListener('click', () => { screen = 'structure'; renderAll(); backFromStructureButton.focus(); });
   backFromStructureButton.addEventListener('click', () => { screen = 'schedule'; renderAll(); openStructureButton.focus(); });
-  goToCalculationButton.addEventListener('click', () => {
-    document.querySelector('[data-screen="calculation"]')?.click();
-  });
   structureRosters.addEventListener('click', event => {
     const button = event.target.closest('[data-entity-id][data-view]');
     if (!button) return;

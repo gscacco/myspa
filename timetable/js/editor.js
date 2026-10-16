@@ -4,6 +4,7 @@ import { updateTimeframeConstraint } from './constraints.js';
 import { analyzeSchedule } from './schedule.js';
 import { createProposal } from './proposals.js';
 import { createTimetableHistory } from './history.js';
+import { getCalculationReadiness } from './validation.js';
 
 function node(document, tag, className, text = '') {
   const result = document.createElement(tag);
@@ -85,8 +86,9 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   }
 
   function updateCalculationControl() {
-    recalculateButton.disabled = !timetable?.lessons?.length || Boolean(recalculationController);
-    recalculateButton.textContent = timetable?.lessons?.length && timetable.lessons.every(lesson => !lesson.assignedTime)
+    const ready = getCalculationReadiness(timetable).length === 0;
+    recalculateButton.disabled = !ready || Boolean(recalculationController);
+    recalculateButton.textContent = ready && timetable.lessons.every(lesson => !lesson.assignedTime)
       ? 'Avvia calcolo automatico' : 'Ricalcola assegnazioni';
   }
 

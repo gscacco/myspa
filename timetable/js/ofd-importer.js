@@ -362,6 +362,7 @@ export function importOFD(input, { DOMParser: Parser = globalThis.DOMParser } = 
     }
     attachEntityData(entities[type], dataIndexes[type], config, calendar);
   }
+  entities.students = [];
 
   const timetable = {
     schemaVersion: TIMETABLE_SCHEMA_VERSION,
