@@ -17,7 +17,7 @@
   </header>
 
   <main class="workspace">
-    <section class="import-card" aria-labelledby="import-heading">
+    <section id="import-card" class="import-card" aria-labelledby="import-heading">
       <div class="section-heading">
         <div>
           <p class="eyebrow">Inizia da un orario esistente</p>
@@ -57,6 +57,41 @@
         <p class="eyebrow">Orario di lavoro</p>
         <h2 id="current-heading">Stato corrente</h2>
         <p id="current-status" role="status" aria-live="polite">Nessun orario caricato</p>
+        <button id="change-timetable" class="secondary-button" type="button" aria-controls="import-card" aria-expanded="false" hidden>Carica un altro orario</button>
+      </div>
+    </section>
+
+    <section id="timetable-workspace" class="timetable-workspace" aria-labelledby="timetable-heading" hidden>
+      <header class="timetable-heading">
+        <div>
+          <p class="eyebrow">Consultazione</p>
+          <h2 id="timetable-heading">Orario corrente</h2>
+        </div>
+        <p id="schedule-status" role="status" aria-live="polite"></p>
+      </header>
+      <div class="view-toolbar">
+        <div id="view-controls" role="group" aria-label="Vista dell’orario">
+          <button type="button" data-view="class" aria-pressed="true">Classi</button>
+          <button type="button" data-view="teacher" aria-pressed="false">Docenti</button>
+          <button type="button" data-view="room" aria-pressed="false">Aule</button>
+        </div>
+        <label id="entity-label" for="entity-select">Classe</label>
+        <select id="entity-select" aria-label="Seleziona una classe"></select>
+      </div>
+      <div class="calendar-scroll" role="region" tabindex="0" aria-label="Griglia orario, scorribile orizzontalmente">
+        <div id="schedule-grid" class="calendar-grid" role="region" aria-label="Orario per classe"></div>
+      </div>
+      <div class="schedule-panels">
+        <section class="schedule-panel" aria-labelledby="lesson-details-heading">
+          <h3 id="lesson-details-heading">Dettaglio lezione</h3>
+          <div id="lesson-details" tabindex="-1" aria-live="polite"><p class="muted">Seleziona una lezione per vederne i dettagli.</p></div>
+        </section>
+        <section class="schedule-panel" aria-labelledby="issues-heading">
+          <h3 id="issues-heading">Conflitti e avvisi</h3>
+          <p id="source-warning-summary" class="muted"></p>
+          <ul id="source-warnings" class="source-warnings" aria-label="Avvisi di importazione"></ul>
+          <ul id="issues-list" class="issues-list" aria-label="Problemi rilevati e lezioni coinvolte"></ul>
+        </section>
       </div>
     </section>
   </main>

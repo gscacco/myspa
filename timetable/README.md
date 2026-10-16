@@ -26,10 +26,14 @@ The importer is based on `OR_30_SETT.ofd`, an XML document with version `5000`. 
 
 The supplied file declares `us-ascii` while containing non-ASCII comment bytes. Byte imports report this mismatch and decode those bytes as Windows-1252 (the same mapping as ISO-8859-1 for the bytes present). DTD declarations are rejected and external entities are never resolved. The original file is read-only; import preserves decoded source text, not original byte identity. No OFD export or complete-format compatibility is claimed.
 
-## Performance baseline
+## Schedule analysis and views
 
-One local import of the supplied 877,947-byte file took 3,035 ms with Node 24.21.0 and jsdom's `DOMParser`, producing 1,714 lessons. This is a structural-test baseline, not a browser performance claim. Record browser measurements before setting or reporting a user-facing load target.
+The read-only analyzer checks simultaneous teacher, class, and room use across each lesson's duration, assigned timeframes marked unavailable, undesired starting slots, and unassigned lessons. These are direct checks only: constraints such as MIN/MAX, distribution, gaps, free days, links, LOCKED, FIXED, and broader preferences are preserved as source data but are not interpreted as hard or soft rules yet. Counts describe detected issue rows; one conflict spanning multiple periods can produce multiple rows.
+
+The timetable is the primary workspace after loading. Users can view schedules by class, teacher, or room, select lessons for details, and follow issue links to affected lessons. Switching views retains the selected lesson when that lesson has a corresponding entity. Unassigned lessons remain reachable from diagnostics and are shown in their details rather than placed into a fabricated time slot. Import warnings remain visible. Editing and optimization are not implemented yet.
+
+On the supplied sample, direct analysis found 0 hard conflicts, 4 undesired-time warnings, and 6 unassigned lessons. One local run with Node 24.21.0 and jsdom measured approximately 3,429 ms for import, 28 ms for analysis, and 69 ms for rendering. These measurements are local structural-test observations, not browser performance claims or targets.
 
 ## Current import workflow
 
-Run `npm run dev` from the repository root and open `http://localhost:8080/timetable/`. Choose an `.ofd` or `.edn` file, review counts and warnings, then explicitly load it. Export the current timetable with **Esporta EDN**. This is a development source screen served locally; the single-file standalone build is planned for Step 4. Class, teacher, room views, editing, and optimization are planned for later steps. The application uses no backend or runtime network services.
+Run `npm run dev` from the repository root and open `http://localhost:8080/timetable/`. Choose an `.ofd` or `.edn` file, review counts and warnings, then explicitly load it. Export the current timetable with **Esporta EDN**. This is a development source screen served locally; the single-file standalone build is planned for Step 4. Safe editing and optimization are planned for Step 3. The application uses no backend or runtime network services.
