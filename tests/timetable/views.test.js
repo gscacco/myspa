@@ -101,3 +101,28 @@ test('real supplied timetable renders its six-day grid and navigates to a lesson
   assert.ok(document.querySelector('#lesson-details').textContent.includes(timetable.entities.teachers.find(teacher => teacher.id === lesson.teacherIds[0]).name));
   dom.window.close();
 });
+
+test('warnings stay off the timetable page and open in a filtered, navigable issue screen', async () => {
+  const { dom, document, views } = await mount();
+  const open = document.querySelector('#open-issues');
+  const issuePage = document.querySelector('#issues-page');
+  assert.ok(Number(open.dataset.count) > 0);
+  assert.equal(issuePage.hidden, true);
+  assert.equal(document.querySelector('#timetable-workspace').hidden, false);
+  open.click();
+  assert.equal(issuePage.hidden, false);
+  assert.equal(document.querySelector('#timetable-workspace').hidden, true);
+  document.querySelector('#issue-category').value = 'import';
+  document.querySelector('#issue-category').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.ok([...document.querySelectorAll('#source-warnings > li')].filter(row => !row.hidden).length > 0);
+  assert.equal([...document.querySelectorAll('#issues-list > li')].filter(row => !row.hidden).length, 0);
+  document.querySelector('#issue-category').value = 'all';
+  document.querySelector('#issue-category').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  const navigation = document.querySelector('#issues-list [data-lesson-id="lesson:4"]');
+  assert.ok(navigation);
+  navigation.click();
+  assert.equal(issuePage.hidden, true);
+  assert.equal(document.querySelector('#timetable-workspace').hidden, false);
+  assert.equal(views.selectedLessonId, 'lesson:4');
+  dom.window.close();
+});

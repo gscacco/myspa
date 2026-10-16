@@ -24,6 +24,26 @@ body { min-height: 100vh; margin: 0; color: var(--ink); background: var(--canvas
 .workspace { width: min(100% - 36px, 1040px); margin: 42px auto; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(250px, .8fr); align-items: start; gap: 20px; }
 .import-card, .current-card { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: 0 4px 16px #2030420a; }
 .import-card { padding: clamp(20px, 4vw, 34px); }
+.blank-builder, .issues-page { grid-column: 1 / -1; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: clamp(20px, 4vw, 32px); background: var(--paper); box-shadow: 0 4px 16px #2030420a; }
+.start-empty { margin: 0 0 12px; }
+.blank-calendar { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 10px; margin: 14px 0 22px; }
+.blank-calendar label, .blank-lesson-form label, .issue-filters label { display: grid; gap: 5px; color: #405365; font-size: 11px; font-weight: 650; }
+.blank-calendar input, .blank-add input, .blank-lesson-form select, .issue-filters select, .issue-filters input { width: 100%; min-height: 36px; border: 1px solid #aebbc6; border-radius: 5px; padding: 6px 8px; color: var(--ink); background: white; font: inherit; font-size: 12px; }
+.blank-entities { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; }
+.blank-entities fieldset { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 7px; padding: 10px; }
+.blank-entities legend { padding: 0 4px; font-size: 12px; font-weight: 700; }
+.blank-add { display: flex; gap: 5px; }
+.blank-add button, .blank-remove, .blank-lesson-form button { min-height: 34px; border: 1px solid #cbd5dd; border-radius: 5px; padding: 5px 8px; color: #244e6b; background: white; font: inherit; font-size: 11px; cursor: pointer; }
+.blank-entities ul, #new-lesson-list { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.blank-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.blank-item span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.blank-remove { min-height: 27px; padding: 3px 6px; font-size: 10px; }
+.blank-lessons { margin-top: 20px; }
+.blank-lessons h3, .issue-results h3 { margin: 0 0 9px; font-size: 14px; }
+.blank-lesson-form { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)) minmax(65px, .5fr) auto; align-items: end; gap: 8px; }
+.blank-lesson-form button { min-height: 36px; }
+#blank-builder-status { min-height: 1.4em; }
+.blank-calendar input:focus-visible, .blank-add input:focus-visible, .blank-lesson-form select:focus-visible, .issue-filters select:focus-visible, .issue-filters input:focus-visible { outline: 3px solid #1769aa66; outline-offset: 2px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 h2 { margin: 0; font-size: 22px; line-height: 1.2; }
 .file-badge { padding: 5px 9px; border: 1px solid #cddce7; border-radius: 6px; color: var(--blue); background: #f2f7fa; font-size: 11px; font-weight: 750; letter-spacing: .08em; }
@@ -82,9 +102,14 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .workspace.has-timetable .current-card p:last-of-type { font-size: 12px; }
 .workspace.has-timetable #change-timetable { flex: none; }
 .timetable-workspace { grid-column: 1 / -1; min-width: 0; margin-top: 4px; padding: clamp(17px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: 0 4px 16px #2030420a; }
-.timetable-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+.timetable-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
 .timetable-heading h2 { font-size: 21px; }
-#schedule-status { margin: 0; color: #405365; font-size: 12px; text-align: right; }
+.timetable-actions { display: grid; grid-template-columns: auto auto auto auto; align-items: center; justify-content: end; gap: 6px; }
+.timetable-actions button { min-height: 34px; padding: 6px 9px; font-size: 11px; }
+#recalculation-status, #schedule-status { grid-column: 1 / -1; margin: 0; color: #405365; font-size: 12px; text-align: right; }
+#recalculation-status { font-weight: 650; }
+.issue-count { border-color: #e2c17e; color: #654a12; background: #fff8e7; }
+.issue-count:hover { border-color: #b77a14; background: #fff1ca; }
 .view-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 #view-controls { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; background: #f4f7f9; }
 #view-controls button { min-height: 34px; padding: 5px 12px; color: #405365; background: transparent; }
@@ -110,7 +135,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .lesson-people, .lesson-room, .lesson-time { max-width: 100%; overflow: hidden; font-size: 10px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .lesson-time { margin-top: auto; font-variant-numeric: tabular-nums; font-weight: 650; }
 .lesson-status { max-width: 100%; overflow: hidden; font-size: 10px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
-.schedule-panels { display: grid; grid-template-columns: minmax(240px, .9fr) minmax(320px, 1.4fr); gap: 14px; margin-top: 16px; }
+.schedule-panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
 .schedule-panel { min-width: 0; border: 1px solid #e0e6eb; border-radius: 8px; padding: 14px; background: #fcfdfe; }
 .schedule-panel h3 { margin: 0 0 10px; font-size: 14px; }
 .muted { color: var(--muted); font-size: 12px; }
@@ -123,13 +148,20 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .detail-notices li.error, .schedule-issue.error { border-left-color: #aa3d35; color: #70211d; background: #fff0ed; }
 .source-warnings li.error { border-left-color: #aa3d35; color: #70211d; background: #fff0ed; }
 .source-warnings li.info { border-left-color: #718191; color: #405365; background: #f2f5f7; }
-#source-warning-summary { margin: 0; font-size: 11px; }
 .schedule-issue { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 3px 8px; }
 .issue-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
 .issue-description { min-width: 0; overflow-wrap: anywhere; }
 .issue-link { grid-column: 2; justify-self: start; min-height: 29px; margin: 2px 4px 0 0; border-color: #cbd5dd; padding: 4px 7px; color: #244e6b; background: white; font-size: 10px; }
 .issue-link:hover { border-color: var(--blue); background: #f0f6fa; }
 .source-warnings strong { margin-right: 3px; }
+.issues-page { margin-top: 4px; }
+.issues-heading { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 16px; margin-bottom: 18px; }
+.issues-heading h2 { margin-bottom: 4px; }
+.issues-heading .muted { margin: 0; }
+.issue-filters { display: grid; grid-template-columns: minmax(130px, .7fr) minmax(150px, .9fr) minmax(220px, 1.5fr) auto; align-items: end; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #f7f9fb; }
+.issue-filters button { min-height: 36px; padding: 5px 9px; font-size: 11px; }
+.issue-results { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(250px, .8fr); gap: 20px; margin-top: 18px; }
+.issue-results section { min-width: 0; }
 .editor-panel { display: grid; gap: 8px; margin-top: 16px; border-top: 1px solid #dbe3e9; padding-top: 14px; }
 .editor-panel h4 { margin: 0; font-size: 13px; }
 .editor-panel label { color: #405365; font-size: 11px; font-weight: 650; }
@@ -161,10 +193,17 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .workspace { grid-template-columns: 1fr; margin: 22px auto; gap: 12px; }
   .current-card { order: -1; padding: 14px 16px; }
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .timetable-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
-  #schedule-status { text-align: left; }
+  .timetable-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .timetable-actions { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-content: stretch; }
+  #schedule-status, #recalculation-status { text-align: left; }
   #entity-label { margin-left: 0; }
   .schedule-panels { grid-template-columns: 1fr; }
+  .blank-calendar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .blank-entities { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .blank-lesson-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .issue-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .issue-results { grid-template-columns: 1fr; }
+  .issues-heading { grid-template-columns: 1fr; justify-items: start; }
   .timetable-workspace { padding: 15px 12px; }
 }
 @media (prefers-reduced-motion: no-preference) {

@@ -1,4 +1,5 @@
 import { analyzeSchedule } from './schedule.js';
+import { countOpenIssues, filterIssues } from './diagnostics.js';
 
 const MODE_CONFIG = Object.freeze({
   class: { collection: 'classes', field: 'classIds', singular: 'classe', plural: 'classi' },
@@ -46,6 +47,9 @@ function issueText(item, timetable) {
 export function createTimetableViews({ document = globalThis.document, onLessonSelect = () => {} } = {}) {
   if (!document) throw new TypeError('A document is required to render timetable views.');
   const workspace = document.querySelector('#timetable-workspace');
+  const issuesPage = document.querySelector('#issues-page');
+  const openIssuesButton = document.querySelector('#open-issues');
+  const backToTimetableButton = document.querySelector('#back-to-timetable');
   const controls = document.querySelector('#view-controls');
   const entityLabel = document.querySelector('#entity-label');
   const entitySelect = document.querySelector('#entity-select');
@@ -54,9 +58,16 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   const details = document.querySelector('#lesson-details');
   const issuesList = document.querySelector('#issues-list');
   const sourceWarnings = document.querySelector('#source-warnings');
-  const sourceWarningSummary = document.querySelector('#source-warning-summary');
+  const issueSeverity = document.querySelector('#issue-severity');
+  const issueCategory = document.querySelector('#issue-category');
+  const issueSearch = document.querySelector('#issue-search');
+  const clearIssueFilters = document.querySelector('#clear-issue-filters');
+  const issueSummary = document.querySelector('#issue-summary');
+  const issueFilterSummary = document.querySelector('#issue-filter-summary');
+  const noIssuesMatch = document.querySelector('#no-issues-match');
   const viewButtons = [...(controls?.querySelectorAll('[data-view]') || [])];
-  if (![workspace, controls, entityLabel, entitySelect, grid, status, details, issuesList, sourceWarnings, sourceWarningSummary].every(Boolean)
+  if (![workspace, issuesPage, openIssuesButton, backToTimetableButton, controls, entityLabel, entitySelect, grid, status, details,
+    issuesList, sourceWarnings, issueSeverity, issueCategory, issueSearch, clearIssueFilters, issueSummary, issueFilterSummary, noIssuesMatch].every(Boolean)
     || Object.keys(MODE_CONFIG).some(mode => !viewButtons.some(button => button.dataset.view === mode))) {
     throw new Error('Timetable view screen is missing required controls.');
   }
@@ -66,6 +77,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   let analysis = { issues: [], summary: { hardConflicts: 0, softWarnings: 0, unassignedLessons: 0 } };
   let mode = 'class';
   let selectedLessonId = null;
+  let screen = 'schedule';
   const selectedByMode = { class: null, teacher: null, room: null };
 
   function currentEntities() {
@@ -257,8 +269,13 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
 
   function renderIssues() {
     issuesList.replaceChildren();
-    for (const item of analysis.issues) {
+    for (const [index, item] of analysis.issues.entries()) {
       const row = make(document, 'li', `schedule-issue ${item.severity}`);
+      row.dataset.issueKey = `schedule-${index}`;
+      row.dataset.severity = item.severity;
+      row.dataset.category = item.code === 'resource-collision' || item.code === 'unavailable-time' ? 'conflict'
+        : item.code === 'soft-preference' ? 'preference' : 'assignment';
+      row.dataset.code = item.code;
       const label = make(document, 'strong', 'issue-kind', item.severity === 'error' ? 'Conflitto' : 'Avviso');
       const description = make(document, 'span', 'issue-description', issueText(item, timetable));
       row.append(label, description);
@@ -278,26 +295,59 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
         link.dataset.lessonId = lessonId;
         row.append(link);
       }
+      row.dataset.search = `${item.code} ${item.resourceName || ''} ${item.resourceId || ''} ${(item.lessonIds || []).join(' ')}`;
       issuesList.append(row);
     }
-    if (!analysis.issues.length) issuesList.append(make(document, 'li', 'muted', 'Nessun conflitto diretto o lezione senza orario rilevati.'));
 
     sourceWarnings.replaceChildren();
-    for (const item of diagnostics) {
+    for (const [index, item] of diagnostics.entries()) {
       const row = make(document, 'li', item.severity || 'info', sourceWarningText(item));
+      row.dataset.issueKey = `import-${index}`;
+      row.dataset.severity = item.severity || 'info';
+      row.dataset.category = 'import';
+      row.dataset.code = item.code || '';
+      row.dataset.search = `${item.code || ''} ${item.path || ''} ${item.message || ''}`;
       const label = make(document, 'strong', '', item.severity === 'error' ? 'Errore: ' : item.severity === 'warning' ? 'Avviso: ' : 'Info: ');
       row.prepend(label);
       sourceWarnings.append(row);
     }
-    sourceWarningSummary.textContent = diagnostics.length
-      ? `${diagnostics.filter(item => item.severity === 'warning').length} avvisi di importazione.`
-      : 'Nessun avviso di importazione.';
+    applyIssueFilters();
     status.textContent = `${analysis.summary.hardConflicts} conflitti · ${analysis.summary.softWarnings} avvisi orari · ${analysis.summary.unassignedLessons} lezioni senza orario`;
+  }
+
+  function applyIssueFilters() {
+    const rows = [...issuesList.children, ...sourceWarnings.children];
+    const items = rows.map(row => ({
+      id: row.dataset.issueKey,
+      severity: row.dataset.severity,
+      category: row.dataset.category,
+      code: row.dataset.code,
+      text: row.textContent,
+      searchText: row.dataset.search,
+      lessonIds: [...row.querySelectorAll('[data-lesson-id]')].map(link => link.dataset.lessonId),
+    }));
+    const visible = new Set(filterIssues(items, {
+      severity: issueSeverity.value,
+      category: issueCategory.value,
+      query: issueSearch.value,
+    }).map(item => item.id));
+    let shown = 0;
+    for (const row of rows) {
+      row.hidden = !visible.has(row.dataset.issueKey);
+      if (!row.hidden) shown++;
+    }
+    const openCount = countOpenIssues(items);
+    openIssuesButton.dataset.count = String(openCount);
+    openIssuesButton.textContent = `Avvisi e conflitti · ${openCount}`;
+    issueSummary.textContent = `${openCount} avvisi o conflitti da risolvere.`;
+    issueFilterSummary.textContent = `Visualizzati ${shown} di ${rows.length}.`;
+    noIssuesMatch.hidden = shown > 0;
   }
 
   function renderAll() {
     if (!timetable) return;
-    workspace.hidden = false;
+    workspace.hidden = screen !== 'schedule';
+    issuesPage.hidden = screen !== 'issues';
     ensureSelection();
     renderEntitySelect();
     for (const button of viewButtons) button.setAttribute('aria-pressed', String(button.dataset.view === mode));
@@ -313,6 +363,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     const preserveGridFocus = !navigate && grid.contains(activeElement) && activeElement.dataset.lessonId === lessonId;
     selectedLessonId = lessonId;
     if (navigate) {
+      screen = 'schedule';
       const field = MODE_CONFIG[mode].field;
       const entities = currentEntities();
       const relevant = lesson[field]?.find(id => entities.some(entity => entity.id === id));
@@ -362,6 +413,14 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     const button = event.target.closest('[data-lesson-id]');
     if (button) selectLesson(button.dataset.lessonId, { navigate: true });
   });
+  openIssuesButton.addEventListener('click', () => { screen = 'issues'; renderAll(); issueSeverity.focus(); });
+  backToTimetableButton.addEventListener('click', () => { screen = 'schedule'; renderAll(); openIssuesButton.focus(); });
+  for (const control of [issueSeverity, issueCategory]) control.addEventListener('change', applyIssueFilters);
+  issueSearch.addEventListener('input', applyIssueFilters);
+  clearIssueFilters.addEventListener('click', () => {
+    issueSeverity.value = 'all'; issueCategory.value = 'all'; issueSearch.value = '';
+    applyIssueFilters(); issueSearch.focus();
+  });
 
   return {
     render(nextTimetable, nextDiagnostics = [], { preserveContext = false } = {}) {
@@ -370,6 +429,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       timetable = nextTimetable;
       diagnostics = [...nextDiagnostics];
       analysis = analyzeSchedule(timetable);
+      screen = 'schedule';
       if (preserveContext) {
         selectedLessonId = timetable.lessons.some(lesson => lesson.id === previousLessonId) ? previousLessonId : null;
         mode = previousMode;

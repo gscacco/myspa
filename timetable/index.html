@@ -26,6 +26,7 @@
         <span class="file-badge">.OFD</span>
       </div>
       <p class="intro">Il file viene verificato prima del caricamento. L’originale non viene modificato.</p>
+      <button id="open-blank-builder" class="secondary-button start-empty" type="button">Crea orario da zero</button>
       <label class="file-picker" for="ofd-file">
         <span class="upload-icon" aria-hidden="true">↑</span>
         <span><strong>Seleziona il file</strong><small>Orario Facile XML (.ofd)</small></span>
@@ -51,6 +52,41 @@
       </div>
     </section>
 
+    <section id="blank-builder" class="blank-builder" aria-labelledby="blank-heading" hidden>
+      <header class="section-heading">
+        <div><p class="eyebrow">Nuova scuola</p><h2 id="blank-heading">Crea un orario da zero</h2></div>
+        <button id="cancel-blank-builder" class="secondary-button" type="button">Torna al caricamento</button>
+      </header>
+      <p class="intro">Definisci calendario, persone, classi, materie e lezioni. Il calcolo assegnerà poi giorni e ore.</p>
+      <div class="blank-calendar">
+        <label>Nome orario<input id="new-timetable-name" value="Nuovo orario" required></label>
+        <label>Giorni, separati da virgola<input id="new-days" value="Lunedì, Martedì, Mercoledì, Giovedì, Venerdì"></label>
+        <label>Ore al giorno<input id="new-period-count" type="number" min="1" max="16" value="6"></label>
+        <label>Prima ora<input id="new-start-time" type="time" value="08:00"></label>
+        <label>Minuti per ora<input id="new-unit-minutes" type="number" min="15" max="180" step="5" value="60"></label>
+      </div>
+      <div class="blank-entities">
+        <fieldset><legend>Docenti</legend><div class="blank-add"><input id="new-teacher-name" aria-label="Nome docente"><button id="add-new-teacher" type="button">Aggiungi</button></div><ul id="new-teacher-list"></ul></fieldset>
+        <fieldset><legend>Classi</legend><div class="blank-add"><input id="new-class-name" aria-label="Nome classe"><button id="add-new-class" type="button">Aggiungi</button></div><ul id="new-class-list"></ul></fieldset>
+        <fieldset><legend>Materie</legend><div class="blank-add"><input id="new-subject-name" aria-label="Nome materia"><button id="add-new-subject" type="button">Aggiungi</button></div><ul id="new-subject-list"></ul></fieldset>
+        <fieldset><legend>Aule <span class="muted">(facoltative)</span></legend><div class="blank-add"><input id="new-room-name" aria-label="Nome aula"><button id="add-new-room" type="button">Aggiungi</button></div><ul id="new-room-list"></ul></fieldset>
+      </div>
+      <section class="blank-lessons" aria-labelledby="new-lessons-heading">
+        <h3 id="new-lessons-heading">Lezioni da pianificare</h3>
+        <div class="blank-lesson-form">
+          <label>Materia<select id="lesson-subject"></select></label>
+          <label>Docente<select id="lesson-teacher"></select></label>
+          <label>Classe<select id="lesson-class"></select></label>
+          <label>Aula<select id="lesson-room"></select></label>
+          <label>Durata in ore<select id="lesson-duration"><option value="1">1</option><option value="2">2</option></select></label>
+          <button id="add-new-lesson" type="button" disabled>Aggiungi lezione</button>
+        </div>
+        <ul id="new-lesson-list" aria-label="Lezioni aggiunte"></ul>
+      </section>
+      <p id="blank-builder-status" class="muted" role="status" aria-live="polite"></p>
+      <button id="create-new-timetable" class="primary-button" type="button" disabled>Crea orario e passa al calcolo</button>
+    </section>
+
     <section class="current-card" aria-labelledby="current-heading">
       <div class="current-icon" aria-hidden="true">✓</div>
       <div>
@@ -70,7 +106,14 @@
           <p class="eyebrow">Consultazione</p>
           <h2 id="timetable-heading">Orario corrente</h2>
         </div>
-        <p id="schedule-status" role="status" aria-live="polite"></p>
+        <div class="timetable-actions">
+          <button id="open-issues" class="issue-count" type="button" aria-controls="issues-page" data-count="0">Avvisi e conflitti · 0</button>
+          <button id="recalculate-all" class="primary-button" type="button" disabled>Calcola orario</button>
+          <button id="cancel-recalculation" class="secondary-button" type="button" disabled>Annulla calcolo</button>
+          <button id="review-recalculation" class="secondary-button" type="button" hidden>Rivedi proposta</button>
+          <p id="recalculation-status" role="status" aria-live="polite"></p>
+          <p id="schedule-status" role="status" aria-live="polite"></p>
+        </div>
       </header>
       <div class="view-toolbar">
         <div id="view-controls" role="group" aria-label="Vista dell’orario">
@@ -99,10 +142,6 @@
             <div class="editor-actions">
               <button id="find-alternatives" class="secondary-button" type="button" disabled>Trova alternative</button>
               <button id="cancel-search" class="secondary-button" type="button" disabled>Annulla ricerca</button>
-            </div>
-            <div class="editor-actions">
-              <button id="recalculate-all" class="secondary-button" type="button" disabled>Ricalcola tutte le assegnazioni</button>
-              <button id="cancel-recalculation" class="secondary-button" type="button" disabled>Annulla ricalcolo</button>
             </div>
             <label class="hint-mode" for="prefer-source-hints"><input id="prefer-source-hints" type="checkbox" checked> Preferisci, come punto di partenza, gli orari originali OFD conservati</label>
             <p class="field-help">Questi orari non sono caricati come assegnazioni. Il ricalcolo li usa solo come preferenza modificabile.</p>
@@ -134,12 +173,25 @@
             </section>
           </section>
         </section>
-        <section class="schedule-panel" aria-labelledby="issues-heading">
-          <h3 id="issues-heading">Conflitti e avvisi</h3>
-          <p id="source-warning-summary" class="muted"></p>
-          <ul id="source-warnings" class="source-warnings" aria-label="Avvisi di importazione"></ul>
-          <ul id="issues-list" class="issues-list" aria-label="Problemi rilevati e lezioni coinvolte"></ul>
-        </section>
+      </div>
+    </section>
+
+    <section id="issues-page" class="issues-page" aria-labelledby="issues-heading" hidden>
+      <header class="issues-heading">
+        <button id="back-to-timetable" class="secondary-button" type="button">← Torna all’orario</button>
+        <div><p class="eyebrow">Revisione</p><h2 id="issues-heading">Avvisi da risolvere</h2><p id="issue-summary" class="muted"></p></div>
+      </header>
+      <div class="issue-filters" aria-label="Filtri avvisi">
+        <label>Stato<select id="issue-severity"><option value="all">Tutti</option><option value="error">Conflitti</option><option value="warning">Avvisi</option><option value="info">Informazioni</option></select></label>
+        <label>Categoria<select id="issue-category"><option value="all">Tutte</option><option value="conflict">Conflitti</option><option value="assignment">Assegnazione</option><option value="preference">Preferenze</option><option value="import">Importazione</option></select></label>
+        <label>Cerca<input id="issue-search" type="search" placeholder="Lezione, docente, classe, aula…"></label>
+        <button id="clear-issue-filters" class="secondary-button" type="button">Azzera filtri</button>
+      </div>
+      <p id="issue-filter-summary" class="muted" role="status" aria-live="polite"></p>
+      <div class="issue-results">
+        <section aria-labelledby="schedule-issues-heading"><h3 id="schedule-issues-heading">Problemi nell’orario</h3><ul id="issues-list" class="issues-list" aria-label="Problemi rilevati e lezioni coinvolte"></ul></section>
+        <section aria-labelledby="import-issues-heading"><h3 id="import-issues-heading">Avvisi sui dati importati</h3><ul id="source-warnings" class="source-warnings" aria-label="Avvisi di importazione"></ul></section>
+        <p id="no-issues-match" class="muted" hidden>Nessun risultato per questi filtri.</p>
       </div>
     </section>
   </main>

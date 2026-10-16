@@ -148,12 +148,14 @@ test('full timetable recalculation stays a proposal until explicitly confirmed a
   let confirms = 0;
   const editor = createTimetableEditor({ document, getTimetable: () => applied, onApply: next => { applied = next; }, confirm: () => { confirms++; return allow; } });
   assert.equal(document.querySelector('#recalculate-all').disabled, false);
+  assert.ok(document.querySelector('.timetable-heading #recalculate-all'), 'the global calculation action is at the top of the timetable workspace');
   assert.equal(document.querySelector('#prefer-source-hints').checked, true);
   document.querySelector('#recalculate-all').click();
   await editor.recalculationComplete;
   assert.ok(document.querySelector('.proposal-option'));
+  assert.equal(document.querySelector('#review-recalculation').hidden, false);
   assert.equal(current.lessons[0].assignedTime, null, 'search leaves the current timetable unchanged');
-  document.querySelector('.proposal-option').click();
+  document.querySelector('#review-recalculation').click();
   assert.match(document.querySelector('#proposal-impact').textContent, /assegnazione completa/i);
   document.querySelector('#apply-proposal').click();
   assert.equal(confirms, 1);
@@ -205,6 +207,6 @@ test('cancelling a full recalculation leaves the current timetable intact', asyn
   document.querySelector('#cancel-recalculation').click();
   await editor.recalculationComplete;
   assert.deepEqual(current, before);
-  assert.match(document.querySelector('#edit-status').textContent, /ricalcolo annullato/i);
+  assert.match(document.querySelector('#edit-status').textContent, /calcolo annullato/i);
   dom.window.close();
 });

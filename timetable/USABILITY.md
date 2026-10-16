@@ -24,6 +24,12 @@ For the source app, run `npm run dev` and open `http://localhost:8080/timetable/
 3. [ ] Add an unavailable period to a teacher, edit it to another period, delete it, and undo. Confirm any resulting conflict is visible and the recalculation respects the updated rule.
 4. [ ] Disable the original-time preference and observe whether the search finds a solution within its documented attempt cap; do not present a limit result as a valid timetable.
 
+## Start-from-zero and issue triage
+
+1. [ ] Choose “Crea orario da zero”; enter school calendar, teachers, classes, subjects, optional rooms, and lesson requirements. Confirm no assignments or sample data are invented.
+2. [ ] Create the timetable, confirm it opens in the main workspace, then use “Avvia calcolo automatico”. Review the proposed full assignment and explicitly apply or cancel it.
+3. [ ] Confirm the workspace shows only the issue-count button, open it, filter by severity/category/search, and follow a lesson link back to the selected lesson.
+
 After each session, record the staff role, browser, task completion, points of hesitation, and any data-safety concern. Do not mark a scenario successful solely because the corresponding automated test passes.
 
 ## Automated evidence in this prototype

@@ -2,6 +2,7 @@ import { importOFD, withoutOFDAssignments, OFDImportError } from './ofd-importer
 import { importTimetableEDN, exportTimetableEDN, EDNImportError } from './edn-importer.js';
 import { createTimetableViews } from './views.js';
 import { createTimetableEditor } from './editor.js';
+import { createBlankTimetableBuilder } from './blank-builder.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 
@@ -53,6 +54,25 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let currentDiagnostics = [];
   let pending = null;
   let views;
+  const blankBuilder = createBlankTimetableBuilder({
+    document,
+    onCreate: timetable => {
+      pending = {
+        timetable,
+        diagnostics: [],
+        summary: {
+          teachers: timetable.entities.teachers.length,
+          classes: timetable.entities.classes.length,
+          rooms: timetable.entities.rooms.length,
+          subjects: timetable.entities.subjects.length,
+          lessons: timetable.lessons.length,
+          assignedLessons: 0,
+          unassignedLessons: timetable.lessons.length,
+        },
+      };
+      return applyImport();
+    },
+  });
   const editor = createTimetableEditor({
     document,
     getTimetable: () => current,
@@ -248,6 +268,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     exportEDN,
     views,
     editor,
+    blankBuilder,
     get timetable() { return current; },
     get diagnostics() { return currentDiagnostics; },
     get pendingTimetable() { return pending?.timetable || null; },
