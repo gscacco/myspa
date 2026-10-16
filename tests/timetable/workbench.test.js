@@ -20,6 +20,73 @@ test('the app opens on the school workspace and keeps import secondary', async (
   assert.ok(document.querySelector('[data-screen="calculation"]'));
 });
 
+test('all school tables can be searched without changing their underlying data', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const app = createTimetableApp({ document: dom.window.document });
+  const school = timetableFixture();
+  school.entities.students = [
+    { id: 'student:ada', name: 'Ada Rossi', classId: 'class:C1' },
+    { id: 'student:leo', name: 'Leo Bianchi', classId: 'class:C2' },
+  ];
+  app.schoolWorkbench.setTimetable(school);
+
+  const cases = [
+    ['teachers', 'Teacher Two', 1],
+    ['classes', 'Class Two', 1],
+    ['subjects', 'Mathematics', 0],
+    ['rooms', 'Room Two', 1],
+    ['students', 'Ada Rossi', 0],
+    ['lessons', 'Room Two', [2, 3]],
+    ['constraints', 'Obbligatorio', 0],
+  ];
+  for (const [grid, query, expectedRow] of cases) {
+    const filter = dom.window.document.querySelector(`#school-filter-${grid}`) || dom.window.document.querySelector('#school-constraint-filter');
+    assert.ok(filter, `missing search for ${grid}`);
+    filter.value = query;
+    filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    const rows = [...dom.window.document.querySelectorAll(`#school-grid-${grid} tbody tr[data-row]:not([data-new-row="true"])`)]
+      .filter(row => !row.hidden);
+    assert.deepEqual(rows.map(row => Number(row.dataset.row)), Array.isArray(expectedRow) ? expectedRow : [expectedRow], `${grid} search should show the matching row`);
+  }
+  assert.equal(school.lessons.length, 5, 'searching must not remove lessons from the model');
+  const constraintFilter = dom.window.document.querySelector('#school-constraint-filter');
+  constraintFilter.value = '09:00';
+  constraintFilter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.equal([...dom.window.document.querySelectorAll('#school-grid-constraints tbody tr[data-row]:not([data-new-row="true"])')].length, 2, 'constraint search also matches the displayed time');
+  const teacherFilter = dom.window.document.querySelector('#school-filter-teachers');
+  teacherFilter.value = '';
+  teacherFilter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.equal([...dom.window.document.querySelectorAll('#school-grid-teachers tbody tr[data-row]:not([data-new-row="true"])')].filter(row => !row.hidden).length, 2);
+  dom.window.close();
+});
+
+test('editing a lesson keeps unrelated and lesson table rows in place', () => {
+  const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-students"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
+  const workbench = createSchoolWorkbench({ document });
+  workbench.setTimetable(timetableFixture());
+  const teacherBody = document.querySelector('#school-grid-teachers tbody');
+  const lessonRow = document.querySelector('#school-grid-lessons tbody tr[data-row="0"]');
+  const subject = lessonRow.querySelector('input');
+  subject.value = 'History';
+  subject.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  assert.equal(workbench.timetable.lessons[0].subjectId, 'subject:HIST');
+  assert.equal(document.querySelector('#school-grid-teachers tbody'), teacherBody);
+  assert.equal(document.querySelector('#school-grid-lessons tbody tr[data-row="0"]'), lessonRow);
+  document.querySelector('#undo-school-edit').click();
+  assert.equal(workbench.timetable.lessons[0].subjectId, 'subject:MATH');
+
+  const freshRow = document.querySelector('#school-grid-lessons tbody tr[data-new-row="true"]');
+  const [newSubject, newTeacher, newClass] = freshRow.querySelectorAll('input');
+  for (const [input, value] of [[newSubject, 'Mathematics'], [newTeacher, 'Teacher Two'], [newClass, 'Class Two']]) {
+    input.value = value;
+    input.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  }
+  assert.equal(workbench.timetable.lessons.length, 6);
+  assert.ok(document.querySelector('#school-grid-lessons tbody tr[data-new-row="true"]'));
+  document.querySelector('#undo-school-edit').click();
+  assert.equal(workbench.timetable.lessons.length, 5);
+});
+
 test('the school grids edit names in place, add by blank row, and undo the latest edit', () => {
   const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
   let updated;
