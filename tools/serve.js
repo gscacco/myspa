@@ -6,32 +6,23 @@
  * sviluppo si usa questo server: `npm run dev` e poi aprire l'indirizzo
  * indicato (per impostazione predefinita http://localhost:8080/).
  *
- * Serve `src/` (modalità sviluppo) e anche `dist/` (artefatto costruito).
+ * Serve i file statici dalla radice del progetto: spreadsheet, timetable e artefatti `dist/`.
  */
 
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, normalize, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { contentTypeFor, directoryRedirect, resolveStaticPath } from './static-routes.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.PORT || 8080);
 
-const TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-};
-
 /** Risolve il percorso richiesto impedendo di uscire dalla radice. */
 export function resolveRequest(urlPath) {
-  let p = decodeURIComponent(urlPath.split('?')[0]);
+  let p = new URL(urlPath, 'http://localhost').pathname;
   if (p === '/' || p === '') p = '/index.html';
-  const full = normalize(join(ROOT, p));
-  if (!full.startsWith(ROOT)) return null;
-  return full;
+  return resolveStaticPath(ROOT, p);
 }
 
 const server = createServer(async (req, res) => {
@@ -39,10 +30,11 @@ const server = createServer(async (req, res) => {
   if (!full) { res.writeHead(403).end('403'); return; }
   try {
     const info = await stat(full);
+    const redirect = directoryRedirect(req.url, info.isDirectory());
+    if (redirect) { res.writeHead(301, { location: redirect }).end(); return; }
     const target = info.isDirectory() ? join(full, 'index.html') : full;
     const body = await readFile(target);
-    const ext = target.slice(target.lastIndexOf('.'));
-    res.writeHead(200, { 'content-type': TYPES[ext] || 'application/octet-stream' }).end(body);
+    res.writeHead(200, { 'content-type': contentTypeFor(target) }).end(body);
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('404 — non trovato');
   }
@@ -50,6 +42,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log('Server di sviluppo: http://localhost:' + PORT + '/');
+  console.log('  timetable: http://localhost:' + PORT + '/timetable/');
   console.log('  sorgenti:  http://localhost:' + PORT + '/src/index.html');
   console.log('  artefatto: http://localhost:' + PORT + '/dist/foglio.html  (richiede npm run build)');
 });

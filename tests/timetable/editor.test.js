@@ -192,6 +192,41 @@ test('constraint controls add, edit, and delete an active unavailability rule', 
   dom.window.close();
 });
 
+test('editing an imported constraint from the structure screen keeps the overview open and current', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const source = solverFixture();
+  const app = createTimetableApp({
+    document,
+    importer: async () => ({ timetable: source, diagnostics: [], summary: { lessons: 1, assignedLessons: 1, unassignedLessons: 0, teachers: 1, classes: 1, rooms: 1, subjects: 2 } }),
+    confirm: () => true,
+  });
+  document.querySelector('#ofd-without-assignments').checked = true;
+  await app.stageFile({ name: 'structure.ofd', arrayBuffer: async () => new ArrayBuffer(0) });
+  app.applyImport();
+  assert.equal(app.timetable.lessons.every(lesson => lesson.assignedTime === null), true);
+  assert.equal(document.querySelector('#structure-page').hidden, false, 'structure-only imports open directly on the school overview');
+  assert.equal(document.querySelector('#timetable-workspace').hidden, true);
+  document.querySelector('#go-to-schedule-calculation').click();
+  assert.equal(document.querySelector('#structure-page').hidden, true);
+  assert.equal(document.activeElement.id, 'recalculate-all', 'the structure screen has a direct route to assignment calculation');
+  document.querySelector('#open-structure').click();
+  assert.match(document.querySelector('#structure-summary').textContent, /Senza assegnazione1/);
+  assert.equal(document.querySelector('#constraint-target').value, 'teacher|teacher:T1', 'the constraint editor starts on an imported target with an existing timeframe');
+  document.querySelector('#constraint-target').value = 'teacher|teacher:T1';
+  document.querySelector('#constraint-day').value = '0';
+  document.querySelector('#constraint-period').value = '2';
+  document.querySelector('#add-constraint').click();
+  assert.equal(document.querySelector('#structure-page').hidden, false, 'saving a constraint preserves the active structure screen');
+  assert.match(document.querySelector('#structure-constraints').textContent, /Teacher One.*non disponibile.*Monday, 10:00/i);
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, ['0.2']);
+  document.querySelector('#undo-structure-change').click();
+  assert.equal(document.querySelector('#structure-page').hidden, false, 'undo is available without leaving the structure screen');
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, []);
+  assert.doesNotMatch(document.querySelector('#structure-constraints').textContent, /Teacher One.*non disponibile.*Monday, 10:00/i);
+  dom.window.close();
+});
+
 test('cancelling a full recalculation leaves the current timetable intact', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;

@@ -10,12 +10,14 @@ For the source app, run `npm run dev` and open `http://localhost:8080/timetable/
 
 1. [ ] Load `OR_30_SETT.ofd`. Confirm the report shows 1,714 lessons, six unassigned lessons, and the encoding warning before loading. Confirm the loaded status and timetable become visible.
 2. [ ] Choose a class, teacher, or room. Find one lesson and inspect its subject, participants, room, time, and duration.
-3. [ ] Load `conflict-demo.edn`. Select `Matematica` for `Classe 1`; inspect the teacher collision and verify the issue names the teacher and both affected lessons.
-4. [ ] Select `lesson:demo-1`, compare immediate and chain search results, and describe which lessons move and whether undesired-time preferences change.
-5. [ ] Apply a one-lesson proposal. Verify the new time in class and teacher views, and confirm the active view stays selected after apply.
-6. [ ] Undo. Verify the old time returns in both views and the unsaved status updates.
-7. [ ] On the full sample, start a longer search and cancel while progress is shown. Confirm the current timetable remains unchanged and any partial proposals remain unapplied.
-8. [ ] With a timetable loaded, stage `unsupported-demo.ofd`. Confirm the `FUTURE_RULE` warning is actionable, cancel the staged import, and verify the loaded timetable remains available. Repeat with malformed XML to see the fatal error path.
+3. [ ] Import the sample with “senza assegnazioni”. Open “Struttura e vincoli”; verify all 58 classes, 118 teachers, the 1,714 unassigned lessons, and imported constraints are visible.
+4. [ ] Filter the structure list, open a class or teacher schedule, then return and add, edit, and delete a supported timeframe constraint. Confirm the overview refreshes and undo restores it.
+5. [ ] Load `conflict-demo.edn`. Select `Matematica` for `Classe 1`; inspect the teacher collision and verify the issue names the teacher and both affected lessons.
+6. [ ] Select `lesson:demo-1`, compare immediate and chain search results, and describe which lessons move and whether undesired-time preferences change.
+7. [ ] Apply a one-lesson proposal. Verify the new time in class and teacher views, and confirm the active view stays selected after apply.
+8. [ ] Undo. Verify the old time returns in both views and the unsaved status updates.
+9. [ ] On the full sample, start a longer search and cancel while progress is shown. Confirm the current timetable remains unchanged and any partial proposals remain unapplied.
+10. [ ] With a timetable loaded, stage `unsupported-demo.ofd`. Confirm the `FUTURE_RULE` warning is actionable, cancel the staged import, and verify the loaded timetable remains available. Repeat with malformed XML to see the fatal error path.
 
 ## Added assignment and constraint workflow
 
@@ -23,6 +25,7 @@ For the source app, run `npm run dev` and open `http://localhost:8080/timetable/
 2. [ ] Run “Ricalcola tutte le assegnazioni”. Review progress and the full-schedule proposal, cancel once to verify preservation, then run again and explicitly apply. Verify class and teacher views and test undo.
 3. [ ] Add an unavailable period to a teacher, edit it to another period, delete it, and undo. Confirm any resulting conflict is visible and the recalculation respects the updated rule.
 4. [ ] Disable the original-time preference and observe whether the search finds a solution within its documented attempt cap; do not present a limit result as a valid timetable.
+5. [ ] Run `npm run dev`, open the printed `/timetable/` URL, and confirm styles and favicon load. Open `/timetable` without the trailing slash and confirm it redirects.
 
 ## Start-from-zero and issue triage
 
@@ -34,6 +37,6 @@ After each session, record the staff role, browser, task completion, points of h
 
 ## Automated evidence in this prototype
 
-The repository tests simulate the original eight workflows and the added import-without-placements, full-recalculation proposal/confirmation/cancellation, constraint add/edit/delete/undo, and real-sample import flows with jsdom. They cover a synthetic conflict cause, alternative comparison and bounded chain repair, apply across class/teacher views, exact undo, and failed/unsupported imports preserving current data. The standalone test opens the generated file with a `file://` URL and imports the real supplied OFD.
+The repository tests simulate the original workflows plus import without placements, automatic structure overview, roster navigation, supported-constraint inventory/edit/undo, route-to-recalculation, dev asset MIME/redirect behavior, and real-sample import with jsdom. They cover a synthetic conflict cause, alternative comparison and bounded chain repair, apply across class/teacher views, exact undo, and failed/unsupported imports preserving current data. The standalone test opens the generated file with a `file://` URL and imports the real supplied OFD; a local server smoke test also checks the timetable URL redirect, CSS, and favicon.
 
 Current automated result: **all scenarios covered by automated tests pass**. A walkthrough with school staff has **not yet been conducted**, so human usability remains unvalidated. The sample has zero direct hard conflicts; conflict repair is assessed with the synthetic demo, not invented sample data.

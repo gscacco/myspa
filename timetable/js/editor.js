@@ -39,6 +39,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const reviewCalculationButton = document.querySelector('#review-recalculation');
   const applyButton = document.querySelector('#apply-proposal');
   const undoButton = document.querySelector('#undo-change');
+  const structureUndoButton = document.querySelector('#undo-structure-change');
   const recalculateButton = document.querySelector('#recalculate-all');
   const cancelRecalculationButton = document.querySelector('#cancel-recalculation');
   const sourceHintToggle = document.querySelector('#prefer-source-hints');
@@ -50,7 +51,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const addConstraintButton = document.querySelector('#add-constraint');
   const constraintStatus = document.querySelector('#constraint-status');
   const constraintList = document.querySelector('#constraint-list');
-  if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton,
+  if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton, structureUndoButton,
     calculationStatus, reviewCalculationButton, recalculateButton, cancelRecalculationButton, sourceHintToggle, constraintFilter, constraintTarget, constraintKind, constraintDay,
     constraintPeriod, addConstraintButton, constraintStatus, constraintList].every(Boolean)) {
     throw new Error('Timetable editing controls are missing.');
@@ -67,7 +68,11 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   let editingConstraint = null;
   const options = new Map();
 
-  function renderUndo() { undoButton.disabled = !history?.canUndo; }
+  function renderUndo() {
+    const disabled = !history?.canUndo;
+    undoButton.disabled = disabled;
+    structureUndoButton.disabled = disabled;
+  }
 
   function updateCalculationControl() {
     recalculateButton.disabled = !timetable?.lessons?.length || Boolean(recalculationController);
@@ -140,14 +145,16 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     }
     const previousTarget = constraintTarget.value;
     const options = [];
-    const addOption = (value, label) => options.push({ value, label });
+    const addOption = (value, label, frames = {}) => options.push({
+      value, label, hasTimeframes: Object.values(frames).some(values => Array.isArray(values) && values.length > 0),
+    });
     for (const lesson of timetable.lessons) {
       const subject = entityName(timetable, 'subjects', lesson.subjectId);
       const classes = lesson.classIds.map(id => entityName(timetable, 'classes', id)).join(', ');
-      addOption(`lesson|${lesson.id}`, `Lezione · ${subject}${classes ? ` · ${classes}` : ''}`);
+      addOption(`lesson|${lesson.id}`, `Lezione · ${subject}${classes ? ` · ${classes}` : ''}`, lesson.timeframes);
     }
     for (const [scope, collection, label] of [['teacher', 'teachers', 'Docente'], ['class', 'classes', 'Classe'], ['room', 'rooms', 'Aula']]) {
-      for (const entity of timetable.entities[collection] || []) addOption(`${scope}|${entity.id}`, `${label} · ${entity.name}`);
+      for (const entity of timetable.entities[collection] || []) addOption(`${scope}|${entity.id}`, `${label} · ${entity.name}`, entity.constraints?.timeframes);
     }
     const filter = constraintFilter.value.trim().toLocaleLowerCase();
     const visibleOptions = options.filter(item => !filter || item.label.toLocaleLowerCase().includes(filter) || item.value.toLocaleLowerCase().includes(filter));
@@ -157,6 +164,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     addConstraintButton.disabled = visibleOptions.length === 0;
     if (visibleOptions.some(item => item.value === previousTarget)) constraintTarget.value = previousTarget;
     else if (selectedLessonId && visibleOptions.some(item => item.value === `lesson|${selectedLessonId}`)) constraintTarget.value = `lesson|${selectedLessonId}`;
+    else constraintTarget.value = (visibleOptions.find(item => item.hasTimeframes) || visibleOptions[0])?.value || '';
     const priorDay = constraintDay.value, priorPeriod = constraintPeriod.value;
     constraintDay.replaceChildren(...timetable.calendar.days.map(day => {
       const option = node(document, 'option', '', day.name); option.value = String(day.index); return option;
@@ -408,6 +416,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     status.textContent = 'Modifica annullata; l’orario precedente è stato ripristinato.';
     onApply(restored, lessonId, 'undo');
   });
+  structureUndoButton.addEventListener('click', () => undoButton.click());
 
   updateCalculationControl();
   refreshConstraintControls();

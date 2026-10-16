@@ -13,6 +13,7 @@ test('standalone build is a single-file offline document with a bootable timetab
   const html = await buildTimetableArtifact();
   assert.match(html, /^<!doctype html>/i);
   assert.doesNotMatch(html, /<link[^>]+stylesheet|<script[^>]+src=|type="module"/i);
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+">/);
   assert.doesNotMatch(html, /(?:href|src)=["'](?:https?:|\/\/)|url\(["']?(?:https?:|\/\/)/i);
   assert.equal((html.match(/<style>/g) || []).length, 1);
   const script = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].find(match => !/application\/edn/i.test(match[1]));
@@ -29,6 +30,7 @@ test('standalone build is a single-file offline document with a bootable timetab
   assert.ok(document.querySelector('#ofd-file'));
   assert.ok(document.querySelector('#view-controls'));
   assert.ok(document.querySelector('#find-alternatives'));
+  assert.ok(document.querySelector('link[rel="icon"]'));
   assert.equal(document.querySelector('#apply-import').disabled, true);
   assert.deepEqual(errors, [], 'startup does not depend on external scripts or assets');
   dom.window.close();
