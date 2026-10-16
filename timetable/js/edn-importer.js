@@ -16,6 +16,7 @@ function summarize(timetable) {
     rooms: timetable.entities.rooms.length,
     classes: timetable.entities.classes.length,
     subjects: timetable.entities.subjects.length,
+    students: timetable.entities.students?.length || 0,
     lessons: timetable.lessons.length,
     assignedLessons: timetable.lessons.length - unassignedLessons,
     unassignedLessons,

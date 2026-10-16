@@ -36,7 +36,7 @@ export function createBlankTimetableBuilder({ document = globalThis.document, on
     throw new Error('The zero-start timetable builder is missing required controls.');
   }
 
-  const entities = { teachers: [], classes: [], subjects: [], rooms: [] };
+  const entities = { teachers: [], classes: [], subjects: [], rooms: [], students: [] };
   let lessons = [];
   let previousWorkspaceHidden = true;
   const lessonSubject = document.querySelector('#lesson-subject');

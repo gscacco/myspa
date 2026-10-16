@@ -17,7 +17,7 @@ test('EDN timetable import/export validate schema v1 and preserve semantic value
   assert.deepEqual(imported.timetable, valid);
   assert.deepEqual(readEDN(exportTimetableEDN(imported.timetable)), valid);
   assert.deepEqual(imported.summary, {
-    teachers: 0, rooms: 0, classes: 0, subjects: 0, lessons: 0,
+    teachers: 0, rooms: 0, classes: 0, subjects: 0, students: 0, lessons: 0,
     assignedLessons: 0, unassignedLessons: 0, warningCount: 0,
   });
 });
@@ -31,4 +31,12 @@ test('EDN import fails explicitly on unsupported schema or invalid references', 
 
 test('EDN export refuses invalid timetable state instead of serializing it', () => {
   assert.throws(() => exportTimetableEDN({ ...valid, lessons: null }), /lesson|list|schema/i);
+});
+
+test('EDN round trip preserves student roster references and source import metadata', () => {
+  const timetable = structuredClone(valid);
+  timetable.entities.students = [{ id: 'student:ada', name: 'Ada Rossi', classId: 'class:1A' }];
+  timetable.entities.classes.push({ id: 'class:1A', name: '1A' });
+  timetable.source.rosterImports = [{ format: 'csv-roster', filename: 'studenti.csv', collection: 'students', content: 'nome,classe\nAda Rossi,1A' }];
+  assert.deepEqual(importTimetableEDN(exportTimetableEDN(timetable)).timetable, timetable);
 });

@@ -1,10 +1,13 @@
-import { importOFD, withoutOFDAssignments, OFDImportError } from './ofd-importer.js';
+import { importOFD, OFDImportError } from './ofd-importer.js';
 import { importTimetableEDN, exportTimetableEDN, EDNImportError } from './edn-importer.js';
 import { createTimetableViews } from './views.js';
 import { createTimetableEditor } from './editor.js';
 import { createEmptySchool, createSchoolWorkbench } from './school-workbench.js';
+import { parseRosterCSV } from './roster-importer.js';
+import { getCalculationReadiness } from './validation.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
+const rosterWarningCodes = new Set(['encoding-mismatch', 'period-name-mismatch', 'unsupported-structure', 'unsupported-attribute']);
 
 function element(document, tag, attributes = {}) {
   const node = document.createElement(tag);
@@ -35,8 +38,6 @@ function diagnosticText(item) {
 /** Owns pending/current import state; only an explicit action replaces current data. */
 export function createTimetableApp({ document = globalThis.document, DOMParser = document?.defaultView?.DOMParser, confirm = document?.defaultView?.confirm?.bind(document.defaultView), importer = source => importOFD(source, { DOMParser }) } = {}) {
   if (!document) throw new TypeError('A document is required to mount the timetable import screen.');
-  const input = document.querySelector('#ofd-file');
-  const omitAssignments = document.querySelector('#ofd-without-assignments');
   const report = document.querySelector('#import-report');
   const summary = document.querySelector('#import-summary');
   const diagnosticsList = document.querySelector('#import-diagnostics');
@@ -44,15 +45,15 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const cancelButton = document.querySelector('#cancel-import');
   const currentStatus = document.querySelector('#current-status');
   const importCard = document.querySelector('#import-card');
-  const changeButton = document.querySelector('#change-timetable');
   const appWorkspace = document.querySelector('.workspace');
-  if (![input, omitAssignments, report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, changeButton, appWorkspace].every(Boolean)) {
+  if (![report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, appWorkspace].every(Boolean)) {
     throw new Error('Timetable import screen is missing a required accessible control.');
   }
 
   let current = createEmptySchool();
   let currentDiagnostics = [];
   let pending = null;
+  let pendingRoster = null;
   let views;
   let editor;
   let activeScreen = 'school';
@@ -63,6 +64,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       current = next;
       editor?.setTimetable(current);
       if (views) refreshViews(true);
+      updateCalculationReadiness();
       document.querySelector('#topbar-school-name').textContent = current.name;
       document.querySelector('#school-name').value = current.name;
       currentStatus.textContent = 'Modifiche alla scuola · Esporta EDN per salvarle';
@@ -73,6 +75,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   editor = createTimetableEditor({
     document,
     getTimetable: () => current,
+    confirm,
     onApply: (next, _lessonId, action) => {
       current = next;
       schoolWorkbench.setTimetable(current);
@@ -86,8 +89,17 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   editor.setTimetable(current);
   views.render(current, currentDiagnostics);
 
+  function updateCalculationReadiness() {
+    const missing = getCalculationReadiness(current);
+    const labels = { teachers: 'docenti', classes: 'classi', subjects: 'materie', lessons: 'lezioni', 'lesson-details': 'riferimenti completi per ogni lezione', 'invalid-data': 'correggi i dati non validi' };
+    const output = document.querySelector('#calculation-readiness');
+    const button = document.querySelector('#recalculate-all');
+    if (output) output.textContent = missing.length ? `Per avviare il calcolo completa: ${missing.map(item => labels[item]).join(', ')}.` : 'Dati completi: puoi avviare il calcolo quando vuoi.';
+    if (button && !editor?.recalculationRunning) button.disabled = missing.length > 0;
+  }
+
   function showScreen(screen) {
-    const schoolViews = ['teachers', 'classes', 'lessons', 'rooms', 'constraints'];
+    const schoolViews = ['teachers', 'classes', 'students', 'lessons', 'rooms', 'constraints'];
     if (schoolViews.includes(screen)) {
       activeSchoolView = screen;
       screen = 'school';
@@ -105,6 +117,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     document.querySelector('#issues-page').hidden = true;
     document.querySelector('#structure-page').hidden = true;
     for (const panel of document.querySelectorAll('[data-school-panel]')) panel.hidden = panel.dataset.schoolPanel !== activeSchoolView;
+    document.querySelector('#school-view-label').textContent = ({ teachers: 'Docenti', classes: 'Classi', students: 'Studenti', lessons: 'Lezioni', rooms: 'Aule', constraints: 'Vincoli' })[activeSchoolView] || 'Docenti';
     for (const button of document.querySelectorAll('[data-screen]')) {
       const active = button.dataset.screen === screen || (screen === 'school' && button.dataset.screen === activeSchoolView);
       button.setAttribute('aria-pressed', String(active));
@@ -118,14 +131,13 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     if (activeScreen !== 'schedule') document.querySelector('#timetable-workspace').hidden = true;
   }
   for (const button of document.querySelectorAll('[data-screen]')) button.addEventListener('click', () => showScreen(button.dataset.screen));
-  document.querySelector('#school-next').addEventListener('click', () => showScreen('calculation'));
   document.querySelector('#go-to-schedule')?.addEventListener('click', () => showScreen('schedule'));
   const importToolsButton = document.querySelector('#show-import-tools');
   importToolsButton?.addEventListener('click', () => {
     showScreen('school');
     importCard.hidden = !importCard.hidden;
     importToolsButton.setAttribute('aria-expanded', String(!importCard.hidden));
-    if (!importCard.hidden) input.focus();
+    if (!importCard.hidden) ednInput.focus();
   });
   document.querySelector('#school-name').addEventListener('change', event => {
     const name = event.currentTarget.value.trim();
@@ -139,6 +151,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     refreshViews(true);
   });
   showScreen('school');
+  updateCalculationReadiness();
 
   function renderDiagnostics(items) {
     diagnosticsList.replaceChildren();
@@ -155,7 +168,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     summary.replaceChildren();
     const labels = [
       ['Lezioni', counts.lessons], ['Assegnate', counts.assignedLessons], ['Senza orario', counts.unassignedLessons],
-      ['Docenti', counts.teachers], ['Classi', counts.classes], ['Aule', counts.rooms], ['Materie', counts.subjects],
+      ['Docenti', counts.teachers], ['Classi', counts.classes], ['Aule', counts.rooms], ['Materie', counts.subjects], ['Studenti', counts.students || 0],
     ];
     for (const [label, value] of labels) {
       const wrapper = element(document, 'div');
@@ -195,7 +208,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     applyButton.disabled = true;
     cancelButton.disabled = true;
     report.dataset.state = 'checking';
-    report.textContent = `Controllo di ${file.name || 'file OFD'}…`;
+    report.textContent = `Controllo di ${file.name || 'file EDN'}…`;
     summary.hidden = true;
     summary.replaceChildren();
     diagnosticsList.replaceChildren();
@@ -206,7 +219,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       renderSummary(result.summary);
       renderDiagnostics(result.diagnostics);
       report.dataset.state = result.diagnostics.some(item => item.severity === 'warning') ? 'warning' : 'ready';
-      report.textContent = `${file.name || 'File OFD'} verificato. Controlla il riepilogo e conferma il caricamento.`;
+      report.textContent = `${file.name || 'File EDN'} verificato. Controlla il riepilogo e conferma il caricamento.`;
       applyButton.disabled = false;
       cancelButton.disabled = false;
       return true;
@@ -216,18 +229,81 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     }
   }
 
-  function stageFile(file) {
-    return stageWith(file, async selected => {
-      const result = await importer(new Uint8Array(await selected.arrayBuffer()));
-      return omitAssignments.checked ? withoutOFDAssignments(result) : result;
-    });
-  }
-
   function stageEDNFile(file) {
     return stageWith(file, async selected => {
       const source = new TextDecoder('utf-8', { fatal: true }).decode(await selected.arrayBuffer());
       return importTimetableEDN(source);
     });
+  }
+
+  async function stageRosterFile(collection, file) {
+    const status = document.querySelector(`[data-roster-status="${collection}"]`);
+    const apply = document.querySelector(`[data-roster-apply="${collection}"]`);
+    if (!status || !apply || !['teachers', 'classes', 'rooms', 'students'].includes(collection)) return false;
+    pendingRoster = null;
+    for (const action of document.querySelectorAll('[data-roster-apply]')) action.disabled = true;
+    status.textContent = `Controllo di ${file?.name || 'file'}…`;
+    try {
+      if (typeof file?.arrayBuffer !== 'function') throw new Error('Il browser non può leggere il file selezionato.');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let items, warning = '', sourceInfo;
+      if (/\.ofd$/i.test(file.name || '')) {
+        if (collection === 'students') throw new Error('Il file OFD non fornisce un’anagrafica studenti; scegli un CSV con nome e classe.');
+        const result = await importer(bytes);
+        items = structuredClone(result.timetable.entities[collection]);
+        warning = result.diagnostics.filter(item => item.severity === 'warning' && rosterWarningCodes.has(item.code)).map(diagnosticText).join(' ');
+        let outsideCalendar = 0;
+        for (const item of items) {
+          const frames = item.constraints?.timeframes;
+          if (!frames) continue;
+          for (const kind of ['unavailable', 'desired', 'undesired']) {
+            const values = frames[kind] || [];
+            const active = values.filter(slot => {
+              const [day, period] = slot.split('.').map(Number);
+              return day < current.calendar.days.length && period < current.calendar.periods.length;
+            });
+            const preserved = values.filter(slot => !active.includes(slot));
+            if (preserved.length) {
+              outsideCalendar += preserved.length;
+              item.sourceData ||= {};
+              item.sourceData.ofdTimeframes ||= {};
+              item.sourceData.ofdTimeframes[kind] = preserved;
+              frames[kind] = active;
+            }
+          }
+        }
+        if (outsideCalendar) warning += `${warning ? ' ' : ''}${outsideCalendar} vincoli temporali fuori dal calendario corrente sono conservati nei dati sorgente, ma non applicabili al calcolo.`;
+        sourceInfo = {
+          format: 'orario-facile-ofd-roster', filename: file.name || '', collection, source: result.timetable.source,
+          diagnostics: result.diagnostics.map(item => ({ severity: item.severity || 'info', code: item.code || '', message: item.message || '' })),
+        };
+      } else {
+        const csv = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        ({ items } = parseRosterCSV(csv, collection, current));
+        sourceInfo = { format: 'csv-roster', filename: file.name || '', collection, content: csv };
+      }
+      const existing = new Set(current.entities[collection].map(item => item.name.trim().toLocaleLowerCase()));
+      const duplicates = items.filter(item => existing.has(item.name.trim().toLocaleLowerCase())).length;
+      pendingRoster = { collection, items, sourceInfo };
+      apply.disabled = items.length === 0;
+      const labels = { teachers: 'docenti pronti', classes: 'classi pronte', rooms: 'aule pronte', students: 'studenti pronti' };
+      status.textContent = `${items.length} ${labels[collection]}${duplicates ? `; ${duplicates} già presenti` : ''}.${warning ? ` ${warning}` : ''} Conferma per aggiungerli.`;
+      return true;
+    } catch (error) {
+      status.textContent = `Importazione non riuscita: ${error.message} La scuola è rimasta invariata.`;
+      return false;
+    }
+  }
+
+  function applyRosterImport(collection) {
+    if (!pendingRoster || pendingRoster.collection !== collection) return false;
+    const { imported, duplicates } = schoolWorkbench.importEntities(collection, pendingRoster.items, pendingRoster.sourceInfo);
+    const status = document.querySelector(`[data-roster-status="${collection}"]`);
+    status.textContent = `${imported} elementi importati${duplicates ? `; ${duplicates} duplicati già presenti` : ''}.`;
+    pendingRoster = null;
+    document.querySelector(`[data-roster-apply="${collection}"]`).disabled = true;
+    document.querySelector(`#roster-file-${collection}`).value = '';
+    return true;
   }
 
   function applyImport() {
@@ -236,8 +312,9 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     if (hasSchoolData && typeof confirm === 'function' && !confirm('Sostituire i dati della scuola attualmente aperta?')) return false;
     current = pending.timetable;
     currentDiagnostics = [...pending.diagnostics];
-    editor.setTimetable(current);
     schoolWorkbench.setTimetable(current);
+    editor.setTimetable(current);
+    updateCalculationReadiness();
     refreshViews();
     document.querySelector('#school-name').value = current.name;
     document.querySelector('#topbar-school-name').textContent = current.name;
@@ -249,14 +326,11 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     document.querySelector('.current-card').hidden = false;
     importCard.hidden = true;
     appWorkspace.classList.add('has-timetable');
-    changeButton.hidden = false;
-    changeButton.textContent = 'Carica un altro orario';
-    changeButton.setAttribute('aria-expanded', 'false');
     exportButton.disabled = false;
     exportToolsButton.disabled = false;
     report.dataset.state = 'ready';
     report.textContent = 'Orario caricato. I dati originali del file sono conservati nel modello.';
-    showScreen(currentDiagnostics.some(item => item.code === 'assignments-omitted') ? 'school' : 'schedule');
+    showScreen(current.lessons.some(lesson => lesson.assignedTime) ? 'schedule' : 'school');
     return true;
   }
 
@@ -273,11 +347,6 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     return true;
   }
 
-  input.addEventListener('change', () => {
-    const file = input.files?.[0];
-    if (file) void stageFile(file);
-    input.value = '';
-  });
   const ednInput = document.querySelector('#edn-file');
   const exportButton = document.querySelector('#export-edn');
   const exportToolsButton = document.querySelector('#export-edn-tools');
@@ -289,14 +358,26 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   });
   applyButton.addEventListener('click', applyImport);
   cancelButton.addEventListener('click', cancelImport);
-  changeButton.addEventListener('click', () => {
-    const open = importCard.hidden;
-    importCard.hidden = !open;
-    importToolsButton?.setAttribute('aria-expanded', String(open));
-    changeButton.textContent = open ? 'Nascondi importazione' : 'Carica un altro orario';
-    changeButton.setAttribute('aria-expanded', String(open));
-    if (open) input.focus();
-  });
+  for (const collection of ['teachers', 'classes', 'rooms', 'students']) {
+    const input = document.querySelector(`#roster-file-${collection}`);
+    const open = document.querySelector(`[data-roster-open="${collection}"]`);
+    const apply = document.querySelector(`[data-roster-apply="${collection}"]`);
+    const cancel = document.querySelector(`[data-roster-cancel="${collection}"]`);
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (file) void stageRosterFile(collection, file).finally(() => { input.value = ''; });
+    });
+    open.addEventListener('click', () => {
+      const panel = document.querySelector(`[data-roster-panel="${collection}"]`);
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) input.focus();
+    });
+    apply.addEventListener('click', () => applyRosterImport(collection));
+    cancel.addEventListener('click', () => {
+      pendingRoster = null; input.value = ''; apply.disabled = true;
+      document.querySelector(`[data-roster-status="${collection}"]`).textContent = 'Importazione annullata; la scuola è rimasta invariata.';
+    });
+  }
   currentStatus.textContent = 'Nuova scuola pronta · aggiungi classi, docenti e lezioni';
   exportButton.addEventListener('click', () => {
     handleExportEDN();
@@ -330,7 +411,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   }
 
   return {
-    stageFile,
+    stageRosterFile,
     stageEDNFile,
     applyImport,
     cancelImport,
@@ -340,6 +421,8 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     get timetable() { return current; },
     get diagnostics() { return currentDiagnostics; },
     get pendingTimetable() { return pending?.timetable || null; },
+    get pendingRoster() { return pendingRoster; },
+    applyRosterImport,
     get activeScreen() { return activeScreen; },
     showScreen,
     schoolWorkbench,

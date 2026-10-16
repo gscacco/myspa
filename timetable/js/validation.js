@@ -49,13 +49,13 @@ export function validateTimetable(timetable) {
     }
   });
 
-  const entityTypes = ['teachers', 'rooms', 'classes', 'subjects'];
+  const entityTypes = ['teachers', 'rooms', 'classes', 'subjects', 'students'];
   const entities = timetable.entities;
   if (!entities || typeof entities !== 'object') errors.push(diagnostic('invalid-shape', 'Entity collections are required.', 'entities'));
   const entityById = new Map();
   const localIds = new Set();
   for (const type of entityTypes) {
-    const values = arrayAt(entities?.[type], `entities.${type}`, errors);
+    const values = arrayAt(type === 'students' && entities?.[type] == null ? [] : entities?.[type], `entities.${type}`, errors);
     const names = new Set();
     values.forEach((entity, index) => {
       const path = `entities.${type}[${index}]`;
@@ -73,6 +73,9 @@ export function validateTimetable(timetable) {
         errors.push(diagnostic('invalid-shape', 'Entity constraints must be a map.', `${path}.constraints`));
       } else if (constraints?.timeframes != null) {
         validateTimeframes(constraints.timeframes, `${path}.constraints.timeframes`, days.length, periods.length, errors);
+      }
+      if (type === 'students' && (typeof entity.classId !== 'string' || entityById.get(entity.classId) !== 'classes')) {
+        errors.push(diagnostic('missing-reference', `Unknown class reference ${String(entity.classId)}.`, `${path}.classId`));
       }
     });
   }
@@ -122,6 +125,24 @@ export function validateTimetable(timetable) {
   }
   arrayAt(timetable.parameters, 'parameters', errors);
   return { errors, warnings };
+}
+
+/** Missing minimum school data required to start a meaningful assignment search. */
+export function getCalculationReadiness(timetable) {
+  const missing = [];
+  if (!(timetable?.entities?.teachers?.length)) missing.push('teachers');
+  if (!(timetable?.entities?.classes?.length)) missing.push('classes');
+  if (!(timetable?.entities?.subjects?.length)) missing.push('subjects');
+  if (!(timetable?.lessons?.length)) missing.push('lessons');
+  const entityIds = collection => new Set(Array.isArray(timetable?.entities?.[collection]) ? timetable.entities[collection].map(item => item?.id) : []);
+  const teachers = entityIds('teachers'), classes = entityIds('classes'), subjects = entityIds('subjects');
+  const lessons = Array.isArray(timetable?.lessons) ? timetable.lessons : [];
+  if (lessons.some(lesson => !subjects.has(lesson.subjectId) || !lesson.teacherIds?.length
+    || lesson.teacherIds.some(id => !teachers.has(id)) || !lesson.classIds?.length || lesson.classIds.some(id => !classes.has(id)))) {
+    missing.push('lesson-details');
+  }
+  if (validateTimetable(timetable).errors.length) missing.push('invalid-data');
+  return missing;
 }
 
 function validateTimeframes(timeframes, path, dayCount, periodCount, errors) {

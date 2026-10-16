@@ -4,124 +4,104 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { createTimetableApp } from '../../timetable/js/app.js';
-import { readEDN } from '../../timetable/js/edn-codec.js';
-import { domParser, minimalOFD, lessonXML } from './helpers.js';
+import { readEDN, writeEDN } from '../../timetable/js/edn-codec.js';
+import { createEmptySchool } from '../../timetable/js/school-workbench.js';
+import { domParser } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
-const samplePath = fileURLToPath(new URL('../../OR_30_SETT.ofd', import.meta.url));
-const unsupportedPath = fileURLToPath(new URL('../../timetable/fixtures/unsupported-demo.ofd', import.meta.url));
-const fileFrom = source => ({ name: 'schedule.ofd', arrayBuffer: async () => {
+const samplePath = new URL('../../OR_30_SETT.ofd', import.meta.url);
+const unsupportedPath = new URL('../../timetable/fixtures/unsupported-demo.ofd', import.meta.url);
+const fileFrom = (source, name = 'school.ofd') => ({ name, arrayBuffer: async () => {
   const bytes = typeof source === 'string' ? new TextEncoder().encode(source) : source;
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 } });
 
-async function mount({ confirm = () => true } = {}) {
-  const html = await readFile(indexPath, 'utf8');
-  const dom = new JSDOM(html, { url: 'http://localhost/' });
-  const app = createTimetableApp({ document: dom.window.document, DOMParser: domParser, confirm });
+async function mount(options = {}) {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const app = createTimetableApp({ document: dom.window.document, DOMParser: domParser, ...options });
   return { app, dom, document: dom.window.document };
 }
 
-test('import screen labels file selection, reports validation, and loads only on explicit confirmation', async () => {
+test('OFD is imported from its roster sheet and adds only the selected entity type', async () => {
   const { app, dom, document } = await mount();
+  assert.equal(document.querySelector('#ofd-file'), null);
+  assert.equal(document.querySelector('#edn-file').accept, '.edn');
+  assert.match(document.querySelector('#import-heading').textContent, /progetto EDN/i);
+  const input = document.querySelector('#roster-file-classes');
+  assert.equal(input.accept, '.ofd,.csv');
+  assert.equal(document.querySelector('#roster-file-rooms').accept, '.ofd,.csv');
+  assert.equal(document.querySelector('#roster-file-students').accept, '.csv,.ofd');
   const bytes = await readFile(samplePath);
-  const fileInput = document.querySelector('#ofd-file');
-  assert.equal(fileInput.accept, '.ofd');
-  assert.ok(fileInput.labels.length);
-  Object.defineProperty(fileInput, 'files', { configurable: true, value: [fileFrom(bytes)] });
-  fileInput.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(app.timetable.lessons.length, 0, 'the app starts with an editable empty school');
-  assert.equal(app.activeScreen, 'school');
-  assert.equal(document.querySelector('#apply-import').disabled, false);
-  assert.match(document.querySelector('#import-summary').textContent, /1[.,]?714/);
-  assert.match(document.querySelector('#import-diagnostics').textContent, /6 lezioni senza orario/i);
-  document.querySelector('#apply-import').click();
-  assert.equal(app.timetable.lessons.length, 1714);
-  assert.match(document.querySelector('#current-status').textContent, /caricato/i);
-  assert.equal(document.querySelector('.import-card').hidden, true, 'the timetable workspace becomes primary after loading');
-  assert.equal(document.querySelector('#timetable-workspace').hidden, false);
-  assert.equal(document.querySelector('#export-edn').disabled, false, 'export stays available while the timetable is the primary screen');
-  document.querySelector('#change-timetable').click();
-  assert.equal(document.querySelector('.import-card').hidden, false, 'import controls remain reachable');
+  await app.stageRosterFile('classes', fileFrom(bytes, 'OR_30_SETT.ofd'));
+  assert.ok(app.pendingRoster.items.length > 50);
+  assert.match(document.querySelector('[data-roster-status="classes"]').textContent, /fuori dal calendario/i);
+  assert.equal(app.timetable.lessons.length, 0, 'OFD roster import does not load assignments or lessons');
+  document.querySelector('[data-roster-apply="classes"]').click();
+  assert.ok(app.timetable.entities.classes.length > 50);
+  assert.equal(app.timetable.entities.teachers.length, 0, 'only classes are imported from this action');
+  assert.equal(app.timetable.entities.rooms.length, 0);
+  assert.ok(app.timetable.entities.classes.some(item => item.sourceData?.ofdTimeframes?.unavailable?.length), 'out-of-calendar timeframes are preserved but not activated');
+  assert.match(app.timetable.source.rosterImports[0].source.xml, /Questo file è stato generato/);
+  assert.match(readEDN(app.exportEDN()).source.rosterImports[0].source.xml, /Questo file è stato generato/);
+  document.querySelector('[data-screen="classes"]').click();
+  assert.equal(document.querySelector('[data-school-panel="classes"]').hidden, false);
   dom.window.close();
 });
 
-test('failed or declined imports preserve the current timetable', async () => {
+test('invalid and unsupported OFD roster files preserve current school data and can be cancelled', async () => {
+  const { app, dom, document } = await mount();
+  app.schoolWorkbench.importEntities('teachers', [{ id: 'teacher:mine', name: 'Mia' }]);
+  const current = app.timetable;
+  assert.equal(await app.stageRosterFile('classes', fileFrom('<DOCUMENT>', 'bad.ofd')), false);
+  assert.equal(app.timetable, current);
+  assert.match(document.querySelector('[data-roster-status="classes"]').textContent, /rimasta invariata/i);
+  const unsupported = await readFile(unsupportedPath);
+  assert.equal(await app.stageRosterFile('classes', fileFrom(unsupported, 'future.ofd')), true);
+  assert.equal(app.timetable, current);
+  assert.match(document.querySelector('[data-roster-status="classes"]').textContent, /FUTURE_RULE/i);
+  document.querySelector('[data-roster-cancel="classes"]').click();
+  assert.equal(app.timetable.entities.teachers[0].name, 'Mia');
+  assert.equal(app.timetable.entities.classes.length, 0);
+  dom.window.close();
+});
+
+test('students require a CSV roster and are linked to an existing class', async () => {
+  const { app, dom, document } = await mount();
+  app.schoolWorkbench.importEntities('classes', [{ id: 'class:1a', name: '1A' }]);
+  assert.equal(await app.stageRosterFile('students', fileFrom('<DOCUMENT/>', 'school.ofd')), false);
+  assert.match(document.querySelector('[data-roster-status="students"]').textContent, /non fornisce.*studenti/i);
+  assert.equal(await app.stageRosterFile('students', fileFrom('nome,cognome,classe\nAda,Rossi,1A', 'students.csv')), true);
+  document.querySelector('[data-roster-apply="students"]').click();
+  assert.deepEqual(app.timetable.entities.students.map(student => [student.name, student.classId]), [['Ada Rossi', 'class:1a']]);
+  assert.equal(document.querySelector('#school-grid-students tbody tr[data-row="0"] select').value, 'class:1a');
+  dom.window.close();
+});
+
+test('EDN panel stages and confirms whole-project replacement; export retains the current domain model', async () => {
   let allowReplacement = false;
   const { app, dom, document } = await mount({ confirm: () => allowReplacement });
-  const initial = fileFrom(minimalOFD({ lesson: lessonXML() }));
-  await app.stageFile(initial);
+  app.schoolWorkbench.importEntities('teachers', [{ id: 'teacher:old', name: 'Docente esistente' }]);
+  const existing = app.timetable;
+  const replacement = createEmptySchool();
+  replacement.name = 'Scuola importata';
+  const source = writeEDN(replacement);
+  const ednFile = fileFrom(source, 'school.edn');
+  assert.equal(await app.stageEDNFile(ednFile), true);
+  assert.equal(app.timetable, existing, 'staging leaves current data untouched');
   document.querySelector('#apply-import').click();
-  const original = app.timetable;
-  assert.ok(original);
-
-  await app.stageFile(fileFrom('<DOCUMENT>'));
-  assert.equal(app.timetable, original);
-  assert.equal(document.querySelector('#apply-import').disabled, true);
-  assert.match(document.querySelector('#import-report').textContent, /xml/i);
-
-  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML({ time: '0.1' }) })));
+  assert.equal(app.timetable, existing, 'declining replacement keeps existing work');
+  allowReplacement = true;
   document.querySelector('#apply-import').click();
-  assert.equal(app.timetable, original, 'declining replacement keeps the active schedule');
+  assert.equal(app.timetable.name, 'Scuola importata');
+  assert.deepEqual(readEDN(app.exportEDN()), app.timetable);
   dom.window.close();
 });
 
-test('discarding a valid pending import leaves the current timetable unchanged', async () => {
+test('invalid EDN cannot replace the current project', async () => {
   const { app, dom, document } = await mount();
-  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML() })));
-  document.querySelector('#apply-import').click();
+  app.schoolWorkbench.importEntities('teachers', [{ id: 'teacher:mine', name: 'Mia' }]);
   const original = app.timetable;
-  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML({ time: '0.1' }) })));
-  document.querySelector('#cancel-import').click();
-  assert.equal(app.timetable, original);
-  assert.match(document.querySelector('#import-report').textContent, /annullat/i);
-  dom.window.close();
-});
-
-test('OFD import can keep teachers, classes, lessons, and constraints while omitting placements', async () => {
-  const { app, dom, document } = await mount();
-  const mode = document.querySelector('#ofd-without-assignments');
-  assert.ok(mode, 'the import mode is available to staff');
-  mode.checked = true;
-  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML({ time: '0.0', timeframes: '<UNAVAIL value="0.1"/>' }) })));
-  assert.equal(app.pendingTimetable.lessons[0].assignedTime, null);
-  assert.equal(app.pendingTimetable.lessons[0].teacherIds.length, 1);
-  assert.equal(app.pendingTimetable.entities.classes.length, 1);
-  assert.deepEqual(app.pendingTimetable.lessons[0].timeframes.unavailable, ['0.1']);
-  assert.match(document.querySelector('#import-diagnostics').textContent, /collocazioni.*omesse/i);
-  document.querySelector('#apply-import').click();
-  assert.equal(app.timetable.lessons[0].assignedTime, null);
-  dom.window.close();
-});
-
-test('unsupported OFD warnings can be reviewed and cancelled without replacing current data', async () => {
-  const { app, dom, document } = await mount();
-  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML() })));
-  document.querySelector('#apply-import').click();
-  const original = app.timetable;
-  await app.stageFile(fileFrom(await readFile(unsupportedPath)));
-  assert.equal(app.timetable, original);
-  assert.match(document.querySelector('#import-diagnostics').textContent, /FUTURE_RULE/);
-  document.querySelector('#cancel-import').click();
-  assert.equal(app.timetable, original);
-  assert.match(document.querySelector('#import-report').textContent, /annullat/i);
-  dom.window.close();
-});
-
-test('validates EDN before loading and exports the current domain model as EDN', async () => {
-  const { app, dom, document } = await mount();
-  const input = document.querySelector('#edn-file');
-  assert.equal(input.accept, '.edn');
-  assert.equal(document.querySelector('#export-edn-tools').disabled, true);
-  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML() })));
-  document.querySelector('#apply-import').click();
-  const original = app.timetable;
-  assert.equal(document.querySelector('#export-edn').disabled, false);
-  assert.equal(document.querySelector('#export-edn-tools').disabled, false);
-  assert.deepEqual(readEDN(app.exportEDN()), original);
-
-  await app.stageEDNFile(fileFrom('{:schemaVersion 1}'));
+  await app.stageEDNFile(fileFrom('{:schemaVersion 1}', 'broken.edn'));
   assert.equal(app.timetable, original);
   assert.equal(document.querySelector('#apply-import').disabled, true);
   assert.match(document.querySelector('#import-report').textContent, /importazione non riuscita/i);
