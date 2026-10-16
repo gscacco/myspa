@@ -31,6 +31,7 @@
         <span><strong>Seleziona il file</strong><small>Orario Facile XML (.ofd)</small></span>
       </label>
       <input id="ofd-file" type="file" accept=".ofd" aria-describedby="file-help">
+      <label class="import-mode" for="ofd-without-assignments"><input id="ofd-without-assignments" type="checkbox"> Importa docenti, classi, lezioni e vincoli senza gli orari assegnati</label>
       <p class="field-help" id="file-help">I dati restano in questa scheda. Il caricamento richiede una conferma esplicita.</p>
 
       <div class="interchange-tools" aria-label="Scambio dati EDN">
@@ -99,6 +100,12 @@
               <button id="find-alternatives" class="secondary-button" type="button" disabled>Trova alternative</button>
               <button id="cancel-search" class="secondary-button" type="button" disabled>Annulla ricerca</button>
             </div>
+            <div class="editor-actions">
+              <button id="recalculate-all" class="secondary-button" type="button" disabled>Ricalcola tutte le assegnazioni</button>
+              <button id="cancel-recalculation" class="secondary-button" type="button" disabled>Annulla ricalcolo</button>
+            </div>
+            <label class="hint-mode" for="prefer-source-hints"><input id="prefer-source-hints" type="checkbox" checked> Preferisci, come punto di partenza, gli orari originali OFD conservati</label>
+            <p class="field-help">Questi orari non sono caricati come assegnazioni. Il ricalcolo li usa solo come preferenza modificabile.</p>
             <p id="edit-status" class="muted" role="status" aria-live="polite">Seleziona una lezione assegnata per esplorare alternative.</p>
             <div id="proposal-list" class="proposal-list" role="group" aria-label="Alternative verificate"></div>
             <div id="proposal-impact" class="proposal-impact" aria-live="polite"><p class="muted">Scegli un’alternativa per confrontarne gli effetti.</p></div>
@@ -106,6 +113,25 @@
               <button id="apply-proposal" class="primary-button" type="button" disabled>Applica proposta</button>
               <button id="undo-change" class="secondary-button" type="button" disabled>Annulla ultima modifica</button>
             </div>
+            <section class="constraint-editor" aria-labelledby="constraints-heading">
+              <h4 id="constraints-heading">Vincoli di orario</h4>
+              <label for="constraint-filter">Cerca l’elemento</label>
+              <input id="constraint-filter" type="search" placeholder="Docente, classe, aula o lezione" disabled>
+              <label for="constraint-target">Applica a</label>
+              <select id="constraint-target" aria-label="Elemento soggetto al vincolo" disabled></select>
+              <label for="constraint-kind">Tipo di vincolo</label>
+              <select id="constraint-kind" disabled>
+                <option value="unavailable">Non disponibile (obbligatorio)</option>
+                <option value="undesired">Evitare questa fascia (preferenza)</option>
+              </select>
+              <div class="constraint-time">
+                <label for="constraint-day">Giorno</label><select id="constraint-day" disabled></select>
+                <label for="constraint-period">Ora</label><select id="constraint-period" disabled></select>
+              </div>
+              <button id="add-constraint" class="secondary-button" type="button" disabled>Aggiungi vincolo</button>
+              <p id="constraint-status" class="muted" role="status" aria-live="polite">Importa un orario per gestire i vincoli.</p>
+              <ul id="constraint-list" class="constraint-list" aria-label="Vincoli di orario esistenti"></ul>
+            </section>
           </section>
         </section>
         <section class="schedule-panel" aria-labelledby="issues-heading">

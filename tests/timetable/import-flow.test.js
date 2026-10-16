@@ -78,6 +78,22 @@ test('discarding a valid pending import leaves the current timetable unchanged',
   dom.window.close();
 });
 
+test('OFD import can keep teachers, classes, lessons, and constraints while omitting placements', async () => {
+  const { app, dom, document } = await mount();
+  const mode = document.querySelector('#ofd-without-assignments');
+  assert.ok(mode, 'the import mode is available to staff');
+  mode.checked = true;
+  await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML({ time: '0.0', timeframes: '<UNAVAIL value="0.1"/>' }) })));
+  assert.equal(app.pendingTimetable.lessons[0].assignedTime, null);
+  assert.equal(app.pendingTimetable.lessons[0].teacherIds.length, 1);
+  assert.equal(app.pendingTimetable.entities.classes.length, 1);
+  assert.deepEqual(app.pendingTimetable.lessons[0].timeframes.unavailable, ['0.1']);
+  assert.match(document.querySelector('#import-diagnostics').textContent, /collocazioni.*omesse/i);
+  document.querySelector('#apply-import').click();
+  assert.equal(app.timetable.lessons[0].assignedTime, null);
+  dom.window.close();
+});
+
 test('unsupported OFD warnings can be reviewed and cancelled without replacing current data', async () => {
   const { app, dom, document } = await mount();
   await app.stageFile(fileFrom(minimalOFD({ lesson: lessonXML() })));
