@@ -220,20 +220,38 @@ function readLessons(periodData, entities, calendar) {
   const ids = Object.fromEntries(Object.entries(ENTITIES).map(([type]) => [
     type, new Set(entities[type].map(entity => entity.id)),
   ]));
+  const ensureUnknown = collection => {
+    let entity = entities[collection].find(item => item.placeholder === 'unknown')
+      || entities[collection].find(item => item.name.trim().toLocaleUpperCase() === 'UNKNOWN');
+    if (!entity) {
+      const prefix = ENTITIES[collection].idPrefix;
+      const occupied = new Set(Object.values(entities).flatMap(items => Array.isArray(items) ? items.map(item => item.id) : []));
+      let id = `${prefix}:unknown`, suffix = 2;
+      while (occupied.has(id)) id = `${prefix}:unknown-${suffix++}`;
+      entity = { id, name: 'UNKNOWN' };
+      entities[collection].push(entity);
+    }
+    entity.placeholder = 'unknown';
+    names[collection].set('UNKNOWN', entity.id);
+    ids[collection].add(entity.id);
+    return entity.id;
+  };
   return children(periodData, 'LESSON').map((element, index) => {
     const path = `PERIODDATA/LESSON[${index}]`;
-    const subject = valueOf(one(element, 'SUBJECT', path, { required: true }), `${path}/SUBJECT`);
+    const subjectElement = one(element, 'SUBJECT', path);
+    const subject = subjectElement ? valueOf(subjectElement, `${path}/SUBJECT`, { required: false }) : null;
     const durationPeriods = integer(valueOf(one(element, 'DURATION', path, { required: true }), `${path}/DURATION`), `${path}/DURATION`, { minimum: 1 });
     const teacherIds = references(element, 'TEACHER', 'teacher', path, { required: true });
     const classIds = references(element, 'GROUP', 'class', path);
     const roomIds = references(element, 'ROOM', 'room', path);
     const unknown = [
-      ...(!names.subjects.has(subject) ? [`subject ${subject}`] : []),
+      ...(subject && !names.subjects.has(subject) ? [`subject ${subject}`] : []),
       ...teacherIds.filter(id => !ids.teachers.has(id)).map(id => `teacher ${id.slice(8)}`),
       ...classIds.filter(id => !ids.classes.has(id)).map(id => `class ${id.slice(6)}`),
       ...roomIds.filter(id => !ids.rooms.has(id)).map(id => `room ${id.slice(5)}`),
     ];
     if (unknown.length) fail(`Lesson refers to missing ${unknown.join(', ')}.`, path);
+    if (!classIds.length) classIds.push(ensureUnknown('classes'));
 
     const rawTime = one(element, 'TIME', path);
     let assignedTime = null;
@@ -252,7 +270,7 @@ function readLessons(periodData, entities, calendar) {
     const lesson = {
       id: `lesson:${index}`,
       sourceIndex: index,
-      subjectId: names.subjects.get(subject),
+      subjectId: subject ? names.subjects.get(subject) : ensureUnknown('subjects'),
       teacherIds,
       classIds,
       roomIds,
@@ -393,6 +411,12 @@ export function importOFD(input, { DOMParser: Parser = globalThis.DOMParser } = 
   }
   const unassigned = timetable.lessons.filter(lesson => lesson.assignedTime === null).length;
   if (unassigned) diagnostics.push({ severity: 'warning', code: 'unassigned-lessons', message: `${unassigned} lessons have no assigned time in the source file.`, details: { count: unassigned }, path: 'PERIODDATA/LESSON' });
+  const unknownClasses = new Set(entities.classes.filter(item => item.placeholder === 'unknown').map(item => item.id));
+  const unknownSubjects = new Set(entities.subjects.filter(item => item.placeholder === 'unknown').map(item => item.id));
+  const lessonsWithoutClass = timetable.lessons.filter(lesson => lesson.classIds.some(id => unknownClasses.has(id))).length;
+  const lessonsWithoutSubject = timetable.lessons.filter(lesson => unknownSubjects.has(lesson.subjectId)).length;
+  if (lessonsWithoutClass) diagnostics.push({ severity: 'warning', code: 'lesson-without-class', message: `${lessonsWithoutClass} lessons have no class; UNKNOWN was assigned.`, details: { count: lessonsWithoutClass }, path: 'PERIODDATA/LESSON' });
+  if (lessonsWithoutSubject) diagnostics.push({ severity: 'warning', code: 'lesson-without-subject', message: `${lessonsWithoutSubject} lessons have no subject; UNKNOWN was assigned.`, details: { count: lessonsWithoutSubject }, path: 'PERIODDATA/LESSON' });
   const summary = {
     teachers: entities.teachers.length,
     rooms: entities.rooms.length,

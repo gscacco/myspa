@@ -33,6 +33,17 @@ export function analyzeSchedule(timetable) {
       const sourceSlot = `${dayIndex}.${period}`;
       for (const [resourceType, field] of RESOURCE_FIELDS) {
         for (const resourceId of new Set(lesson[field] || [])) {
+          const collection = resourceType === 'teacher' ? 'teachers' : resourceType === 'class' ? 'classes' : 'rooms';
+          const entity = maps[collection].get(resourceId);
+          if (resourceType === 'class' && entity?.placeholder === 'unknown') {
+            if (entity.constraints?.timeframes?.unavailable?.includes(sourceSlot)) {
+              issues.push(issue('unavailable-time', 'error', {
+                resourceType, resourceId, resourceName: entity.name, dayIndex, periodIndex: period,
+                lessonIds: [lesson.id], message: 'Lesson is assigned during an unavailable slot.',
+              }));
+            }
+            continue;
+          }
           const key = `${resourceType}|${resourceId}|${dayIndex}|${period}`;
           let occupant = occupancy.get(key);
           if (!occupant) {
@@ -41,8 +52,6 @@ export function analyzeSchedule(timetable) {
           }
           occupant.lessonIds.add(lesson.id);
 
-          const collection = resourceType === 'teacher' ? 'teachers' : resourceType === 'class' ? 'classes' : 'rooms';
-          const entity = maps[collection].get(resourceId);
           if (entity?.constraints?.timeframes?.unavailable?.includes(sourceSlot)) {
             issues.push(issue('unavailable-time', 'error', {
               resourceType, resourceId, resourceName: entity.name, dayIndex, periodIndex: period,

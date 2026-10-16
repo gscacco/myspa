@@ -89,7 +89,7 @@ test('real supplied timetable renders its six-day grid and navigates to a lesson
   views.render(timetable, diagnostics);
   const { document } = dom.window;
   assert.equal(document.querySelectorAll('#schedule-grid .day-heading').length, 6);
-  assert.equal(document.querySelectorAll('#entity-select option').length, 58);
+  assert.equal(document.querySelectorAll('#entity-select option').length, 59);
   assert.ok(document.querySelector('#source-warnings').textContent.includes('Codifica XML'));
   assert.ok(document.querySelector('#issues-list').textContent.includes('senza orario'));
 
@@ -110,7 +110,7 @@ test('real OFD imported without placements exposes its full school roster and im
   views.render(structureOnly.timetable, structureOnly.diagnostics);
   const { document } = dom.window;
   document.querySelector('#open-structure').click();
-  assert.equal(document.querySelectorAll('#structure-classes [data-entity-name]').length, 58);
+  assert.equal(document.querySelectorAll('#structure-classes [data-entity-name]').length, 59);
   assert.equal(document.querySelectorAll('#structure-teachers [data-entity-name]').length, 118);
   assert.equal([...document.querySelectorAll('#structure-summary dd')].some(value => Number(value.textContent.replace(/\D/g, '')) === 1714), true);
   assert.equal(structureOnly.timetable.lessons.every(lesson => lesson.assignedTime === null), true);

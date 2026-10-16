@@ -55,6 +55,7 @@ function assignmentIssues(timetable, lesson, time, assignments) {
       for (const id of new Set(lesson[field] || [])) {
         if (!otherIds.has(id)) continue;
         const entity = entities.get(id);
+        if (collection === 'classes' && entity?.placeholder === 'unknown') continue;
         const periodIndex = Math.max(time.periodIndex, otherTime.periodIndex);
         issues.push({
           code: 'resource-collision', resourceType: collection.slice(0, -1), resourceId: id,

@@ -59,15 +59,29 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let editor;
   let activeScreen = 'school';
   let activeSchoolView = 'teachers';
+  const unknownCount = (timetable, collection, lessonField) => {
+    const unknownIds = new Set((timetable.entities?.[collection] || []).filter(item => item.placeholder === 'unknown').map(item => item.id));
+    return timetable.lessons.filter(lesson => lessonField === 'subjectId'
+      ? unknownIds.has(lesson.subjectId)
+      : (lesson[lessonField] || []).some(id => unknownIds.has(id))).length;
+  };
   const schoolWorkbench = createSchoolWorkbench({
     document,
     onChange: next => {
       current = next;
       const activeLessonWarnings = (next.source.lessonImports || []).flatMap(item => item.diagnostics || [])
         .filter(item => String(item.code || '').startsWith('lesson-'));
-      const currentLessonWarnings = getCalculationReadiness(next).includes('lesson-details')
-        ? activeLessonWarnings
-        : activeLessonWarnings.filter(item => item.code !== 'lesson-without-class');
+      const currentLessonWarnings = activeLessonWarnings.flatMap(item => {
+        if (item.code === 'lesson-without-class') {
+          const count = unknownCount(next, 'classes', 'classIds');
+          return count ? [{ ...item, message: `${count} lezioni OFD non hanno una classe; usano UNKNOWN e non bloccano il calcolo.` }] : [];
+        }
+        if (item.code === 'lesson-without-subject') {
+          const count = unknownCount(next, 'subjects', 'subjectId');
+          return count ? [{ ...item, message: `${count} lezioni OFD non hanno una materia; usano UNKNOWN e non bloccano il calcolo.` }] : [];
+        }
+        return [item];
+      });
       currentDiagnostics = [...currentDiagnostics.filter(item => !String(item.code || '').startsWith('lesson-')), ...currentLessonWarnings];
       editor?.setTimetable(current);
       if (views) refreshViews(true);
@@ -159,7 +173,11 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
         }
       } else {
         const ready = element(document, 'p', { class: 'calculation-readiness-note' });
-        ready.textContent = 'Il motore calcola le assegnazioni: non serve inserire giorno e ora a mano.';
+        const unknownClasses = unknownCount(current, 'classes', 'classIds');
+        const unknownSubjects = unknownCount(current, 'subjects', 'subjectId');
+        ready.textContent = unknownClasses || unknownSubjects
+          ? `Calcolo disponibile. Le lezioni senza dati usano UNKNOWN${unknownClasses ? ` per la classe (${unknownClasses})` : ''}${unknownSubjects ? ` per la materia (${unknownSubjects})` : ''}; puoi completarli in seguito.`
+          : 'Il motore calcola le assegnazioni: non serve inserire giorno e ora a mano.';
         output.append(ready);
       }
       if (missing.length) {
@@ -427,9 +445,14 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
           lesson.sourceAssignment = null;
         }
       }
-      const lessonsWithoutClass = lessons.filter(lesson => !lesson.classIds.length).length;
+      const unknownClassIds = new Set(sourceEntities.classes.filter(item => item.placeholder === 'unknown').map(item => item.id));
+      const lessonsWithoutClass = lessons.filter(lesson => !lesson.classIds.length || lesson.classIds.some(id => unknownClassIds.has(id))).length;
+      const sourceSubjectIds = new Set(sourceEntities.subjects.map(item => item.id));
+      const unknownSubjectIds = new Set(sourceEntities.subjects.filter(item => item.placeholder === 'unknown').map(item => item.id));
+      const lessonsWithoutSubject = lessons.filter(lesson => !lesson.subjectId || !sourceSubjectIds.has(lesson.subjectId) || unknownSubjectIds.has(lesson.subjectId)).length;
       const warnings = [
-        lessonsWithoutClass && { severity: 'warning', code: 'lesson-without-class', message: `${lessonsWithoutClass} lezioni OFD non hanno una classe; saranno conservate, ma il calcolo richiede di completare il riferimento.` },
+        lessonsWithoutClass && { severity: 'warning', code: 'lesson-without-class', message: `${lessonsWithoutClass} lezioni OFD non hanno una classe; useranno UNKNOWN e il calcolo potrà procedere.` },
+        lessonsWithoutSubject && { severity: 'warning', code: 'lesson-without-subject', message: `${lessonsWithoutSubject} lezioni OFD non hanno una materia; useranno UNKNOWN e il calcolo potrà procedere.` },
         omittedHints && { severity: 'warning', code: 'lesson-calendar-mismatch', message: `${omittedHints} orari originali non sono stati usati come suggerimenti perché il calendario è diverso.` },
         preservedTimeframes && { severity: 'warning', code: 'lesson-timeframes-preserved', message: `${preservedTimeframes} lezioni hanno vincoli temporali conservati nei dati sorgente perché il calendario è diverso.` },
       ].filter(Boolean);

@@ -29,6 +29,28 @@ test('EDN import fails explicitly on unsupported schema or invalid references', 
   assert.throws(() => importTimetableEDN(writeEDN(invalid)), /reference|subject/i);
 });
 
+test('EDN import replaces only missing lesson class and subject with explicit UNKNOWN placeholders', () => {
+  const source = structuredClone(valid);
+  source.entities.teachers.push({ id: 'teacher:t1', name: 'T1' });
+  source.lessons.push({ id: 'lesson:incomplete', teacherIds: ['teacher:t1'], roomIds: [], durationPeriods: 1, assignedTime: null });
+
+  const imported = importTimetableEDN(writeEDN(source));
+  const lesson = imported.timetable.lessons[0];
+  const unknownClass = imported.timetable.entities.classes.find(item => item.id === lesson.classIds[0]);
+  const unknownSubject = imported.timetable.entities.subjects.find(item => item.id === lesson.subjectId);
+
+  assert.equal(unknownClass.name, 'UNKNOWN');
+  assert.equal(unknownClass.placeholder, 'unknown');
+  assert.equal(unknownSubject.name, 'UNKNOWN');
+  assert.equal(unknownSubject.placeholder, 'unknown');
+  assert.deepEqual(imported.diagnostics.map(item => item.code), ['lesson-without-class', 'lesson-without-subject', 'unassigned-lessons']);
+  assert.equal(imported.summary.warningCount, 3);
+  assert.throws(() => importTimetableEDN(writeEDN({
+    ...source,
+    lessons: [{ ...source.lessons[0], subjectId: 'subject:missing', classIds: ['class:missing'] }],
+  })), /reference/i, 'non-empty dangling references remain fatal');
+});
+
 test('EDN export refuses invalid timetable state instead of serializing it', () => {
   assert.throws(() => exportTimetableEDN({ ...valid, lessons: null }), /lesson|list|schema/i);
 });

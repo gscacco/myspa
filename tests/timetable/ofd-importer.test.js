@@ -18,7 +18,7 @@ test('imports observed entities, lesson relationships, calendar, constraints, an
   assert.equal(timetable.source.documentId, '1203847731');
   assert.equal(timetable.entities.teachers.length, 118);
   assert.equal(timetable.entities.rooms.length, 61);
-  assert.equal(timetable.entities.classes.length, 58);
+  assert.equal(timetable.entities.classes.length, 59);
   assert.equal(timetable.entities.subjects.length, 40);
   assert.equal(timetable.lessons.length, 1714);
   assert.equal(timetable.lessons.filter(lesson => lesson.assignedTime).length, 1708);
@@ -33,6 +33,8 @@ test('imports observed entities, lesson relationships, calendar, constraints, an
   assert.ok(timetable.lessons.some(lesson => lesson.durationPeriods === 2));
   assert.ok(timetable.entities.teachers.some(teacher => teacher.constraints?.timeframes?.unavailable?.length));
   assert.ok(timetable.entities.subjects.some(subject => subject.preferences?.backgroundColor !== undefined));
+  assert.equal(timetable.entities.classes.find(item => item.placeholder === 'unknown')?.name, 'UNKNOWN');
+  assert.equal(timetable.lessons.filter(lesson => timetable.entities.classes.find(item => item.id === lesson.classIds[0])?.placeholder === 'unknown').length, 166);
   assert.equal(timetable.links.length, 40);
   assert.equal(timetable.parameters.length, 25);
   assert.equal(timetable.source.xml.length > 0, true);
@@ -40,6 +42,21 @@ test('imports observed entities, lesson relationships, calendar, constraints, an
   assert.ok(result.diagnostics.some(item => item.code === 'unassigned-lessons'));
   assert.deepEqual(importTimetableEDN(exportTimetableEDN(timetable)).timetable, timetable, 'full imported model round-trips through EDN');
   assert.deepEqual(await readFile(samplePath), original, 'import never changes the source file');
+});
+
+test('missing OFD lesson class or subject becomes UNKNOWN and emits an actionable warning', () => {
+  const xml = minimalOFD({ lesson: lessonXML({ group: '', time: null }).replace('<SUBJECT value="Math"/>', '') });
+  const result = parse(xml);
+  const lesson = result.timetable.lessons[0];
+  const schoolClass = result.timetable.entities.classes.find(item => item.id === lesson.classIds[0]);
+  const subject = result.timetable.entities.subjects.find(item => item.id === lesson.subjectId);
+
+  assert.equal(schoolClass.name, 'UNKNOWN');
+  assert.equal(subject.name, 'UNKNOWN');
+  assert.equal(schoolClass.placeholder, 'unknown');
+  assert.equal(subject.placeholder, 'unknown');
+  assert.deepEqual(result.diagnostics.filter(item => item.code.startsWith('lesson-without-')).map(item => item.code), ['lesson-without-class', 'lesson-without-subject']);
+  assert.deepEqual(importTimetableEDN(exportTimetableEDN(result.timetable)).timetable, result.timetable);
 });
 
 test('maps a synthetic lesson and its availability to explicit calendar indexes', () => {

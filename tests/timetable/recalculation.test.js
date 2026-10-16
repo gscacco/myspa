@@ -35,7 +35,7 @@ test('the supplied OFD retains requirements and can be fully recalculated withou
   assert.equal(result.summary.assignedLessons, 0);
   assert.equal(result.summary.unassignedLessons, 1714);
   assert.equal(result.summary.teachers, 118);
-  assert.equal(result.summary.classes, 58);
+  assert.equal(result.summary.classes, 59);
   assert.equal(Object.keys(result.timetable.source.assignmentHints).length, 1708);
   assert.ok(result.timetable.lessons.every(lesson => lesson.assignedTime === null));
   assert.ok(result.timetable.entities.teachers.some(teacher => teacher.constraints?.timeframes?.unavailable.length));
@@ -105,4 +105,19 @@ test('full recalculation reports impossible and cancelled searches without assig
   const cancelled = await recalculateAssignments(timetableFixture(), { signal: controller.signal });
   assert.equal(cancelled.status, 'cancelled');
   assert.equal(cancelled.assignments, undefined);
+});
+
+test('UNKNOWN class placeholders do not serialize unrelated lessons during recalculation', async () => {
+  const timetable = timetableFixture();
+  const unknownClass = { id: 'class:unknown', name: 'UNKNOWN', placeholder: 'unknown' };
+  timetable.entities.classes.push(unknownClass);
+  for (const teacher of timetable.entities.teachers) teacher.constraints = { timeframes: { unavailable: [], desired: [], undesired: [] } };
+  timetable.lessons = timetable.lessons.slice(0, 2).map((lesson, index) => ({
+    ...lesson, id: `unknown-${index}`, teacherIds: [`teacher:T${index + 1}`], classIds: [unknownClass.id], roomIds: [], assignedTime: null,
+    timeframes: { unavailable: [], desired: [], undesired: [] },
+  }));
+
+  const result = await recalculateAssignments(timetable);
+  assert.equal(result.status, 'solved');
+  assert.deepEqual(result.assignments.get('unknown-0'), result.assignments.get('unknown-1'), 'unknown classes are not treated as a shared collision resource');
 });

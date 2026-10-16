@@ -264,6 +264,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .sheet-scroll { max-width: 100%; overflow: auto; max-height: 260px; }
 .school-grid { width: 100%; min-width: 420px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
 .school-grid th { position: sticky; top: 0; z-index: 1; padding: 7px 8px; border-bottom: 1px solid #d7e0e7; color: #536677; background: #f1f5f7; text-align: left; font-size: 10px; font-weight: 750; }
+.school-grid th .grid-sort { display: block; width: 100%; min-height: 22px; border: 0; padding: 1px 2px; color: inherit; background: transparent; text-align: left; font-size: inherit; font-weight: inherit; }
+.school-grid th .grid-column-filter { display: block; width: 100%; min-width: 0; min-height: 27px; margin-top: 3px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px 5px; background: white; font-size: 10px; }
 .school-grid td { padding: 0; border-bottom: 1px solid #e7edf1; }
 .school-grid tr[data-new-row="true"] { background: #f8fbfd; }
 .school-grid input, .school-grid select { width: 100%; min-height: 35px; border: 1px solid transparent; border-radius: 0; padding: 6px 8px; color: var(--ink); background: transparent; font: inherit; font-size: 12px; }

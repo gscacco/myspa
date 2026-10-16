@@ -35,6 +35,19 @@ test('blank timetable creation rejects missing or duplicate source definitions',
   assert.throws(() => createBlankTimetable({ ...setup, lessons: [{ ...setup.lessons[0], teacher: 'Sconosciuto' }] }), /riferimento/i);
 });
 
+test('blank timetable creation assigns UNKNOWN when an individual lesson has no class or subject', () => {
+  const timetable = createBlankTimetable({
+    ...setup,
+    classes: [],
+    subjects: [],
+    lessons: [{ subject: '', teacher: 'Ada Rossi', class: '', durationPeriods: 1 }],
+  });
+  const lesson = timetable.lessons[0];
+  assert.equal(timetable.entities.subjects.find(item => item.id === lesson.subjectId).name, 'UNKNOWN');
+  assert.equal(timetable.entities.classes.find(item => item.id === lesson.classIds[0]).name, 'UNKNOWN');
+  assert.deepEqual(validateTimetable(timetable).errors, []);
+});
+
 test('the app opens as a new school and adds its first class, teacher, subjects and lesson in the grid', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;

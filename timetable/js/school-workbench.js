@@ -39,6 +39,17 @@ function uniqueId(collection, name, values) {
   return id;
 }
 
+function ensureUnknownEntity(timetable, collection) {
+  const values = timetable.entities[collection];
+  let unknown = values.find(item => item.placeholder === 'unknown')
+    || values.find(item => normalizedName(item.name) === 'unknown');
+  if (unknown) return unknown;
+  unknown = { id: uniqueId(collection, 'UNKNOWN', values), name: 'UNKNOWN', placeholder: 'unknown' };
+  if (collection !== 'subjects') unknown.constraints = { timeframes: { unavailable: [], desired: [], undesired: [] } };
+  values.push(unknown);
+  return unknown;
+}
+
 export function createSchoolWorkbench({ document = globalThis.document, onChange = () => {} } = {}) {
   if (!document) throw new TypeError('A document is required to mount the school workbench.');
   const tables = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms'].map(key => [key, document.querySelector(`#school-grid-${key}`)]));
@@ -46,8 +57,12 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   const lessonTable = document.querySelector('#school-grid-lessons');
   const constraintTable = document.querySelector('#school-grid-constraints');
   const constraintFilter = document.querySelector('#school-constraint-filter');
-  const gridFilters = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms', 'students', 'lessons'].map(key => [key, document.querySelector(`#school-filter-${key}`)]));
+  const gridNames = ['teachers', 'classes', 'subjects', 'rooms', 'students', 'lessons', 'constraints'];
+  const gridFilters = Object.fromEntries(gridNames.slice(0, -1).map(key => [key, document.querySelector(`#school-filter-${key}`)]));
   const gridFilterCounts = Object.fromEntries(Object.keys(gridFilters).map(key => [key, document.querySelector(`[data-grid-filter-count="${key}"]`)]));
+  const columnFilters = Object.fromEntries(gridNames.map(key => [key, []]));
+  const sortStates = Object.fromEntries(gridNames.map(key => [key, null]));
+  const sortCollator = new Intl.Collator('it', { numeric: true, sensitivity: 'base' });
   const constraintCount = document.querySelector('#school-constraint-count');
   const previousConstraints = document.querySelector('#school-constraint-previous');
   const nextConstraints = document.querySelector('#school-constraint-next');
@@ -64,8 +79,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     undoButton.disabled = false;
   }
 
-  function rememberLesson(index, previous) {
-    undoStack.push({ type: 'lesson', index, previous: previous ? structuredClone(previous) : null });
+  function rememberLesson(index, previous, createdUnknownIds = []) {
+    undoStack.push({ type: 'lesson', index, previous: previous ? structuredClone(previous) : null, createdUnknownIds });
     if (undoStack.length > 100) undoStack.shift();
     undoButton.disabled = false;
   }
@@ -80,10 +95,57 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     table.dataset.grid = gridName;
     const head = element(document, 'thead');
     const row = element(document, 'tr');
-    headers.forEach(label => row.append(element(document, 'th', { scope: 'col' }, label)));
+    headers.forEach((label, columnIndex) => {
+      const sortState = sortStates[gridName];
+      const th = element(document, 'th', { scope: 'col', 'aria-sort': sortState?.columnIndex === columnIndex ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none' });
+      const sortLabel = sortState?.columnIndex === columnIndex
+        ? `Ordina per ${label}, ordine ${sortState.direction === 'asc' ? 'crescente' : 'decrescente'}`
+        : `Ordina per ${label}`;
+      const sort = element(document, 'button', { type: 'button', class: 'grid-sort', 'data-grid-sort': gridName, 'data-column-index': columnIndex, 'aria-label': sortLabel }, label);
+      const filter = element(document, 'input', { type: 'search', class: 'grid-column-filter', 'data-grid-column-filter': gridName, 'data-column-index': columnIndex, 'aria-label': `Filtra ${label}` });
+      filter.value = columnFilters[gridName][columnIndex] || '';
+      sort.addEventListener('click', () => {
+        const current = sortStates[gridName];
+        sortStates[gridName] = current?.columnIndex === columnIndex
+          ? { columnIndex, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+          : { columnIndex, direction: 'asc' };
+        if (gridName === 'constraints') refreshConstraintTable(sort);
+        else { renderHeaderSortState(gridName); applyGridFilter(gridName); }
+      });
+      filter.addEventListener('input', () => {
+        columnFilters[gridName][columnIndex] = filter.value;
+        if (gridName === 'constraints') refreshConstraintTable(filter);
+        else applyGridFilter(gridName);
+      });
+      th.append(sort, filter);
+      row.append(th);
+    });
     head.append(row);
     table.append(head, element(document, 'tbody'));
     return table.querySelector('tbody');
+  }
+
+  function renderHeaderSortState(gridName) {
+    const state = sortStates[gridName];
+    const headers = document.querySelectorAll(`#school-grid-${gridName} thead th`);
+    headers.forEach((th, index) => {
+      th.setAttribute('aria-sort', state?.columnIndex === index ? (state.direction === 'asc' ? 'ascending' : 'descending') : 'none');
+      const button = th.querySelector('[data-grid-sort]');
+      button?.setAttribute('aria-label', `Ordina per ${button.textContent}${state?.columnIndex === index ? (state.direction === 'asc' ? ', ordine crescente' : ', ordine decrescente') : ''}`);
+    });
+  }
+
+  function refreshConstraintTable(control) {
+    const type = control.matches('[data-grid-sort]') ? 'sort' : 'filter';
+    const index = control.dataset.columnIndex;
+    const selection = type === 'filter' ? [control.selectionStart, control.selectionEnd] : null;
+    constraintPage = 0;
+    renderConstraints();
+    const replacement = constraintTable.querySelector(type === 'sort'
+      ? `[data-grid-sort="constraints"][data-column-index="${index}"]`
+      : `[data-grid-column-filter="constraints"][data-column-index="${index}"]`);
+    replacement?.focus();
+    if (replacement && selection?.[0] != null) replacement.setSelectionRange(...selection);
   }
 
   function applyGridFilter(gridName) {
@@ -92,14 +154,30 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     const count = gridFilterCounts[gridName];
     if (!table) return;
     const query = normalizedSearch(filter?.value);
+    const columnQueries = columnFilters[gridName].map(normalizedSearch);
     let matching = 0;
     let total = 0;
     for (const row of table.querySelectorAll('tbody tr')) {
       if (row.dataset.newRow === 'true') { row.hidden = false; continue; }
       total++;
-      const visible = !query || normalizedSearch(row.dataset.search).includes(query);
+      const values = JSON.parse(row.dataset.filterValues || '[]').map(normalizedSearch);
+      const visible = (!query || normalizedSearch(row.dataset.search).includes(query))
+        && columnQueries.every((value, index) => !value || (values[index] || '').includes(value));
       row.hidden = !visible;
       if (visible) matching++;
+    }
+    const sort = sortStates[gridName];
+    if (sort) {
+      const body = table.querySelector('tbody');
+      const rows = [...body.querySelectorAll('tr:not([data-new-row="true"])')];
+      rows.sort((left, right) => {
+        const a = JSON.parse(left.dataset.sortValues || '[]')[sort.columnIndex] || '';
+        const b = JSON.parse(right.dataset.sortValues || '[]')[sort.columnIndex] || '';
+        return sortCollator.compare(String(a), String(b)) * (sort.direction === 'asc' ? 1 : -1);
+      }).forEach(row => body.append(row));
+      const fresh = body.querySelector('tr[data-new-row="true"]');
+      if (fresh) body.append(fresh);
+      renderHeaderSortState(gridName);
     }
     if (count) count.textContent = query ? `${matching} di ${total}` : `${total} elementi`;
   }
@@ -110,7 +188,11 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     const values = timetable.entities[collection];
     const addRow = (entity, index, fresh = false) => {
       const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
-      row.dataset.search = `${entity?.name || ''} ${JSON.stringify(entity || {})} ${fresh ? '' : `${COLLECTION_LABELS[collection]} ${timetable.lessons.filter(lesson => lesson[collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : collection === 'rooms' ? 'roomIds' : 'subjectId']?.includes?.(entity.id) || lesson.subjectId === entity.id).length} lezioni`}`;
+      const usageCount = fresh ? 0 : timetable.lessons.filter(lesson => lesson[collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : collection === 'rooms' ? 'roomIds' : 'subjectId']?.includes?.(entity.id) || lesson.subjectId === entity.id).length;
+      const usageText = fresh ? 'Nuova riga' : `${usageCount} lezioni`;
+      row.dataset.filterValues = JSON.stringify([entity?.name || '', usageText]);
+      row.dataset.sortValues = row.dataset.filterValues;
+      row.dataset.search = `${entity?.name || ''} ${JSON.stringify(entity || {})} ${usageText} ${fresh ? '' : COLLECTION_LABELS[collection]}`;
       const nameCell = element(document, 'td');
       const input = element(document, 'input', {
         type: 'text', 'data-field': 'name', 'data-row': index, 'data-grid': collection,
@@ -119,7 +201,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       });
       nameCell.append(input);
       row.append(nameCell);
-      const usageCell = element(document, 'td', { class: 'grid-usage' }, fresh ? 'Nuova riga' : `${timetable.lessons.filter(lesson => lesson[collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : collection === 'rooms' ? 'roomIds' : 'subjectId']?.includes?.(entity.id) || lesson.subjectId === entity.id).length} lezioni`);
+      const usageCell = element(document, 'td', { class: 'grid-usage' }, usageText);
       row.append(usageCell);
       body.append(row);
       input.addEventListener('change', () => {
@@ -157,6 +239,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           commit(`${COLLECTION_LABELS[collection]} aggiunto.`);
         } else if (entity.name !== value) {
           remember();
+          if (entity.placeholder === 'unknown' && normalizedName(value) !== 'unknown') delete entity.placeholder;
           entity.name = value;
           commit(`${COLLECTION_LABELS[collection]} aggiornato.`);
           render();
@@ -183,6 +266,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     const addRow = (student, index, fresh = false) => {
       const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
       const schoolClass = timetable.entities.classes.find(item => item.id === student?.classId);
+      row.dataset.filterValues = JSON.stringify([student?.name || '', schoolClass?.name || '']);
+      row.dataset.sortValues = row.dataset.filterValues;
       row.dataset.search = `${student?.name || ''} ${schoolClass?.name || ''} ${JSON.stringify(student || {})}`;
       const nameCell = element(document, 'td');
       const name = element(document, 'input', { type: 'text', 'data-field': 'name', 'aria-label': `Studente ${index + 1}`, placeholder: fresh ? 'Scrivi per aggiungere…' : '', value: student?.name || '' });
@@ -263,6 +348,14 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           byId.rooms.get(lesson?.roomIds?.[0])?.name,
           lesson?.durationPeriods, lesson?.sourceIndex,
         ].join(' '));
+        row.dataset.filterValues = JSON.stringify([
+          byId.subjects.get(lesson?.subjectId)?.name || '',
+          byId.teachers.get(lesson?.teacherIds?.[0])?.name || '',
+          byId.classes.get(lesson?.classIds?.[0])?.name || '',
+          byId.rooms.get(lesson?.roomIds?.[0])?.name || '',
+          lesson?.durationPeriods ?? '',
+        ]);
+        row.dataset.sortValues = row.dataset.filterValues;
       };
       syncRow();
       const save = () => {
@@ -271,12 +364,27 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           return byName[collection].get(normalizedName(input.value));
         });
         if (state.fresh && inputs.slice(0, 3).every(input => !input.value.trim())) return;
-        if (resolved.slice(0, 3).some(item => !item)) {
+        if (!resolved[1] || inputs.some((input, index) => input.value.trim() && !resolved[index])) {
           status.textContent = 'Completa materia, docente e classe scegliendo elementi già presenti nelle griglie.';
           if (state.lesson) syncRow();
           return;
         }
-        const [subject, teacher, schoolClass, room] = resolved;
+        const beforeUnknownIds = new Set(['subjects', 'classes'].flatMap(collection => timetable.entities[collection].map(item => item.id)));
+        const subject = resolved[0] || ensureUnknownEntity(timetable, 'subjects');
+        const teacher = resolved[1];
+        const schoolClass = resolved[2] || ensureUnknownEntity(timetable, 'classes');
+        const room = resolved[3];
+        const unknownChoices = [['subjects', subject], ['classes', schoolClass]];
+        const createdUnknownIds = [];
+        for (const [collection, item] of unknownChoices) {
+          if (!byId[collection].has(item.id)) {
+            byId[collection].set(item.id, item);
+            byName[collection].set(normalizedName(item.name), item);
+            document.querySelector(`#${choiceLists[collection]}`)?.append(element(document, 'option', { value: item.name }));
+            renderEntities(collection);
+          }
+          if (!beforeUnknownIds.has(item.id)) createdUnknownIds.push(item.id);
+        }
         const next = {
           id: state.lesson?.id || `lesson:school-${Date.now()}-${values.length + 1}`,
           sourceIndex: state.lesson?.sourceIndex ?? values.length,
@@ -290,7 +398,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           || previous.roomIds?.[0] !== next.roomIds[0] || previous.durationPeriods !== next.durationPeriods;
         if (!changed) return;
         const wasFresh = state.fresh;
-        rememberLesson(state.index, previous);
+        rememberLesson(state.index, previous, createdUnknownIds);
         if (wasFresh) {
           values.push(next);
           state.index = values.length - 1;
@@ -306,11 +414,22 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         applyGridFilter('lessons');
         updateEntityUsage();
         if (previous?.subjectId !== next.subjectId && ['unavailable', 'desired', 'undesired'].some(kind => previous?.timeframes?.[kind]?.length)) renderConstraints();
-        commit(wasFresh ? 'Requisito lezione aggiunto.' : 'Requisito lezione aggiornato.');
+        const usedUnknown = !resolved[0] || !resolved[2];
+        commit(wasFresh && usedUnknown
+          ? 'Lezione aggiunta; materia o classe mancanti impostate su UNKNOWN.'
+          : wasFresh ? 'Requisito lezione aggiunto.' : 'Requisito lezione aggiornato.');
         if (wasFresh) lessonTable.querySelector('[data-new-row="true"] input')?.focus();
       };
       [...inputs, duration].forEach(input => input.addEventListener('change', save));
       row.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && event.target === inputs[2]) {
+          event.preventDefault();
+          save();
+          const visibleRows = [...body.querySelectorAll('tr')].filter(item => !item.hidden);
+          const rowIndex = visibleRows.indexOf(row);
+          visibleRows[rowIndex + 1]?.querySelector('input[aria-label="Classe"]')?.focus();
+          return;
+        }
         if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !state.fresh) {
           if (state.lesson.timeframes?.unavailable?.length || state.lesson.timeframes?.undesired?.length || state.lesson.timeframes?.desired?.length) {
             status.textContent = 'Rimuovi prima i vincoli collegati a questa lezione.';
@@ -335,9 +454,15 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     for (const collection of Object.keys(counts)) {
       const table = tables[collection];
       timetable.entities[collection].forEach((entity, index) => {
-        const usage = table.querySelector(`tbody tr[data-row="${index}"] .grid-usage`);
-        if (usage) usage.textContent = `${counts[collection].get(entity.id) || 0} lezioni`;
+        const row = table.querySelector(`tbody tr[data-row="${index}"]`);
+        const usage = row?.querySelector('.grid-usage');
+        if (!row || !usage) return;
+        usage.textContent = `${counts[collection].get(entity.id) || 0} lezioni`;
+        row.dataset.filterValues = JSON.stringify([entity.name, usage.textContent]);
+        row.dataset.sortValues = row.dataset.filterValues;
+        row.dataset.search = normalizedSearch(`${entity.name} ${COLLECTION_LABELS[collection]} ${usage.textContent} ${JSON.stringify(entity)}`);
       });
+      applyGridFilter(collection);
     }
   }
 
@@ -362,15 +487,28 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     const body = editableTable(constraintTable, 'constraints', ['Elemento', 'Vincolo', 'Giorno', 'Ora']);
     const allRows = allConstraints();
     const query = normalizedSearch(constraintFilter.value);
-    const rows = query ? allRows.filter(row => {
+    const constraintDetails = row => {
       const [dayIndex, periodIndex] = row.slot.split('.').map(Number);
       const day = timetable.calendar.days.find(item => item.index === dayIndex)?.name || '';
       const period = timetable.calendar.periods.find(item => item.index === periodIndex);
       const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
       const kind = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' }[row.kind] || row.kind;
       const scope = { teachers: 'Docente', classes: 'Classe', rooms: 'Aula', lessons: 'Lezione' }[row.scope] || row.scope;
-      return normalizedSearch(`${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot} ${day} ${time}`).includes(query);
-    }) : allRows;
+      return { values: [row.name, kind, day, time], search: `${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot} ${day} ${time}` };
+    };
+    const columnQueries = columnFilters.constraints.map(normalizedSearch);
+    const rows = allRows.filter(row => {
+      const details = constraintDetails(row);
+      const values = details.values.map(normalizedSearch);
+      return (!query || normalizedSearch(details.search).includes(query))
+        && columnQueries.every((value, index) => !value || (values[index] || '').includes(value));
+    });
+    const constraintSort = sortStates.constraints;
+    if (constraintSort) rows.sort((left, right) => {
+      const a = constraintDetails(left).values[constraintSort.columnIndex] || '';
+      const b = constraintDetails(right).values[constraintSort.columnIndex] || '';
+      return sortCollator.compare(String(a), String(b)) * (constraintSort.direction === 'asc' ? 1 : -1);
+    });
     const pageCount = Math.max(1, Math.ceil(rows.length / CONSTRAINT_PAGE_SIZE));
     constraintPage = Math.min(constraintPage, pageCount - 1);
     const offset = constraintPage * CONSTRAINT_PAGE_SIZE;
@@ -396,6 +534,10 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     constraintTable.parentElement.append(datalist);
     const renderRow = (constraint, index, fresh = false) => {
       const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      const details = constraint ? constraintDetails(constraint) : { values: ['', '', '', ''], search: '' };
+      row.dataset.filterValues = JSON.stringify(details.values);
+      row.dataset.sortValues = row.dataset.filterValues;
+      row.dataset.search = normalizedSearch(details.search);
       const target = element(document, 'input', { type: 'text', list: listId, 'aria-label': 'Elemento soggetto al vincolo', placeholder: fresh ? 'Cerca elemento…' : '' });
       target.value = targets.find(item => item.key === `${constraint?.scope}|${constraint?.id}`)?.label || '';
       const kind = element(document, 'select', { 'aria-label': 'Tipo di vincolo' });
@@ -459,6 +601,14 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     if (change.type === 'lesson') {
       if (change.previous) timetable.lessons[change.index] = change.previous;
       else timetable.lessons.splice(change.index, 1);
+      for (const id of change.createdUnknownIds || []) {
+        const used = timetable.lessons.some(lesson => lesson.subjectId === id || lesson.classIds?.includes(id));
+        if (used) continue;
+        for (const collection of ['subjects', 'classes']) {
+          const index = timetable.entities[collection].findIndex(item => item.id === id && item.placeholder === 'unknown');
+          if (index >= 0) timetable.entities[collection].splice(index, 1);
+        }
+      }
     } else timetable = change.timetable;
     undoButton.disabled = !undoStack.length;
     render();
@@ -519,7 +669,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const sourceId = idPart(sourceInfo?.source?.documentId || sourceInfo?.filename || 'ofd');
       const additions = incoming.map(item => {
         const { sourceAssignment = null, ...lesson } = structuredClone(item);
-        lesson.subjectId = subjectIds.get(item.subjectId) || item.subjectId;
+        lesson.subjectId = subjectIds.get(item.subjectId) || item.subjectId || null;
+        lesson.classIds = (item.classIds || []).filter(id => timetable.entities.classes.some(schoolClass => schoolClass.id === id));
         const stem = `lesson:ofd-${sourceId}-${Number.isInteger(item.sourceIndex) ? item.sourceIndex : 'x'}`;
         let id = stem, suffix = 1;
         while (knownLessonIds.has(id)) id = `${stem}-${++suffix}`;
@@ -530,6 +681,10 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       if (additions.length || subjectAdditions.length || sourceInfo) {
         remember();
         subjects.push(...subjectAdditions);
+        for (const { lesson } of additions) {
+          if (!subjects.some(item => item.id === lesson.subjectId)) lesson.subjectId = ensureUnknownEntity(timetable, 'subjects').id;
+          if (!lesson.classIds.length) lesson.classIds = [ensureUnknownEntity(timetable, 'classes').id];
+        }
         timetable.lessons.push(...additions.map(item => item.lesson));
         if (sourceInfo) {
           timetable.source.lessonImports ||= [];

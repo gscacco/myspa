@@ -27,3 +27,13 @@ test('schedule analysis ignores unassigned lessons for resource collisions and t
   assert.ok(result.issues.filter(issue => issue.code === 'resource-collision').every(issue => !issue.lessonIds.includes('lesson:4')));
   assert.equal(result.issues.some(issue => issue.resourceType === 'room' && issue.lessonIds.includes('lesson:4')), false);
 });
+
+test('schedule analysis does not invent class conflicts for UNKNOWN placeholders', () => {
+  const timetable = timetableFixture();
+  timetable.entities.classes.push({ id: 'class:unknown', name: 'UNKNOWN', placeholder: 'unknown' });
+  timetable.lessons[0].classIds = ['class:unknown'];
+  timetable.lessons[2].classIds = ['class:unknown'];
+  timetable.lessons[2].assignedTime = { dayIndex: 0, periodIndex: 0, sourceValue: '0.0' };
+  const result = analyzeSchedule(timetable);
+  assert.equal(result.issues.some(issue => issue.code === 'resource-collision' && issue.resourceType === 'class'), false);
+});

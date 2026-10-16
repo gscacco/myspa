@@ -41,9 +41,9 @@ export function createBlankTimetable({ name, unitMinutes = 60, days, periods, te
     return { index, beginMinute, endMinute };
   });
   const teacherNames = cleanNames(teachers, 'docenti');
-  const classNames = cleanNames(classes, 'classi');
+  const classNames = cleanNames(classes, 'classi', false);
   const roomNames = cleanNames(rooms, 'aule', false);
-  const subjectNames = cleanNames(subjects, 'materie');
+  const subjectNames = cleanNames(subjects, 'materie', false);
   if (!Array.isArray(lessons) || !lessons.length) throw new BlankTimetableError('Aggiungi almeno una lezione prima di creare l’orario.');
 
   const entities = {
@@ -52,8 +52,20 @@ export function createBlankTimetable({ name, unitMinutes = 60, days, periods, te
     rooms: makeEntities(roomNames, 'room'),
     subjects: makeEntities(subjectNames, 'subject'),
   };
+  const ensureUnknown = collection => {
+    let unknown = entities[collection].find(item => item.name.trim().toLocaleLowerCase() === 'unknown');
+    if (!unknown) {
+      const type = collection === 'classes' ? 'class' : 'subject';
+      unknown = makeEntities(['UNKNOWN'], type)[0];
+      entities[collection].push(unknown);
+    }
+    unknown.placeholder = 'unknown';
+    return unknown.id;
+  };
   const find = (collection, label, value) => {
-    const match = entities[collection].find(item => item.name === String(value || '').trim());
+    const name = String(value || '').trim();
+    if (!name && (collection === 'classes' || collection === 'subjects')) return ensureUnknown(collection);
+    const match = entities[collection].find(item => item.name === name);
     if (!match) throw new BlankTimetableError(`Riferimento ${label} non presente: ${value || '(vuoto)'}.`);
     return match.id;
   };
