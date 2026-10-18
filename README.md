@@ -264,7 +264,7 @@ Here, count includes numeric cells, matching the spreadsheet `COUNT` convention;
 
 ## Try it locally
 
-Requirements: Node.js 20.19 or newer and npm.
+Requirements: Node.js 20.19 or newer and npm. The Nix flake pins Nixpkgs and supplies Node.js 24.21.0; enter the environment with `nix develop`. `package-lock.json` pins the npm dependencies.
 
 ```sh
 npm ci
