@@ -1,7 +1,8 @@
+import { optimizationScope } from './optimization-scope.js';
+
 const RESOURCE_FIELDS = Object.freeze([
   ['teacher', 'teacherIds', 'teachers'],
   ['class', 'classIds', 'classes'],
-  ['room', 'roomIds', 'rooms'],
 ]);
 
 function entityMaps(timetable) {
@@ -21,8 +22,9 @@ export function analyzeSchedule(timetable) {
   const issues = [];
   const maps = entityMaps(timetable);
   const occupancy = new Map();
+  const { optimizableLessons } = optimizationScope(timetable);
 
-  for (const lesson of timetable.lessons || []) {
+  for (const lesson of optimizableLessons) {
     if (!lesson.assignedTime) {
       issues.push(issue('unassigned-lesson', 'warning', { lessonIds: [lesson.id], message: 'Lesson has no assigned time.' }));
       continue;
@@ -35,15 +37,6 @@ export function analyzeSchedule(timetable) {
         for (const resourceId of new Set(lesson[field] || [])) {
           const collection = resourceType === 'teacher' ? 'teachers' : resourceType === 'class' ? 'classes' : 'rooms';
           const entity = maps[collection].get(resourceId);
-          if (resourceType === 'class' && entity?.placeholder === 'unknown') {
-            if (entity.constraints?.timeframes?.unavailable?.includes(sourceSlot)) {
-              issues.push(issue('unavailable-time', 'error', {
-                resourceType, resourceId, resourceName: entity.name, dayIndex, periodIndex: period,
-                lessonIds: [lesson.id], message: 'Lesson is assigned during an unavailable slot.',
-              }));
-            }
-            continue;
-          }
           const key = `${resourceType}|${resourceId}|${dayIndex}|${period}`;
           let occupant = occupancy.get(key);
           if (!occupant) {
@@ -60,12 +53,6 @@ export function analyzeSchedule(timetable) {
           }
         }
       }
-      if (lesson.timeframes?.unavailable?.includes(sourceSlot)) {
-        issues.push(issue('unavailable-time', 'error', {
-          resourceType: 'lesson', resourceId: lesson.id, resourceName: lesson.id, dayIndex, periodIndex: period,
-          lessonIds: [lesson.id], message: 'Lesson is assigned during its unavailable slot.',
-        }));
-      }
     }
     const startSlot = `${dayIndex}.${periodIndex}`;
     const preferenceScopes = [
@@ -73,7 +60,6 @@ export function analyzeSchedule(timetable) {
         const collection = resourceType === 'teacher' ? 'teachers' : resourceType === 'class' ? 'classes' : 'rooms';
         return (lesson[field] || []).map(resourceId => ({ entity: maps[collection].get(resourceId), resourceType, resourceId }));
       }),
-      { entity: { id: lesson.id, name: lesson.id, constraints: { timeframes: lesson.timeframes } }, resourceType: 'lesson', resourceId: lesson.id },
     ];
     for (const { entity, resourceType, resourceId } of preferenceScopes) {
       if (entity?.constraints?.timeframes?.undesired?.includes(startSlot)) {

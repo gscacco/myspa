@@ -24,20 +24,21 @@ test('immediate validation rejects hard conflicts and unavailable periods across
   assert.equal(validateAssignment(timetable, 'target', { dayIndex: 0, periodIndex: 3 }).issues[0].code, 'invalid-time');
 });
 
-test('missing class placeholders do not block assignments as a shared resource', () => {
+test('unknown-class activities are excluded from manual assignment and do not block ordinary lessons', async () => {
   const timetable = solverFixture();
-  timetable.entities.classes[0].placeholder = 'unknown';
-  timetable.entities.classes[0].name = 'UNKNOWN';
+  timetable.entities.classes.push({ id: 'class:unknown', name: 'UNKNOWN', placeholder: 'unknown' });
   const other = structuredClone(timetable.lessons[0]);
   other.id = 'other';
   other.teacherIds = ['teacher:T2'];
+  other.classIds = ['class:unknown'];
   other.roomIds = [];
   other.assignedTime = { dayIndex: 0, periodIndex: 0, sourceValue: '0.0' };
   timetable.entities.teachers.push({ id: 'teacher:T2', name: 'Teacher Two' });
   timetable.lessons.push(other);
   const result = validateAssignment(timetable, 'target', { dayIndex: 0, periodIndex: 0 });
-  assert.equal(result.valid, true);
-  assert.equal(result.issues.some(issue => issue.code === 'resource-collision' && issue.resourceType === 'class'), false);
+  assert.equal(result.valid, true, 'the excluded activity does not create a teacher, room, or class collision');
+  assert.equal(validateAssignment(timetable, 'other', { dayIndex: 0, periodIndex: 0 }).issues[0].code, 'excluded-lesson');
+  assert.equal((await findAlternatives(timetable, 'other')).reason, 'excluded-lesson');
 });
 
 test('alternatives are hard-valid, rank soft-preference trade-offs, and do not mutate current data', async () => {

@@ -1,5 +1,6 @@
 import { analyzeSchedule } from './schedule.js';
 import { recalculateAssignments } from './recalculator.js';
+import { optimizationScope } from './optimization-scope.js';
 
 export const OBJECTIVE_WEIGHTS = Object.freeze({ undesiredSlot: 100, missedPreferredSlot: 25 });
 
@@ -15,7 +16,7 @@ export function normalizeObjectiveWeights(weights = {}) {
 }
 
 function resources(lesson) {
-  return [...new Set([...(lesson.teacherIds || []), ...(lesson.classIds || []), ...(lesson.roomIds || [])])];
+  return [...new Set([...(lesson.teacherIds || []), ...(lesson.classIds || [])])];
 }
 
 function resourceMap(timetable) {
@@ -24,7 +25,7 @@ function resourceMap(timetable) {
 
 function slotPenalty(timetable, lesson, time, entities, weights = OBJECTIVE_WEIGHTS) {
   let penalty = 0;
-  const scopes = [lesson, ...resources(lesson).map(id => entities.get(id))];
+  const scopes = resources(lesson).map(id => entities.get(id));
   for (let offset = 0; offset < lesson.durationPeriods; offset++) {
     const slot = `${time.dayIndex}.${time.periodIndex + offset}`;
     for (const scope of scopes) {
@@ -44,9 +45,10 @@ export function objectiveValue(timetable, assignments = new Map(timetable.lesson
 /** Upper bound for a complete schedule: each lesson independently takes its most expensive calendar slot. */
 export function objectiveUpperBound(timetable, weights = OBJECTIVE_WEIGHTS) {
   weights = normalizeObjectiveWeights(weights);
+  const { timetable: scopedTimetable } = optimizationScope(timetable);
   const entities = resourceMap(timetable);
-  return timetable.lessons.reduce((total, lesson) => {
-    const allowedTimes = timeSlots(timetable, lesson).filter(time => timeframeAllows(timetable, lesson, time));
+  return scopedTimetable.lessons.reduce((total, lesson) => {
+    const allowedTimes = timeSlots(scopedTimetable, lesson).filter(time => timeframeAllows(scopedTimetable, lesson, time));
     const maximum = allowedTimes.reduce((best, time) =>
       Math.max(best, slotPenalty(timetable, lesson, time, entities, weights)), 0);
     return total + maximum;
@@ -65,7 +67,7 @@ function scoreFromCounts(counts, weights = OBJECTIVE_WEIGHTS) {
 function lessonObjectiveCounts(timetable, lesson, time, entities, weights = OBJECTIVE_WEIGHTS) {
   const counts = { avoidedSlotHits: 0, missedPreferenceHits: 0, unassignedLessons: 0 };
   if (!time) { counts.unassignedLessons = 1; return counts; }
-  const scopes = [lesson, ...resources(lesson).map(id => entities.get(id))];
+  const scopes = resources(lesson).map(id => entities.get(id));
   for (let offset = 0; offset < lesson.durationPeriods; offset++) {
     const slot = `${time.dayIndex}.${time.periodIndex + offset}`;
     for (const scope of scopes) {
@@ -86,8 +88,9 @@ function addCounts(...countsList) {
 /** Exact weighted-score breakdown, updated incrementally as lessons move. */
 export function objectiveBreakdown(timetable, assignments, weights = OBJECTIVE_WEIGHTS) {
   weights = normalizeObjectiveWeights(weights);
+  const { optimizableLessons } = optimizationScope(timetable);
   const entities = resourceMap(timetable);
-  const counts = addCounts(...timetable.lessons.map(lesson =>
+  const counts = addCounts(...optimizableLessons.map(lesson =>
     lessonObjectiveCounts(timetable, lesson, assignments.get(lesson.id), entities, weights)));
   return scoreFromCounts(counts, weights);
 }
@@ -105,8 +108,8 @@ function timeSlots(timetable, lesson) {
 
 function timeframeAllows(timetable, lesson, time) {
   const ids = new Set(resources(lesson));
-  const scoped = ['teachers', 'classes', 'rooms'].flatMap(type => timetable.entities[type] || []).filter(entity => ids.has(entity.id));
-  const unavailable = new Set([...(lesson.timeframes?.unavailable || []), ...scoped.flatMap(entity => entity.constraints?.timeframes?.unavailable || [])]);
+  const scoped = ['teachers', 'classes'].flatMap(type => timetable.entities[type] || []).filter(entity => ids.has(entity.id));
+  const unavailable = new Set(scoped.flatMap(entity => entity.constraints?.timeframes?.unavailable || []));
   for (let offset = 0; offset < lesson.durationPeriods; offset++) {
     if (unavailable.has(`${time.dayIndex}.${time.periodIndex + offset}`)) return false;
   }
@@ -202,6 +205,8 @@ async function runLocalOptimization(timetable, {
       status: signal?.aborted ? 'cancelled' : feasibilityTimedOut ? 'time-limit' : result.status,
       iterations: result.visited || 0,
       reason: result.reason,
+      diagnosticPartial: result.diagnosticPartial,
+      failureCauses: result.failureCauses || [],
     };
     assignments = result.assignments;
     calculatedSeed = true;
@@ -342,19 +347,17 @@ async function runLocalOptimization(timetable, {
     const blockLessons = [...selectedIds].map(id => lessonById.get(id));
     const blockSet = new Set(selectedIds);
     const blockTimetable = { ...timetable, lessons: blockLessons, entities: structuredClone(timetable.entities) };
-    const unknownClassIds = new Set((timetable.entities.classes || []).filter(entity => entity.placeholder === 'unknown').map(entity => entity.id));
     const fixedSlots = new Map();
     for (const lesson of timetable.lessons) {
       if (blockSet.has(lesson.id)) continue;
       const time = assignments.get(lesson.id);
       if (!time) continue;
       for (const id of resources(lesson)) {
-        if (unknownClassIds.has(id)) continue;
         if (!fixedSlots.has(id)) fixedSlots.set(id, new Set());
         for (let offset = 0; offset < lesson.durationPeriods; offset++) fixedSlots.get(id).add(`${time.dayIndex}.${time.periodIndex + offset}`);
       }
     }
-    for (const collection of ['teachers', 'classes', 'rooms']) for (const entity of blockTimetable.entities[collection] || []) {
+    for (const collection of ['teachers', 'classes']) for (const entity of blockTimetable.entities[collection] || []) {
       const reserved = fixedSlots.get(entity.id);
       if (!reserved?.size) continue;
       entity.constraints ||= { timeframes: { unavailable: [], desired: [], undesired: [] } };
@@ -620,7 +623,13 @@ async function runGeneticOptimization(timetable, {
     addIndividual(assignments);
   }
   if (!population.length) {
-    return { status: signal?.aborted ? 'cancelled' : lastFailure?.status || 'time-limit', iterations, objective: undefined, initialObjective, reason: lastFailure?.reason, feasibilityAssigned, feasibilityTotal };
+    return {
+      status: signal?.aborted ? 'cancelled' : lastFailure?.status || 'time-limit',
+      iterations, objective: undefined, initialObjective, reason: lastFailure?.reason,
+      feasibilityAssigned, feasibilityTotal, populationCount: 0, populationSize, generations: 0,
+      diagnosticPartial: lastFailure?.diagnosticPartial,
+      failureCauses: lastFailure?.failureCauses || [],
+    };
   }
 
   const bestFromPopulation = () => [...population].sort((left, right) => left.objective - right.objective)[0];
@@ -798,6 +807,12 @@ async function runMixedOptimization(timetable, options) {
 }
 
 export async function optimizeLocally(timetable, options = {}) {
+  const { timetable: scopedTimetable, excludedLessons } = optimizationScope(timetable);
+  if (!scopedTimetable.lessons.length) return {
+    status: 'no-eligible-lessons', assignments: new Map(), iterations: 0,
+    objective: 0, initialObjective: 0, activeLessonCount: 0,
+    excludedLessonCount: excludedLessons.length,
+  };
   const timeLimitMs = options.timeLimitMs ?? 30_000;
   if (!Number.isFinite(timeLimitMs) || timeLimitMs < 0) throw new RangeError('timeLimitMs must be a non-negative number.');
   if (options.signal?.aborted) return { status: 'cancelled', iterations: 0 };
@@ -810,8 +825,13 @@ export async function optimizeLocally(timetable, options = {}) {
   try {
     const runner = options.algorithm === 'genetic' ? runGeneticOptimization
       : options.algorithm === 'mixed' ? runMixedOptimization : runLocalOptimization;
-    const result = await runner(timetable, { ...options, signal: controller.signal });
-    return timedOut && result.status === 'cancelled' ? { ...result, status: 'time-limit' } : result;
+    const result = await runner(scopedTimetable, { ...options, signal: controller.signal });
+    const completed = timedOut && result.status === 'cancelled' ? { ...result, status: 'time-limit' } : result;
+    return {
+      ...completed,
+      activeLessonCount: scopedTimetable.lessons.length,
+      excludedLessonCount: excludedLessons.length,
+    };
   } finally {
     clearTimeout(timer);
     options.signal?.removeEventListener('abort', cancel);

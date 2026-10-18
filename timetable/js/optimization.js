@@ -1,4 +1,5 @@
 import { normalizeObjectiveWeights, optimizeLocally } from './optimization-core.js';
+import { optimizationScope } from './optimization-scope.js';
 
 function defaultWorkerFactory() {
   const inline = globalThis.document?.querySelector('#optimization-worker-source')?.textContent;
@@ -28,19 +29,25 @@ function normalizeOptions({ workers = 1, timeLimitMs = 30_000, maxObjective = 0,
 export async function optimizeTimetable(timetable, options = {}) {
   const normalized = normalizeOptions(options);
   const { signal, onProgress = () => {}, workerFactory = defaultWorkerFactory } = options;
+  const { timetable: scopedTimetable, optimizableLessons, excludedLessons } = optimizationScope(timetable);
   if (signal?.aborted) return { status: 'cancelled', iterations: 0, workersUsed: 0 };
+  if (!optimizableLessons.length) return {
+    status: 'no-eligible-lessons', assignments: new Map(), iterations: 0,
+    objective: 0, initialObjective: 0, workersUsed: 0,
+    activeLessonCount: 0, excludedLessonCount: excludedLessons.length,
+  };
   if (normalized.workers === 1) {
-    return { ...await optimizeLocally(timetable, { ...normalized, signal, onProgress }), workersUsed: 1 };
+    return { ...await optimizeLocally(scopedTimetable, { ...normalized, signal, onProgress }), workersUsed: 1, excludedLessonCount: excludedLessons.length };
   }
   const workerCandidates = [];
   try { for (let index = 0; index < normalized.workers; index++) workerCandidates.push(workerFactory()); }
   catch {
     workerCandidates.forEach(worker => worker?.terminate?.());
-    return { ...await optimizeLocally(timetable, { ...normalized, signal, onProgress }), workersUsed: 1, workersFallback: true };
+    return { ...await optimizeLocally(scopedTimetable, { ...normalized, signal, onProgress }), workersUsed: 1, workersFallback: true, excludedLessonCount: excludedLessons.length };
   }
   if (workerCandidates.some(worker => !worker)) {
     for (const worker of workerCandidates) worker?.terminate?.();
-    return { ...await optimizeLocally(timetable, { ...normalized, signal, onProgress }), workersUsed: 1, workersFallback: true };
+    return { ...await optimizeLocally(scopedTimetable, { ...normalized, signal, onProgress }), workersUsed: 1, workersFallback: true, excludedLessonCount: excludedLessons.length };
   }
 
   let iterations = 0;
@@ -60,7 +67,7 @@ export async function optimizeTimetable(timetable, options = {}) {
       settled = true;
       signal?.removeEventListener('abort', abort);
       finishWorkers();
-      resolve({ ...result, iterations, workersUsed: workers.length });
+      resolve({ ...result, iterations, workersUsed: workers.length, activeLessonCount: optimizableLessons.length, excludedLessonCount: excludedLessons.length });
     };
     const abort = () => {
       workers.forEach(worker => worker.postMessage({ type: 'cancel' }));
@@ -111,7 +118,7 @@ export async function optimizeTimetable(timetable, options = {}) {
       worker.addEventListener('error', event => {
         if (!settled) { settled = true; signal?.removeEventListener('abort', abort); finishWorkers(); reject(new Error(event.message || 'Worker non disponibile.')); }
       });
-      worker.postMessage({ type: 'start', timetable, options: { ...normalized, seed: normalized.seed + index } });
+      worker.postMessage({ type: 'start', timetable: scopedTimetable, options: { ...normalized, seed: normalized.seed + index } });
     });
   });
 }

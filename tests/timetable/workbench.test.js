@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import { createSchoolWorkbench } from '../../timetable/js/school-workbench.js';
 import { createTimetableApp } from '../../timetable/js/app.js';
 import { getCalculationReadiness } from '../../timetable/js/validation.js';
+import { optimizationScope } from '../../timetable/js/optimization-scope.js';
 import { timetableFixture } from './helpers.js';
 
 const htmlPath = new URL('../../timetable/index.html', import.meta.url);
@@ -96,7 +97,7 @@ test('editing a lesson keeps unrelated and lesson table rows in place', () => {
   assert.equal(workbench.timetable.lessons.length, 5);
 });
 
-test('missing lesson class and subject become UNKNOWN placeholders and no longer block calculation', () => {
+test('missing lesson class and subject become valid UNKNOWN placeholders for separate management', () => {
   const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-students"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
   const workbench = createSchoolWorkbench({ document });
   const school = timetableFixture();
@@ -114,6 +115,7 @@ test('missing lesson class and subject become UNKNOWN placeholders and no longer
   assert.equal(unknownClass.placeholder, 'unknown');
   assert.ok(!getCalculationReadiness(school).includes('lesson-details'));
   assert.ok(!getCalculationReadiness(school).includes('invalid-data'));
+  assert.ok(optimizationScope(school).excludedLessons.some(item => item.id === lesson.id));
   const freshRow = document.querySelector('#school-grid-lessons [data-new-row="true"]');
   const teacher = freshRow.querySelectorAll('input')[1];
   teacher.value = 'Teacher Two';
@@ -128,6 +130,7 @@ test('missing lesson class and subject become UNKNOWN placeholders and no longer
   unknownClassInput.value = '1A';
   unknownClassInput.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
   assert.equal(unknownClass.placeholder, undefined, 'renaming UNKNOWN to a real class restores normal conflict checks');
+  assert.equal(optimizationScope(school).excludedLessons.some(item => item.id === lesson.id), false, 'the lesson becomes optimizable once its class is identified');
 });
 
 test('every table column can filter and sort its own values', async () => {

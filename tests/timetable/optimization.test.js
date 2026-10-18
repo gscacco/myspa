@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { optimizeTimetable } from '../../timetable/js/optimization.js';
-import { objectiveBreakdown, objectiveUpperBound } from '../../timetable/js/optimization-core.js';
+import { objectiveBreakdown, objectiveUpperBound, optimizeLocally } from '../../timetable/js/optimization-core.js';
+import { optimizationScope } from '../../timetable/js/optimization-scope.js';
 import { solverFixture, timetableFixture } from './helpers.js';
 
 test('optimization reports a monotonically improving best objective without changing the source', async () => {
@@ -65,6 +66,69 @@ test('invalid soft preference weights are rejected', async () => {
     optimizeTimetable(solverFixture(), { workers: 1, timeLimitMs: 1000, objectiveWeights: { undesiredSlot: -1 } }),
     /Objective weights must be finite, non-negative numbers/,
   );
+});
+
+test('unknown-class activities do not enter genetic search, score, or candidate bound', async () => {
+  const timetable = solverFixture();
+  const unknownClass = { id: 'class:unknown', name: 'UNKNOWN', placeholder: 'unknown', constraints: {
+    timeframes: { unavailable: ['0.0', '0.1', '0.2'], desired: [], undesired: ['0.0', '0.1', '0.2'] },
+  } };
+  timetable.entities.classes.push(unknownClass);
+  const excluded = {
+    ...structuredClone(timetable.lessons[0]), id: 'unknown-activity', classIds: [unknownClass.id],
+    assignedTime: null, timeframes: { unavailable: ['0.0', '0.1', '0.2'], desired: [], undesired: ['0.0'] },
+  };
+  timetable.lessons.push(excluded);
+  const baseline = solverFixture();
+  const weights = { undesiredSlot: 73, missedPreferredSlot: 9 };
+  const baselineScore = objectiveBreakdown(baseline, new Map([['target', { dayIndex: 0, periodIndex: 0 }]]), weights);
+  const score = objectiveBreakdown(timetable, new Map([['target', { dayIndex: 0, periodIndex: 0 }]]), weights);
+  assert.deepEqual(score, baselineScore);
+  assert.equal(objectiveUpperBound(timetable, weights), objectiveUpperBound(baseline, weights));
+
+  const result = await optimizeTimetable(timetable, { algorithm: 'genetic', workers: 1, timeLimitMs: 1_000, seed: 17 });
+  assert.equal(result.status, 'solved');
+  assert.deepEqual([...result.assignments.keys()], ['target']);
+  assert.equal(result.excludedLessonCount, 1);
+  assert.equal(timetable.lessons.at(-1).assignedTime, null, 'optimization does not mutate excluded source activities');
+});
+
+test('a timetable containing only unknown-class activities reports no eligible work', async () => {
+  const timetable = solverFixture();
+  timetable.entities.classes[0].placeholder = 'unknown';
+  timetable.entities.classes[0].name = 'UNKNOWN';
+  const result = await optimizeTimetable(timetable, { workers: 1, timeLimitMs: 1_000 });
+  assert.equal(result.status, 'no-eligible-lessons');
+  assert.equal(result.assignments.size, 0);
+  assert.equal(result.activeLessonCount, 0);
+  assert.equal(result.excludedLessonCount, timetable.lessons.length);
+  assert.equal(optimizationScope(timetable).optimizableLessons.length, 0);
+});
+
+test('genetic feasibility reports its partial CSP branch when no individual can enter the population', async () => {
+  const timetable = solverFixture();
+  for (const lesson of timetable.lessons) lesson.assignedTime = null;
+  const diagnosticPartial = {
+    assignedCount: 1,
+    assignments: new Map([['target', { dayIndex: 0, periodIndex: 0 }]]),
+    unassignedCount: 0,
+    zeroDomainCount: 0,
+    remainingDomainHistogram: {},
+    smallestRemainingDomains: [],
+  };
+  const result = await optimizeLocally(timetable, {
+    algorithm: 'genetic', timeLimitMs: 1_000, seed: 1,
+    recalculate: async () => ({
+      status: 'unsatisfiable', visited: 5, diagnosticPartial,
+      failureCauses: [{ blockingLessonId: 'blocker', blockedLessonId: 'target', sharedResources: [], count: 1 }],
+    }),
+  });
+  assert.equal(result.status, 'unsatisfiable');
+  assert.equal(result.populationCount, 0);
+  assert.equal(result.populationSize, 8);
+  assert.equal(result.generations, 0);
+  assert.deepEqual(result.diagnosticPartial, diagnosticPartial);
+  assert.equal(result.failureCauses.length, 1);
 });
 
 test('requested parallel workers run independently and the best valid result wins', async () => {

@@ -1,5 +1,6 @@
 import { validateTimetable } from './validation.js';
 import { analyzeSchedule } from './schedule.js';
+import { isOptimizableLesson, optimizationScope } from './optimization-scope.js';
 
 function clone(value) { return structuredClone(value); }
 function signature(timetable) { return JSON.stringify(timetable); }
@@ -28,6 +29,9 @@ export function applyProposal(timetable, proposal) {
     if (!lesson || changed.has(move.lessonId) || !Number.isInteger(move.assignedTime?.dayIndex) || !Number.isInteger(move.assignedTime?.periodIndex)) {
       throw new ProposalError('invalid-proposal', 'La proposta contiene una lezione mancante o un orario non valido.');
     }
+    if (!isOptimizableLesson(updated, lesson)) {
+      throw new ProposalError('excluded-lesson', 'La proposta non può riassegnare attività associate alla classe UNKNOWN.');
+    }
     changed.add(move.lessonId);
     lesson.assignedTime = {
       dayIndex: move.assignedTime.dayIndex,
@@ -37,7 +41,7 @@ export function applyProposal(timetable, proposal) {
   }
   const structural = validateTimetable(updated).errors;
   if (structural.length) throw new ProposalError('invalid-proposal', 'La proposta non rispetta la struttura del modello timetable.');
-  const hard = analyzeSchedule(updated).issues.filter(item => item.severity === 'error');
+  const hard = analyzeSchedule(optimizationScope(updated).timetable).issues.filter(item => item.severity === 'error');
   const changedHard = hard.filter(item => item.lessonIds.some(id => changed.has(id)));
   if (changedHard.length) throw new ProposalError('hard-constraint', 'La proposta crea un nuovo conflitto o lascia la lezione modificata in conflitto.');
   return updated;

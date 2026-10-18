@@ -1,7 +1,8 @@
 import { analyzeSchedule } from './schedule.js';
+import { isOptimizableLesson, optimizationScope } from './optimization-scope.js';
 
 const RESOURCE_FIELDS = Object.freeze([
-  ['teacherIds', 'teachers'], ['classIds', 'classes'], ['roomIds', 'rooms'],
+  ['teacherIds', 'teachers'], ['classIds', 'classes'],
 ]);
 export const OPTIMIZATION_WEIGHTS = Object.freeze({ undesiredSlot: 100, movedLesson: 1 });
 
@@ -24,16 +25,13 @@ function issueKey(item) {
 function assignmentIssues(timetable, lesson, time, assignments) {
   const issues = [];
   const entities = new Map();
-  for (const collection of ['teachers', 'classes', 'rooms']) {
+  for (const collection of ['teachers', 'classes']) {
     for (const entity of timetable.entities?.[collection] || []) entities.set(entity.id, entity);
   }
   const lessonSlots = [];
   for (let offset = 0; offset < lesson.durationPeriods; offset++) lessonSlots.push(time.periodIndex + offset);
   for (const periodIndex of lessonSlots) {
     const slot = `${time.dayIndex}.${periodIndex}`;
-    if (lesson.timeframes?.unavailable?.includes(slot)) {
-      issues.push({ code: 'unavailable-time', resourceType: 'lesson', resourceId: lesson.id, resourceName: lesson.id, dayIndex: time.dayIndex, periodIndex, lessonIds: [lesson.id] });
-    }
     for (const [field, collection] of RESOURCE_FIELDS) {
       for (const id of new Set(lesson[field] || [])) {
         const entity = entities.get(id);
@@ -55,7 +53,6 @@ function assignmentIssues(timetable, lesson, time, assignments) {
       for (const id of new Set(lesson[field] || [])) {
         if (!otherIds.has(id)) continue;
         const entity = entities.get(id);
-        if (collection === 'classes' && entity?.placeholder === 'unknown') continue;
         const periodIndex = Math.max(time.periodIndex, otherTime.periodIndex);
         issues.push({
           code: 'resource-collision', resourceType: collection.slice(0, -1), resourceId: id,
@@ -90,7 +87,7 @@ function sameTime(left, right) {
 
 function softViolations(timetable) {
   const entities = new Map();
-  for (const collection of ['teachers', 'classes', 'rooms']) {
+  for (const collection of ['teachers', 'classes']) {
     for (const entity of timetable.entities?.[collection] || []) entities.set(entity.id, entity);
   }
   let count = 0;
@@ -99,7 +96,7 @@ function softViolations(timetable) {
     for (let offset = 0; offset < lesson.durationPeriods; offset++) {
       const slot = `${lesson.assignedTime.dayIndex}.${lesson.assignedTime.periodIndex + offset}`;
       const resourceIds = new Set(RESOURCE_FIELDS.flatMap(([field]) => lesson[field] || []));
-      const scopes = [lesson, ...[...resourceIds].map(id => entities.get(id))];
+      const scopes = [...resourceIds].map(id => entities.get(id));
       for (const scope of scopes) {
         const undesired = scope?.constraints?.timeframes?.undesired || scope?.timeframes?.undesired || [];
         if (undesired.includes(slot)) count++;
@@ -129,6 +126,8 @@ function candidateSlots(timetable, lesson) {
 export function validateAssignment(timetable, lessonId, nextTime) {
   const lesson = timetable.lessons.find(item => item.id === lessonId);
   if (!lesson) return { valid: false, issues: [{ code: 'missing-lesson', lessonIds: [lessonId] }] };
+  if (!isOptimizableLesson(timetable, lesson)) return { valid: false, issues: [{ code: 'excluded-lesson', lessonIds: [lessonId] }] };
+  timetable = optimizationScope(timetable).timetable;
   if (!Number.isInteger(nextTime?.dayIndex) || nextTime.dayIndex < 0 || nextTime.dayIndex >= timetable.calendar.days.length
     || !Number.isInteger(nextTime?.periodIndex) || nextTime.periodIndex < 0
     || nextTime.periodIndex + lesson.durationPeriods > timetable.calendar.periods.length) {
@@ -155,8 +154,11 @@ export async function findAlternatives(timetable, lessonId, {
   onProgress = () => {},
   onSuggestion = () => {},
 } = {}) {
+  const originalTarget = timetable.lessons.find(item => item.id === lessonId);
+  if (!originalTarget) return { suggestions: [], cancelled: false, visited: 0, reason: 'missing-lesson' };
+  if (!isOptimizableLesson(timetable, originalTarget)) return { suggestions: [], cancelled: false, visited: 0, reason: 'excluded-lesson' };
+  timetable = optimizationScope(timetable).timetable;
   const target = timetable.lessons.find(item => item.id === lessonId);
-  if (!target) return { suggestions: [], cancelled: false, visited: 0, reason: 'missing-lesson' };
   if (!Number.isInteger(maxMoves) || maxMoves < 1) throw new RangeError('maxMoves must be a positive integer.');
   if (!Number.isInteger(maxResults) || maxResults < 1) throw new RangeError('maxResults must be a positive integer.');
   if (!Number.isInteger(maxNodes) || maxNodes < 1) throw new RangeError('maxNodes must be a positive integer.');

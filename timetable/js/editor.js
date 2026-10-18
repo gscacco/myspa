@@ -6,6 +6,7 @@ import { createProposal } from './proposals.js';
 import { createTimetableHistory } from './history.js';
 import { getCalculationReadiness } from './validation.js';
 import { objectiveUpperBound } from './optimization-core.js';
+import { optimizationScope } from './optimization-scope.js';
 
 function node(document, tag, className, text = '') {
   const result = document.createElement(tag);
@@ -318,7 +319,8 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   }
 
   function addFullScheduleProposal(result) {
-    const changes = timetable.lessons.map(lesson => ({ lessonId: lesson.id, assignedTime: result.assignments.get(lesson.id) }));
+    const { optimizableLessons, excludedLessons } = optimizationScope(timetable);
+    const changes = optimizableLessons.map(lesson => ({ lessonId: lesson.id, assignedTime: result.assignments.get(lesson.id) }));
     if (changes.every(change => {
       const before = timetable.lessons.find(lesson => lesson.id === change.lessonId)?.assignedTime;
       return before?.dayIndex === change.assignedTime?.dayIndex && before?.periodIndex === change.assignedTime?.periodIndex;
@@ -329,7 +331,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     }
     const suggestion = {
       changes,
-      rationale: 'Ricalcolo completo rispettando indisponibilità, collisioni di docenti, classi e aule e le preferenze temporali supportate. Le posizioni del file importato non influiscono sui calcoli; le altre regole non supportate restano conservate ma non sono applicate.',
+      rationale: `Ricalcolo completo di ${changes.length} lezioni con classe reale, rispettando indisponibilità, collisioni e preferenze temporali supportate. ${excludedLessons.length} attività con classe UNKNOWN sono escluse e restano invariate.`,
       softBefore: 0,
       softAfter: result.objective ?? result.objectiveBreakdown?.total ?? 0,
     };
@@ -367,6 +369,8 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     cancelButton.disabled = true;
     status.textContent = result.cancelled
       ? `Ricerca annullata. ${result.suggestions.length} alternative parziali conservate; l’orario corrente non è cambiato.`
+      : result.reason === 'excluded-lesson'
+        ? 'Attività associata alla classe UNKNOWN: è esclusa dal calcolo e resta disponibile per la gestione separata.'
       : result.suggestions.length
         ? `${result.suggestions.length} alternative verificate${result.limitReached ? ' (risultati parziali)' : ''}.`
         : 'Nessuna alternativa compatibile trovata entro il limite di ricerca.';
@@ -376,6 +380,14 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
 
   async function recalculate() {
     if (!timetable?.lessons.length || recalculationController) return null;
+    const { optimizableLessons, excludedLessons } = optimizationScope(timetable);
+    if (!optimizableLessons.length) {
+      clearOptions();
+      status.textContent = `Nessuna attività con classe reale da ottimizzare. ${excludedLessons.length} attività con classe UNKNOWN restano conservate e invariate.`;
+      calculationStatus.textContent = status.textContent;
+      optimizationStatus.textContent = 'Nessuna attività da calcolare';
+      return { status: 'no-eligible-lessons', assignments: new Map(), activeLessonCount: 0, excludedLessonCount: excludedLessons.length };
+    }
     const timeLimitSeconds = Number(timeLimitInput.value);
     const geneticStartAfterSeconds = Number(mixedCutoffInput.value);
     const maxObjective = Number(targetInput.value);
@@ -440,12 +452,12 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
         }
         if (progress.phase === 'feasibility') {
           const assigned = Number(progress.feasibilityAssigned ?? progress.maxAssigned ?? progress.assigned ?? 0).toLocaleString('it-IT');
-          const total = Number(progress.feasibilityTotal ?? progress.total ?? timetable.lessons.length).toLocaleString('it-IT');
+          const total = Number(progress.feasibilityTotal ?? progress.total ?? optimizableLessons.length).toLocaleString('it-IT');
           const geneticPhase = progress.algorithmStage === 'genetic' || (!progress.algorithmStage && algorithmInput.value === 'genetic');
           const phaseLabel = geneticPhase ? 'Genetico · ricerca soluzione valida' : algorithmInput.value === 'mixed' ? 'Classico · ricerca soluzione valida' : 'Ricerca soluzione valida';
           const attempt = Number(progress.feasibilityAttempt ?? progress.attempt ?? 1);
           const attemptLabel = attempt > 1 ? ` · tentativo ${attempt.toLocaleString('it-IT')}` : '';
-          objectiveBreakdownOutput.textContent = `${phaseLabel}${attemptLabel} · avanzamento massimo ${assigned}/${total} lezioni. La scomposizione del costo compare appena è completa la prima assegnazione.`;
+          objectiveBreakdownOutput.textContent = `${phaseLabel}${attemptLabel} · avanzamento massimo ${assigned}/${total} lezioni ottimizzabili${excludedLessons.length ? ` · ${excludedLessons.length} escluse (classe UNKNOWN)` : ''}. La scomposizione del costo compare appena è completa la prima assegnazione.`;
         } else renderObjectiveBreakdown(progress.objectiveBreakdown);
         const workerLabel = progress.workersTotal ? ` · worker ${progress.workersCompleted || 0}/${progress.workersTotal}` : '';
         const stageLabel = algorithmInput.value === 'mixed' ? progress.algorithmStage === 'genetic' ? 'Genetico · ' : progress.algorithmStage === 'classic' ? 'Classico · ' : '' : '';
@@ -471,15 +483,18 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     renderObjectiveQuality(Number(result.objective), objectiveMaximum);
     if (result.iterations != null) iterationOutput.textContent = Number(result.iterations).toLocaleString('it-IT');
     renderObjectiveBreakdown(result.objectiveBreakdown);
-    const hasCompleteProposal = result.assignments instanceof Map && result.assignments.size === timetable.lessons.length;
-    if (result.status === 'solved' || (hasCompleteProposal && ['cancelled', 'time-limit'].includes(result.status))) {
+    const hasCompleteProposal = result.assignments instanceof Map
+      && optimizableLessons.every(lesson => result.assignments.has(lesson.id) && result.assignments.get(lesson.id));
+    if ((result.status === 'solved' && hasCompleteProposal) || (hasCompleteProposal && ['cancelled', 'time-limit'].includes(result.status))) {
       const added = addFullScheduleProposal(result);
       if (added && result.status === 'solved') status.textContent = result.objective === 0
         ? `Obiettivo zero raggiunto: ottimo globale dimostrato · ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni. Proposta pronta.`
         : `Soglia richiesta raggiunta (obiettivo ${Number(result.objective || 0).toLocaleString('it-IT')}); ottimo globale non dimostrato. Proposta pronta.`;
       else if (added && result.status === 'cancelled') status.textContent = `Calcolo fermato; la proposta valida trovata è pronta da applicare. L’orario corrente è invariato.`;
       else if (added && result.status === 'time-limit') status.textContent = `Tempo limite raggiunto; migliore proposta trovata: ${Number(result.objective ?? 0).toLocaleString('it-IT')} punti. Ottimo globale non dimostrato.`;
-    } else if (result.status === 'cancelled') status.textContent = Number.isFinite(result.feasibilityTotal)
+    } else if (result.status === 'no-eligible-lessons') status.textContent = `Nessuna attività con classe reale da ottimizzare. ${excludedLessons.length} attività con classe UNKNOWN restano conservate e invariate.`;
+    else if (result.status === 'solved') status.textContent = 'Il motore ha restituito un risultato incompleto; nessuna proposta è stata preparata.';
+    else if (result.status === 'cancelled') status.textContent = Number.isFinite(result.feasibilityTotal)
       ? `Calcolo fermato durante la preparazione: ${Number(result.feasibilityAssigned || 0).toLocaleString('it-IT')}/${Number(result.feasibilityTotal).toLocaleString('it-IT')} lezioni assegnate; nessuna proposta completa.`
       : `Calcolo fermato a ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni; l’orario corrente è invariato.`;
     else if (result.status === 'time-limit') status.textContent = `Tempo limite raggiunto; non è stata trovata una proposta completa.`;
@@ -495,7 +510,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
           : result.status === 'limit' ? 'Limite di ricerca raggiunto'
             : result.reason?.type === 'resource-capacity' ? 'Capacità insufficiente'
               : result.reason?.type === 'empty-domain' ? 'Nessuna fascia disponibile' : 'Nessuna soluzione';
-    if (result.status !== 'solved' && !hasCompleteProposal) list.append(node(document, 'li', 'muted', 'Nessuna proposta applicabile.'));
+    if (!hasCompleteProposal) list.append(node(document, 'li', 'muted', 'Nessuna proposta applicabile.'));
     return result;
   }
 
@@ -524,9 +539,10 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       }
     }
     try {
+      const fullRecalculation = selectedOption.fullRecalculation;
       const next = history.apply(selectedOption.proposal);
       const lessonId = selectedLessonId;
-      status.textContent = selectedOption.fullRecalculation ? 'Proposta applicata. Consulta l’orario aggiornato.' : 'Modifica applicata. Consulta l’orario aggiornato.';
+      status.textContent = fullRecalculation ? 'Orario applicato e visualizzato.' : 'Modifica applicata. Consulta l’orario aggiornato.';
       calculationStatus.textContent = status.textContent;
       reviewCalculationButton.hidden = true;
       clearOptions();
@@ -534,7 +550,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       timetable = next;
       updateCalculationControl();
       refreshConstraintControls();
-      onApply(next, lessonId, 'apply');
+      onApply(next, lessonId, fullRecalculation ? 'recalculation' : 'apply');
     } catch (error) {
       status.textContent = error.message || 'La proposta non è più applicabile. Cerca nuove alternative.';
       clearOptions();

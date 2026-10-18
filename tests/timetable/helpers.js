@@ -87,7 +87,12 @@ export function solverFixture({ chain = false } = {}) {
     calendar: { unitMinutes: 60, days: [{ index: 0, shortName: 'MON', name: 'Monday' }], periods: Array.from({ length: slotCount }, (_, index) => ({ index, beginMinute: 480 + 60 * index, endMinute: 540 + 60 * index })) },
     entities: {
       teachers: [{ id: 'teacher:T1', name: 'Teacher One', constraints: { timeframes: { unavailable: [], desired: [], undesired: chain ? [] : ['0.1'] } } }],
-      classes: Array.from({ length: chain ? 3 : 1 }, (_, index) => ({ id: `class:C${index + 1}`, name: `Class ${index + 1}` })),
+      classes: Array.from({ length: chain ? 3 : 1 }, (_, index) => ({
+        id: `class:C${index + 1}`, name: `Class ${index + 1}`,
+        ...(chain ? { constraints: { timeframes: { unavailable: [
+          ['0.2', '0.3'], ['0.0', '0.3'], ['0.0', '0.1'],
+        ][index], desired: [], undesired: [] } } } : {}),
+      })),
       rooms: Array.from({ length: chain ? 3 : 1 }, (_, index) => ({ id: `room:R${index + 1}`, name: `Room ${index + 1}` })),
       subjects: [{ id: 'subject:MATH', name: 'Mathematics' }, { id: 'subject:HIST', name: 'History' }],
     },

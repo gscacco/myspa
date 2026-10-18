@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { recalculateAssignments } from '../../timetable/js/recalculator.js';
 import { objectiveBreakdown } from '../../timetable/js/optimization-core.js';
 import { analyzeSchedule } from '../../timetable/js/schedule.js';
+import { optimizationScope } from '../../timetable/js/optimization-scope.js';
 import { importOFD, withoutOFDAssignments } from '../../timetable/js/ofd-importer.js';
 import { domParser } from './helpers.js';
 
@@ -24,6 +25,7 @@ const candidateOrderings = (process.env.TIMETABLE_PERF_ORDERINGS || 'random')
 await access(projectPath);
 const imported = importOFD(await readFile(projectPath), { DOMParser: domParser });
 const { timetable } = withoutOFDAssignments(imported);
+const { timetable: optimizationTimetable, excludedLessons } = optimizationScope(timetable);
 assert.ok(timetable.lessons.length >= 1_000, 'benchmark needs a school-sized timetable');
 assert.ok(timetable.lessons.every(lesson => lesson.assignedTime == null), 'source placements must not seed the calculation');
 
@@ -65,25 +67,45 @@ for (const candidateOrdering of candidateOrderings) for (const seed of seeds) {
     depthBySecond[second] = Math.max(depthBySecond[second] || 0, sample.depth || 0);
   }
   let objective = null, hardErrors = null;
+  let partialHardErrors = null;
   if (result.status === 'solved') {
-    assert.equal(result.assignments.size, timetable.lessons.length);
+    assert.equal(result.assignments.size, optimizationTimetable.lessons.length);
     objective = objectiveBreakdown(timetable, result.assignments).total;
     const candidate = structuredClone(timetable);
-    for (const lesson of candidate.lessons) lesson.assignedTime = result.assignments.get(lesson.id);
+    for (const lesson of candidate.lessons) if (result.assignments.has(lesson.id)) lesson.assignedTime = result.assignments.get(lesson.id);
     hardErrors = analyzeSchedule(candidate).issues.filter(issue => issue.severity === 'error').length;
     assert.equal(hardErrors, 0, 'solver returned a hard-invalid assignment');
   }
+  if (result.diagnosticPartial) {
+    const candidate = structuredClone(timetable);
+    for (const lesson of candidate.lessons) {
+      if (result.diagnosticPartial.assignments.has(lesson.id)) {
+        lesson.assignedTime = result.diagnosticPartial.assignments.get(lesson.id);
+      }
+    }
+    partialHardErrors = analyzeSchedule(candidate).issues.filter(issue => issue.severity === 'error').length;
+    assert.equal(partialHardErrors, 0, 'diagnostic partial assignments must remain hard-valid');
+  }
+  const partialSummary = result.diagnosticPartial ? {
+    assignedCount: result.diagnosticPartial.assignedCount,
+    unassignedCount: result.diagnosticPartial.unassignedCount,
+    zeroDomainCount: result.diagnosticPartial.zeroDomainCount,
+    remainingDomainHistogram: result.diagnosticPartial.remainingDomainHistogram,
+    smallestRemainingDomains: result.diagnosticPartial.smallestRemainingDomains,
+    partialHardErrors,
+  } : null;
   const report = {
     project: basename(projectPath), seed, candidateOrdering, variableOrdering,
     randomizeOrder, randomizeVariables, restartAfterNodes, maxNodes,
-    lessons: timetable.lessons.length, status: result.status,
+    lessons: timetable.lessons.length, optimizedLessons: optimizationTimetable.lessons.length,
+    excludedUnknownClassLessons: excludedLessons.length, status: result.status,
     restarts: diagnostics.restarts, elapsedMs: Math.round(elapsedMs),
     preparationMs: (diagnostics.domainBuildMs || 0) + (diagnostics.preprocessingMs || 0),
     searchMs: diagnostics.searchMs || 0,
     visited: result.visited,
     nodesPerSecond: Math.round((result.visited || 0) * 1000 / Math.max(1, elapsedMs)),
     maxDepth: diagnostics.maxDepth || Math.max(0, ...samples.map(sample => sample.depth || 0)),
-    maxDepthPercent: Math.round(100 * (diagnostics.maxDepth || 0) / timetable.lessons.length),
+    maxDepthPercent: Math.round(100 * (diagnostics.maxDepth || 0) / Math.max(1, optimizationTimetable.lessons.length)),
     depthBySecond, objective, hardErrors,
     backtracks: diagnostics.backtracks,
     domainFilters: diagnostics.domainFilters,
@@ -91,10 +113,20 @@ for (const candidateOrdering of candidateOrderings) for (const seed of seeds) {
     domainValuesPruned: diagnostics.domainValuesPruned,
     domainWipeouts: diagnostics.domainWipeouts,
     compatibilityChecks: diagnostics.compatibilityChecks,
+    partialSummary,
+    failureCauses: result.failureCauses || [],
     progressSamples: samples.length,
   };
   benchmarkResults.push(report);
   console.log(`TIMETABLE_PERF ${JSON.stringify(report)}`);
+
+  if (process.env.TIMETABLE_PERF_OUTPUT && result.diagnosticPartial) {
+    await writeFile(process.env.TIMETABLE_PERF_OUTPUT, JSON.stringify({
+      ...report,
+      partialAssignments: Object.fromEntries(result.diagnosticPartial.assignments),
+      partialRestart: result.diagnosticPartial.restart,
+    }, null, 2));
+  }
 
   assert.ok(['solved', 'cancelled', 'limit', 'unsatisfiable'].includes(result.status), `unexpected result: ${result.status}`);
   assert.ok(Number.isFinite(report.nodesPerSecond));

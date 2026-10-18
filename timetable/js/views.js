@@ -1,5 +1,6 @@
 import { analyzeSchedule } from './schedule.js';
 import { countOpenIssues, filterIssues } from './diagnostics.js';
+import { optimizationScope } from './optimization-scope.js';
 
 const MODE_CONFIG = Object.freeze({
   class: { collection: 'classes', field: 'classIds', singular: 'classe', plural: 'classi' },
@@ -16,7 +17,6 @@ function make(document, tag, className, text = '') {
   if (text) node.textContent = text;
   return node;
 }
-
 function formatTime(minutes) {
   const hours = Math.floor(minutes / 60).toString().padStart(2, '0');
   const remainder = (minutes % 60).toString().padStart(2, '0');
@@ -323,17 +323,19 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
 
   function renderStructure() {
     structureSummary.replaceChildren();
-    const unassigned = timetable.lessons.filter(lesson => !lesson.assignedTime).length;
+    const { optimizableLessons, excludedLessons } = optimizationScope(timetable);
+    const unassigned = optimizableLessons.filter(lesson => !lesson.assignedTime).length;
     const counts = [
-      ['Lezioni', timetable.lessons.length], ['Assegnate', timetable.lessons.length - unassigned], ['Senza assegnazione', unassigned],
+      ['Attività', timetable.lessons.length], ['Assegnate (calcolabili)', optimizableLessons.length - unassigned],
+      ['Senza assegnazione', unassigned], ['Escluse (classe UNKNOWN)', excludedLessons.length],
     ];
     for (const [label, value] of counts) {
       const wrapper = make(document, 'div');
       wrapper.append(make(document, 'dt', '', label), make(document, 'dd', '', new Intl.NumberFormat('it-IT').format(value)));
       structureSummary.append(wrapper);
     }
-    structureDescription.textContent = unassigned
-      ? `${unassigned} lezioni devono ancora ricevere un orario. Apri una scheda per consultare i dettagli o gestire i vincoli.`
+    structureDescription.textContent = unassigned || excludedLessons.length
+      ? `${unassigned} lezioni con classe reale attendono un orario; ${excludedLessons.length} attività con classe UNKNOWN restano fuori dal calcolo e possono essere gestite separatamente.`
       : 'Apri una scheda per consultare classi, docenti, aule, lezioni e vincoli.';
   }
 

@@ -197,10 +197,10 @@ test('lesson sheet imports every lesson from the supplied OFD against its import
   assert.equal(app.timetable.lessons.length, parsed.timetable.lessons.length);
   assert.ok(app.timetable.lessons.every(lesson => lesson.assignedTime === null));
   assert.equal(app.timetable.source.assignmentHints, undefined, 'the imported placements are not kept as calculation hints');
-  assert.match(document.querySelector('[data-lessons-status]').textContent, /lezioni OFD.*UNKNOWN/i);
+  assert.match(document.querySelector('[data-lessons-status]').textContent, /attività OFD.*UNKNOWN.*escluse dal calcolo/i);
   assert.ok(app.diagnostics.some(item => item.code === 'lesson-without-class'));
   assert.equal(app.timetable.lessons.filter(lesson => app.timetable.entities.classes.find(item => item.id === lesson.classIds[0])?.placeholder === 'unknown').length, 166);
-  assert.equal(document.querySelector('#recalculate-all').disabled, false, 'unknown class placeholders let the calculation proceed');
+  assert.equal(document.querySelector('#recalculate-all').disabled, false, 'ordinary lessons remain eligible for calculation');
   assert.match(app.timetable.source.lessonImports[0].source.xml, /<LESSON/);
   dom.window.close();
 });

@@ -6,6 +6,7 @@ import { createEmptySchool, createSchoolWorkbench } from './school-workbench.js'
 import { parseRosterCSV } from './roster-importer.js';
 import { getCalculationReadiness, validateTimetable } from './validation.js';
 import { TIMETABLE_VERSION } from './version.js';
+import { optimizationScope } from './optimization-scope.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 const rosterWarningCodes = new Set(['encoding-mismatch', 'period-name-mismatch', 'unsupported-structure', 'unsupported-attribute']);
@@ -105,7 +106,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       const currentLessonWarnings = activeLessonWarnings.flatMap(item => {
         if (item.code === 'lesson-without-class') {
           const count = unknownCount(next, 'classes', 'classIds');
-          return count ? [{ ...item, message: `${count} lezioni OFD non hanno una classe; usano UNKNOWN e non bloccano il calcolo.` }] : [];
+          return count ? [{ ...item, message: `${count} attività OFD usano la classe UNKNOWN: sono escluse dal calcolo e restano disponibili per la gestione separata.` }] : [];
         }
         if (item.code === 'lesson-without-subject') {
           const count = unknownCount(next, 'subjects', 'subjectId');
@@ -134,6 +135,33 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       schoolWorkbench.setTimetable(current);
       markUnsavedChanges();
       refreshViews(true);
+      if (action === 'recalculation') {
+        const { optimizableLessons } = optimizationScope(current);
+        const realClasses = new Map(current.entities.classes
+          .filter(item => item.placeholder !== 'unknown')
+          .map(item => [item.id, item]));
+        const classLessonCounts = new Map();
+        for (const lesson of optimizableLessons) {
+          if (!lesson.assignedTime) continue;
+          for (const id of new Set(lesson.classIds || [])) {
+            if (realClasses.has(id)) classLessonCounts.set(id, (classLessonCounts.get(id) || 0) + 1);
+          }
+        }
+        const classId = [...classLessonCounts].sort((left, right) => right[1] - left[1])[0]?.[0];
+        if (classId) views.showEntitySchedule('class', classId);
+        detailNavigationStack = [];
+        activeDetail = null;
+        showScreen('schedule');
+        if (!detailPanel.hidden) showEmptyDetail();
+        const assignedCount = optimizableLessons.filter(lesson => lesson.assignedTime).length;
+        const visibleCount = document.querySelectorAll('#schedule-grid [data-lesson-id]').length;
+        const className = realClasses.get(classId)?.name;
+        const feedback = visibleCount
+          ? `Orario applicato: ${numberFormat.format(assignedCount)} lezioni assegnate; ${numberFormat.format(visibleCount)} visualizzate${className ? ` per ${className}` : ''}.`
+          : `Orario applicato: ${numberFormat.format(assignedCount)} di ${numberFormat.format(optimizableLessons.length)} lezioni assegnate, ma nessuna è visibile nella tabella.`;
+        document.querySelector('#recalculation-status').textContent = feedback;
+        document.querySelector('#edit-status').textContent = feedback;
+      }
       if (activeDetail && !detailPanel.hidden) openEntityDetail(activeDetail);
     },
   });
@@ -231,7 +259,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
         const unknownClasses = unknownCount(current, 'classes', 'classIds');
         const unknownSubjects = unknownCount(current, 'subjects', 'subjectId');
         ready.textContent = unknownClasses || unknownSubjects
-          ? `Calcolo disponibile. Le lezioni senza dati usano UNKNOWN${unknownClasses ? ` per la classe (${unknownClasses})` : ''}${unknownSubjects ? ` per la materia (${unknownSubjects})` : ''}; puoi completarli in seguito.`
+          ? `Calcolo disponibile. ${unknownClasses ? `${unknownClasses} attività con classe UNKNOWN saranno escluse e conservate.` : ''}${unknownSubjects ? ` ${unknownSubjects} attività con materia UNKNOWN restano nel calcolo se hanno una classe reale.` : ''}`
           : 'Il motore calcola le assegnazioni: non serve inserire giorno e ora a mano.';
         output.append(ready);
       }
@@ -848,7 +876,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       const unknownSubjectIds = new Set(sourceEntities.subjects.filter(item => item.placeholder === 'unknown').map(item => item.id));
       const lessonsWithoutSubject = lessons.filter(lesson => !lesson.subjectId || !sourceSubjectIds.has(lesson.subjectId) || unknownSubjectIds.has(lesson.subjectId)).length;
       const warnings = [
-        lessonsWithoutClass && { severity: 'warning', code: 'lesson-without-class', message: `${lessonsWithoutClass} lezioni OFD non hanno una classe; useranno UNKNOWN e il calcolo potrà procedere.` },
+        lessonsWithoutClass && { severity: 'warning', code: 'lesson-without-class', message: `${lessonsWithoutClass} attività OFD usano la classe UNKNOWN; saranno escluse dal calcolo e conservate per la gestione separata.` },
         lessonsWithoutSubject && { severity: 'warning', code: 'lesson-without-subject', message: `${lessonsWithoutSubject} lezioni OFD non hanno una materia; useranno UNKNOWN e il calcolo potrà procedere.` },
         preservedTimeframes && { severity: 'warning', code: 'lesson-timeframes-preserved', message: `${preservedTimeframes} lezioni hanno vincoli temporali conservati nei dati sorgente perché il calendario è diverso.` },
       ].filter(Boolean);
@@ -913,8 +941,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     pending = null;
     applyButton.disabled = true;
     cancelButton.disabled = true;
-    const unassigned = current.lessons.filter(lesson => !lesson.assignedTime).length;
-    currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} lezioni · ${numberFormat.format(unassigned)} da assegnare`;
+    const excluded = unknownCount(current, 'classes', 'classIds');
+    const unassigned = current.lessons.filter(lesson => !lesson.assignedTime
+      && !lesson.classIds?.some(id => current.entities.classes.find(item => item.id === id)?.placeholder === 'unknown')).length;
+    currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} attività · ${numberFormat.format(unassigned)} da assegnare · ${numberFormat.format(excluded)} escluse (classe UNKNOWN)`;
     markChangesExported();
     document.querySelector('.current-card').hidden = false;
     appWorkspace.classList.add('has-timetable');

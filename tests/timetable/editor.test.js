@@ -163,6 +163,73 @@ test('full timetable recalculation stays a proposal until explicitly confirmed a
   dom.window.close();
 });
 
+test('applying a full recalculation opens a populated class timetable and reports visible lessons', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const sourceTimetable = solverFixture();
+  sourceTimetable.lessons[0].assignedTime = null;
+  const app = createTimetableApp({ document, confirm: () => true });
+  const source = new TextEncoder().encode(exportTimetableEDN(sourceTimetable));
+  await app.stageEDNFile({ name: 'synthetic.edn', arrayBuffer: async () => source.buffer });
+  app.applyImport();
+  app.showScreen('calculation');
+
+  document.querySelector('#recalculate-all').click();
+  await app.editor.recalculationComplete;
+  document.querySelector('.proposal-option').click();
+  document.querySelector('#review-recalculation').click();
+
+  assert.equal(app.activeScreen, 'schedule');
+  assert.equal(document.querySelectorAll('#schedule-grid [data-lesson-id]').length, 1);
+  assert.match(document.querySelector('#recalculation-status').textContent, /1 lezioni assegnate; 1 visualizzate per Class 1/);
+  dom.window.close();
+});
+
+test('full recalculation excludes UNKNOWN-class activities and preserves them when applying/exporting', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const current = solverFixture();
+  current.lessons[0].assignedTime = null;
+  current.entities.classes.push({ id: 'class:unknown', name: 'UNKNOWN', placeholder: 'unknown' });
+  const excluded = {
+    ...structuredClone(current.lessons[0]), id: 'unknown-activity', classIds: ['class:unknown'],
+    assignedTime: { dayIndex: 0, periodIndex: 0, sourceValue: '0.0' },
+    timeframes: { unavailable: [], desired: [], undesired: ['0.0'] },
+  };
+  current.lessons.push(excluded);
+  const beforeExcluded = structuredClone(excluded);
+  const editor = createTimetableEditor({ document, getTimetable: () => current, onApply: next => Object.assign(current, next), confirm: () => true });
+
+  document.querySelector('#recalculate-all').click();
+  await editor.recalculationComplete;
+  const proposalButton = document.querySelector('.proposal-option');
+  assert.ok(proposalButton);
+  assert.equal(proposalButton.dataset.changeCount, '1', 'only the real-class lesson is proposed for reassignment');
+  proposalButton.click();
+  assert.match(document.querySelector('#proposal-impact').textContent, /classe UNKNOWN sono escluse e restano invariate/i);
+  document.querySelector('#review-recalculation').click();
+  assert.ok(current.lessons.find(lesson => lesson.id === 'target').assignedTime);
+  assert.deepEqual(current.lessons.find(lesson => lesson.id === 'unknown-activity'), beforeExcluded);
+  assert.deepEqual(importTimetableEDN(exportTimetableEDN(current)).timetable, current, 'excluded activity survives export unchanged');
+  dom.window.close();
+});
+
+test('an incomplete result marked solved is never offered as a full timetable proposal', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const current = solverFixture();
+  const editor = createTimetableEditor({
+    document,
+    getTimetable: () => current,
+    recalculator: async () => ({ status: 'solved', assignments: new Map(), objective: 0, iterations: 1 }),
+  });
+  document.querySelector('#recalculate-all').click();
+  await editor.recalculationComplete;
+  assert.equal(document.querySelector('.proposal-option'), null);
+  assert.match(document.querySelector('#edit-status').textContent, /risultato incompleto/i);
+  dom.window.close();
+});
+
 test('constraint controls add, edit, and delete an active unavailability rule', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;

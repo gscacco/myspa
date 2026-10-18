@@ -51,6 +51,18 @@ test('class, teacher, and room views show the matching schedule and preserve sel
   dom.window.close();
 });
 
+test('schedule summaries separate UNKNOWN-class activities from ordinary unassigned lessons', async () => {
+  const { dom, document, views } = await mount();
+  const timetable = timetableFixture();
+  timetable.entities.classes.push({ id: 'class:unknown', name: 'UNKNOWN', placeholder: 'unknown' });
+  timetable.lessons.push({ ...structuredClone(timetable.lessons[4]), id: 'unknown-activity', classIds: ['class:unknown'], assignedTime: null });
+  views.render(timetable, []);
+  assert.equal(views.analysis.summary.unassignedLessons, 1);
+  assert.match(document.querySelector('#structure-summary').textContent, /Escluse \(classe UNKNOWN\)1/);
+  assert.match(document.querySelector('#structure-description').textContent, /1 lezioni con classe reale.*1 attività con classe UNKNOWN/i);
+  dom.window.close();
+});
+
 test('lesson detail shows subject, participants, time, and detected conflicts', async () => {
   const { dom, document } = await mount();
   const entitySelect = document.querySelector('#entity-select');

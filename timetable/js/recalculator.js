@@ -1,20 +1,15 @@
 import { OPTIMIZATION_WEIGHTS } from './solver.js';
+import { optimizationScope } from './optimization-scope.js';
 
-function resources(lesson, unknownClassIds = new Set()) {
-  return new Set([...(lesson.teacherIds || []), ...(lesson.classIds || []).filter(id => !unknownClassIds.has(id)), ...(lesson.roomIds || [])]);
+function resources(lesson) {
+  return new Set([...(lesson.teacherIds || []), ...(lesson.classIds || [])]);
 }
 
 function constraintSlots(lesson, resourceIds, resourceEntities) {
   const scoped = resourceIds.map(id => resourceEntities.get(id)).filter(Boolean);
   return {
-    unavailable: new Set([
-      ...(lesson.timeframes?.unavailable || []),
-      ...scoped.flatMap(entity => entity.constraints?.timeframes?.unavailable || []),
-    ]),
-    undesired: new Set([
-      ...(lesson.timeframes?.undesired || []),
-      ...scoped.flatMap(entity => entity.constraints?.timeframes?.undesired || []),
-    ]),
+    unavailable: new Set(scoped.flatMap(entity => entity.constraints?.timeframes?.unavailable || [])),
+    undesired: new Set(scoped.flatMap(entity => entity.constraints?.timeframes?.undesired || [])),
   };
 }
 
@@ -92,9 +87,14 @@ async function recalculateAssignmentsAttempt(timetable, {
     diagnostics: { ...diagnostics }, elapsedMs: Date.now() - startedAt,
   });
 
-  const unknownClassIds = new Set(timetable.entities.classes.filter(entity => entity.placeholder === 'unknown').map(entity => entity.id));
   const resourceEntities = new Map(['teachers', 'classes', 'rooms'].flatMap(type => timetable.entities[type].map(entity => [entity.id, entity])));
-  const resourceIdsByLesson = new Map(timetable.lessons.map(lesson => [lesson.id, [...resources(lesson, unknownClassIds)]]));
+  const resourceDescriptions = new Map([
+    ...timetable.entities.teachers.map(entity => [entity.id, { id: entity.id, type: 'teacher', name: entity.name }]),
+    ...timetable.entities.classes.map(entity => [entity.id, { id: entity.id, type: 'class', name: entity.name }]),
+    ...timetable.entities.rooms.map(entity => [entity.id, { id: entity.id, type: 'room', name: entity.name }]),
+  ]);
+  const subjectNames = new Map(timetable.entities.subjects.map(entity => [entity.id, entity.name]));
+  const resourceIdsByLesson = new Map(timetable.lessons.map(lesson => [lesson.id, [...resources(lesson)]]));
   const effectiveCandidateOrdering = candidateOrdering || (randomizeOrder ? 'random' : 'pressure');
   if (!['random', 'lcv', 'pressure'].includes(effectiveCandidateOrdering)) throw new RangeError('candidateOrdering must be random, lcv, or pressure.');
   if (!['degree', 'domain-loss'].includes(variableOrdering)) throw new RangeError('variableOrdering must be degree or domain-loss.');
@@ -206,6 +206,63 @@ async function recalculateAssignmentsAttempt(timetable, {
   for (const lesson of ordered) addToBucket(lesson.id, domains.get(lesson.id).length);
   diagnostics.preprocessingMs = Date.now() - preprocessingStarted - diagnostics.domainBuildMs;
   let visited = 0, cancelled = false, limitReached = false, softCost = 0;
+  let diagnosticPartial = null;
+  const wipeoutCauses = new Map();
+
+  function captureDiagnosticPartial(preferDeadEnd = false) {
+    if (diagnosticPartial && assignments.size < diagnosticPartial.assignedCount) return;
+    if (diagnosticPartial && assignments.size === diagnosticPartial.assignedCount && !preferDeadEnd) return;
+    const remaining = [];
+    const domainHistogram = {};
+    for (const lesson of ordered) {
+      if (assignments.has(lesson.id)) continue;
+      const remainingDomainSize = domainStateByLesson.get(lesson.id).availableCount;
+      domainHistogram[remainingDomainSize] = (domainHistogram[remainingDomainSize] || 0) + 1;
+      remaining.push({ lesson, remainingDomainSize });
+    }
+    const smallestDomains = [...remaining]
+      .sort((left, right) => left.remainingDomainSize - right.remainingDomainSize || left.lesson.id.localeCompare(right.lesson.id))
+      .slice(0, 30)
+      .map(({ lesson, remainingDomainSize }) => ({
+        lessonId: lesson.id,
+        subject: subjectNames.get(lesson.subjectId) || lesson.subjectId,
+        teachers: (lesson.teacherIds || []).map(id => resourceEntities.get(id)?.name || id),
+        classes: (lesson.classIds || []).map(id => resourceEntities.get(id)?.name || id),
+        rooms: (lesson.roomIds || []).map(id => resourceEntities.get(id)?.name || id),
+        durationPeriods: lesson.durationPeriods,
+        remainingDomainSize,
+      }));
+    const zeroDomainCount = domainHistogram[0] || 0;
+    if (diagnosticPartial && assignments.size === diagnosticPartial.assignedCount
+      && zeroDomainCount <= diagnosticPartial.zeroDomainCount) return;
+    diagnosticPartial = {
+      assignedCount: assignments.size,
+      assignments: new Map(assignments),
+      unassignedCount: remaining.length,
+      zeroDomainCount,
+      remainingDomainHistogram: domainHistogram,
+      smallestRemainingDomains: smallestDomains,
+    };
+  }
+
+  function recordWipeout(blockingLesson, blockedLessonId, time) {
+    const commonResourceIds = resourceIdsByLesson.get(blockingLesson.id)
+      .filter(id => resourceIdsByLesson.get(blockedLessonId).includes(id))
+      .sort();
+    const key = `${blockingLesson.id}|${blockedLessonId}|${commonResourceIds.join(',')}|${time.dayIndex}.${time.periodIndex}`;
+    let cause = wipeoutCauses.get(key);
+    if (!cause) {
+      cause = {
+        blockingLessonId: blockingLesson.id,
+        blockedLessonId,
+        blockingTime: { dayIndex: time.dayIndex, periodIndex: time.periodIndex },
+        sharedResources: commonResourceIds.map(id => resourceDescriptions.get(id) || { id, type: 'resource', name: id }),
+        count: 0,
+      };
+      wipeoutCauses.set(key, cause);
+    }
+    cause.count++;
+  }
 
   function candidateIndicesInLeastConstrainingOrder(lesson, state, candidates) {
     if (effectiveCandidateOrdering !== 'lcv') return null;
@@ -236,6 +293,7 @@ async function recalculateAssignmentsAttempt(timetable, {
 
   async function visit() {
     diagnostics.maxDepth = Math.max(diagnostics.maxDepth, assignments.size);
+    captureDiagnosticPartial();
     if (assignments.size === ordered.length) return true;
     if (signal?.aborted) { cancelled = true; return false; }
 
@@ -300,6 +358,8 @@ async function recalculateAssignmentsAttempt(timetable, {
         if (signal?.aborted) { cancelled = true; addToBucket(selectedLesson.id, selectedState.availableCount); return false; }
       }
       assignments.set(selectedLesson.id, candidate.time);
+      // Count an assignment even if forward checking detects the dead end before visit().
+      diagnostics.maxDepth = Math.max(diagnostics.maxDepth, assignments.size);
       const reducedDegrees = [];
       for (const neighborId of neighborsByLesson.get(selectedLesson.id)) {
         if (assignments.has(neighborId)) continue;
@@ -343,10 +403,12 @@ async function recalculateAssignmentsAttempt(timetable, {
         }
         if (!nextCount) {
           diagnostics.domainWipeouts++;
+          recordWipeout(selectedLesson, neighborId, candidate.time);
           possible = false;
           break;
         }
       }
+      if (!possible) captureDiagnosticPartial(true);
       softCost += candidate.cost;
       const solved = possible && await visit();
       if (solved) return true;
@@ -375,11 +437,18 @@ async function recalculateAssignmentsAttempt(timetable, {
   diagnostics.searchMs = Date.now() - startedAt - diagnostics.domainBuildMs - diagnostics.preprocessingMs;
   reportProgress(solved ? ordered.length : assignments.size);
   const resultDiagnostics = { ...diagnostics, elapsedMs: Date.now() - startedAt };
+  const failures = [...wipeoutCauses.values()].sort((left, right) => right.count - left.count
+    || left.blockingLessonId.localeCompare(right.blockingLessonId)
+    || left.blockedLessonId.localeCompare(right.blockedLessonId));
   if (solved) return { status: 'solved', assignments: new Map(assignments), visited, softCost, diagnostics: resultDiagnostics };
-  return { status: cancelled ? 'cancelled' : limitReached ? 'limit' : 'unsatisfiable', visited, diagnostics: resultDiagnostics };
+  return {
+    status: cancelled ? 'cancelled' : limitReached ? 'limit' : 'unsatisfiable',
+    visited, diagnostics: resultDiagnostics, diagnosticPartial, wipeoutCauses: failures,
+  };
 }
 
 export async function recalculateAssignments(timetable, options = {}) {
+  const { timetable: scopedTimetable, excludedLessons } = optimizationScope(timetable);
   const {
     maxNodes = 250_000,
     restartAfterNodes = 50_000,
@@ -393,6 +462,10 @@ export async function recalculateAssignments(timetable, options = {}) {
   if (!Number.isInteger(maxNodes) || maxNodes < 1) throw new RangeError('maxNodes must be a positive integer.');
   if (!Number.isInteger(restartAfterNodes) || restartAfterNodes < 1) throw new RangeError('restartAfterNodes must be a positive integer.');
   if (!Number.isInteger(maxRestarts) || maxRestarts < 0) throw new RangeError('maxRestarts must be a non-negative integer.');
+  if (!scopedTimetable.lessons.length) return {
+    status: 'solved', assignments: new Map(), visited: 0, softCost: 0,
+    activeLessonCount: 0, excludedLessonCount: excludedLessons.length,
+  };
 
   const startedAt = Date.now();
   const aggregate = {
@@ -410,12 +483,14 @@ export async function recalculateAssignments(timetable, options = {}) {
   let totalVisited = 0;
   let restart = 0;
   let lastResult = null;
+  let deepestPartial = null;
+  const aggregateWipeouts = new Map();
   while (restart <= maxRestarts && totalVisited < maxNodes) {
     const attemptNodes = Math.min(restartAfterNodes, maxNodes - totalVisited);
     const attemptSeed = seed == null
       ? (restart === 0 ? null : (Date.now() ^ Math.imul(restart, 0x9e3779b9)) >>> 0)
       : (seed + Math.imul(restart, 0x9e3779b9)) >>> 0;
-    const attempt = await recalculateAssignmentsAttempt(timetable, {
+    const attempt = await recalculateAssignmentsAttempt(scopedTimetable, {
       ...options,
       signal,
       maxNodes: attemptNodes,
@@ -441,6 +516,15 @@ export async function recalculateAssignments(timetable, options = {}) {
       },
     });
     lastResult = attempt;
+    if (attempt.diagnosticPartial && (!deepestPartial || attempt.diagnosticPartial.assignedCount > deepestPartial.assignedCount)) {
+      deepestPartial = { ...attempt.diagnosticPartial, restart: restart + 1 };
+    }
+    for (const cause of attempt.wipeoutCauses || []) {
+      const key = `${cause.blockingLessonId}|${cause.blockedLessonId}|${cause.sharedResources.map(item => item.id).join(',')}|${cause.blockingTime.dayIndex}.${cause.blockingTime.periodIndex}`;
+      const existing = aggregateWipeouts.get(key);
+      if (existing) existing.count += cause.count;
+      else aggregateWipeouts.set(key, { ...cause, sharedResources: cause.sharedResources.map(item => ({ ...item })) });
+    }
     totalVisited += attempt.visited || 0;
     for (const key of Object.keys(aggregate)) {
       if (key === 'maxDepth') aggregate[key] = Math.max(aggregate[key], attempt.diagnostics?.[key] || 0);
@@ -451,10 +535,17 @@ export async function recalculateAssignments(timetable, options = {}) {
     restart++;
   }
   const diagnostics = { ...aggregate, elapsedMs: Date.now() - startedAt, restarts: restart };
+  const failureCauses = [...aggregateWipeouts.values()].sort((left, right) => right.count - left.count
+    || left.blockingLessonId.localeCompare(right.blockingLessonId)
+    || left.blockedLessonId.localeCompare(right.blockedLessonId)).slice(0, 50);
   return {
     ...lastResult,
     status: lastResult?.status === 'limit' ? 'limit' : lastResult?.status,
     visited: totalVisited,
     diagnostics,
+    diagnosticPartial: deepestPartial,
+    failureCauses,
+    activeLessonCount: scopedTimetable.lessons.length,
+    excludedLessonCount: excludedLessons.length,
   };
 }
