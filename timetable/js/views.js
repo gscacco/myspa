@@ -44,7 +44,7 @@ function issueText(item, timetable) {
 }
 
 /** Renders read-only class, teacher, and room schedules and navigable diagnostics. */
-export function createTimetableViews({ document = globalThis.document, onLessonSelect = () => {} } = {}) {
+export function createTimetableViews({ document = globalThis.document, onLessonSelect = () => {}, onBeforeLessonNavigate = () => {} } = {}) {
   if (!document) throw new TypeError('A document is required to render timetable views.');
   const workspace = document.querySelector('#timetable-workspace');
   const structurePage = document.querySelector('#structure-page');
@@ -52,15 +52,6 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   const backFromStructureButton = document.querySelector('#back-to-timetable-from-structure');
   const structureSummary = document.querySelector('#structure-summary');
   const structureDescription = document.querySelector('#structure-description');
-  const structureClasses = document.querySelector('#structure-classes');
-  const structureTeachers = document.querySelector('#structure-teachers');
-  const structureRooms = document.querySelector('#structure-rooms');
-  const structureConstraints = document.querySelector('#structure-constraints');
-  const structureConstraintSummary = document.querySelector('#structure-constraint-summary');
-  const preservedConstraintFields = document.querySelector('#preserved-constraint-fields');
-  const structureRosters = document.querySelector('.structure-rosters');
-  const structureSearch = document.querySelector('#structure-search');
-  const structureFilterStatus = document.querySelector('#structure-filter-status');
   const issuesPage = document.querySelector('#issues-page');
   const openIssuesButton = document.querySelector('#open-issues');
   const backToTimetableButton = document.querySelector('#back-to-timetable');
@@ -81,8 +72,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   const noIssuesMatch = document.querySelector('#no-issues-match');
   const viewButtons = [...(controls?.querySelectorAll('[data-view]') || [])];
   if (![workspace, structurePage, openStructureButton, backFromStructureButton, structureSummary, structureDescription,
-    structureClasses, structureTeachers, structureRooms, structureConstraints, structureConstraintSummary, preservedConstraintFields,
-    structureRosters, structureSearch, structureFilterStatus, issuesPage, openIssuesButton, backToTimetableButton, controls, entityLabel, entitySelect, grid, status, details,
+    issuesPage, openIssuesButton, backToTimetableButton, controls, entityLabel, entitySelect, grid, status, details,
     issuesList, sourceWarnings, issueSeverity, issueCategory, issueSearch, clearIssueFilters, issueSummary, issueFilterSummary, noIssuesMatch].every(Boolean)
     || Object.keys(MODE_CONFIG).some(mode => !viewButtons.some(button => button.dataset.view === mode))) {
     throw new Error('Timetable view screen is missing required controls.');
@@ -335,9 +325,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     structureSummary.replaceChildren();
     const unassigned = timetable.lessons.filter(lesson => !lesson.assignedTime).length;
     const counts = [
-      ['Classi', timetable.entities.classes.length], ['Docenti', timetable.entities.teachers.length],
-      ['Aule', timetable.entities.rooms.length], ['Materie', timetable.entities.subjects.length],
-      ['Lezioni', timetable.lessons.length], ['Senza assegnazione', unassigned],
+      ['Lezioni', timetable.lessons.length], ['Assegnate', timetable.lessons.length - unassigned], ['Senza assegnazione', unassigned],
     ];
     for (const [label, value] of counts) {
       const wrapper = make(document, 'div');
@@ -345,100 +333,8 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       structureSummary.append(wrapper);
     }
     structureDescription.textContent = unassigned
-      ? `${unassigned} lezioni da assegnare. Docenti, classi, lezioni e vincoli importati restano consultabili qui.`
-      : 'Consulta le anagrafiche e gestisci i vincoli della scuola.';
-
-    const renderRoster = (list, collection, modeName, field) => {
-      list.replaceChildren();
-      for (const entity of timetable.entities[collection]) {
-        const lessonCount = timetable.lessons.filter(lesson => lesson[field]?.includes(entity.id)).length;
-        const row = make(document, 'li', 'structure-row');
-        const button = make(document, 'button', 'structure-entry', `${entity.name} · ${lessonCount} lezioni`);
-        button.type = 'button';
-        button.dataset.entityName = entity.name;
-        button.dataset.entityId = entity.id;
-        button.dataset.view = modeName;
-        button.setAttribute('aria-label', `Apri ${modeName === 'class' ? 'classe' : modeName === 'teacher' ? 'docente' : 'aula'} ${entity.name} nell’orario`);
-        row.append(button);
-        list.append(row);
-      }
-      if (!list.children.length) list.append(make(document, 'li', 'muted', 'Nessun dato importato.'));
-    };
-    renderRoster(structureClasses, 'classes', 'class', 'classIds');
-    renderRoster(structureTeachers, 'teachers', 'teacher', 'teacherIds');
-    renderRoster(structureRooms, 'rooms', 'room', 'roomIds');
-
-    structureConstraints.replaceChildren();
-    const timeframeNames = {
-      unavailable: 'non disponibile', desired: 'fascia preferita (conservata, non modificabile)', undesired: 'fascia da evitare',
-    };
-    const timeframeCounts = { unavailable: 0, desired: 0, undesired: 0 };
-    const targets = [
-      ...timetable.entities.teachers.map(item => ({ scope: 'Docente', item, frames: item.constraints?.timeframes })),
-      ...timetable.entities.classes.map(item => ({ scope: 'Classe', item, frames: item.constraints?.timeframes })),
-      ...timetable.entities.rooms.map(item => ({ scope: 'Aula', item, frames: item.constraints?.timeframes })),
-      ...timetable.lessons.map(item => ({ scope: 'Lezione', item, frames: item.timeframes })),
-    ];
-    for (const { scope, item, frames = {} } of targets) {
-      const name = scope === 'Lezione' ? `${entityFor(item.subjectId, 'subjects')?.name || 'Lezione'} · ${item.classIds.map(id => entityFor(id, 'classes')?.name).filter(Boolean).join(', ')}` : item.name;
-      for (const kind of Object.keys(timeframeNames)) {
-        for (const slot of frames[kind] || []) {
-          timeframeCounts[kind]++;
-          const [dayIndex, periodIndex] = slot.split('.').map(Number);
-          const day = timetable.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
-          const period = timetable.calendar.periods[periodIndex];
-          const time = period ? formatTime(period.beginMinute) : `ora ${periodIndex + 1}`;
-          const row = make(document, 'li', 'constraint-inventory-row');
-          row.append(make(document, 'strong', '', `${scope} · ${name}`), make(document, 'span', '', `${timeframeNames[kind]} · ${day}, ${time}`));
-          if (kind === 'unavailable' || kind === 'undesired') {
-            const badge = make(document, 'span', `constraint-editable ${kind}`, kind === 'unavailable' ? 'Modificabile' : 'Modificabile');
-            row.append(badge);
-          }
-          structureConstraints.append(row);
-        }
-      }
-    }
-    const timeframeTotal = Object.values(timeframeCounts).reduce((sum, value) => sum + value, 0);
-    structureConstraintSummary.textContent = `${timeframeCounts.unavailable} indisponibilità obbligatorie · ${timeframeCounts.undesired} fasce da evitare · ${timeframeCounts.desired} preferenze conservate`;
-    if (!timeframeTotal) structureConstraints.append(make(document, 'li', 'muted', 'Nessun vincolo temporale importato.'));
-
-    preservedConstraintFields.replaceChildren();
-    const preservedFields = [
-      ['minimum', 'Minimo'], ['maximum', 'Massimo'], ['weight', 'Peso'], ['distributionMinimum', 'Distribuzione minima'],
-      ['distributionMaximum', 'Distribuzione massima'], ['forceLeft', 'Forza a sinistra'], ['forceRight', 'Forza a destra'],
-      ['avoidMorningGap', 'Evita intervallo mattutino'], ['freeDays', 'Giorni liberi'],
-    ];
-    let preservedCount = 0;
-    for (const [scope, collection] of [['Docente', 'teachers'], ['Classe', 'classes']]) {
-      for (const item of timetable.entities[collection]) {
-        for (const [field, label] of preservedFields) {
-          const value = item.constraints?.[field];
-          if (value == null) continue;
-          preservedCount++;
-          const row = make(document, 'li', 'constraint-inventory-row preserved-field');
-          row.append(make(document, 'strong', '', `${scope} · ${item.name}`), make(document, 'span', '', `${label}: ${value} · conservato, semantica non applicata`));
-          preservedConstraintFields.append(row);
-        }
-      }
-    }
-    if (timetable.links.length || timetable.parameters.length) {
-      preservedCount += timetable.links.length + timetable.parameters.length;
-      preservedConstraintFields.append(make(document, 'li', 'constraint-inventory-row preserved-field', `${timetable.links.length} collegamenti e ${timetable.parameters.length} parametri OFD conservati; il loro significato non è applicato dal calcolo.`));
-    }
-    if (!preservedCount) preservedConstraintFields.append(make(document, 'li', 'muted', 'Nessun altro parametro OFD presente.'));
-    applyStructureFilter();
-  }
-
-  function applyStructureFilter() {
-    const term = structureSearch.value.trim().toLocaleLowerCase();
-    const rows = [...structureClasses.children, ...structureTeachers.children, ...structureRooms.children,
-      ...structureConstraints.children, ...preservedConstraintFields.children];
-    let shown = 0;
-    for (const row of rows) {
-      row.hidden = Boolean(term) && !row.textContent.toLocaleLowerCase().includes(term);
-      if (!row.hidden) shown++;
-    }
-    structureFilterStatus.textContent = term ? `${shown} elementi corrispondenti.` : `${rows.length} elementi elencati.`;
+      ? `${unassigned} lezioni devono ancora ricevere un orario. Apri una scheda per consultare i dettagli o gestire i vincoli.`
+      : 'Apri una scheda per consultare classi, docenti, aule, lezioni e vincoli.';
   }
 
   function applyIssueFilters() {
@@ -489,6 +385,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     if (!lesson) return false;
     const activeElement = document.activeElement;
     const preserveGridFocus = !navigate && grid.contains(activeElement) && activeElement.dataset.lessonId === lessonId;
+    if (navigate) onBeforeLessonNavigate(lesson);
     selectedLessonId = lessonId;
     if (navigate) {
       screen = 'schedule';
@@ -505,7 +402,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       }
     }
     renderAll();
-    if (notify) onLessonSelect(lesson);
+    if (notify) onLessonSelect(lesson, { navigate });
     const target = [...grid.querySelectorAll('[data-lesson-id]')].find(node => node.dataset.lessonId === lessonId);
     if (navigate) {
       target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
@@ -545,16 +442,6 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   backToTimetableButton.addEventListener('click', () => { screen = 'schedule'; renderAll(); openIssuesButton.focus(); });
   openStructureButton.addEventListener('click', () => { screen = 'structure'; renderAll(); backFromStructureButton.focus(); });
   backFromStructureButton.addEventListener('click', () => { screen = 'schedule'; renderAll(); openStructureButton.focus(); });
-  structureRosters.addEventListener('click', event => {
-    const button = event.target.closest('[data-entity-id][data-view]');
-    if (!button) return;
-    mode = button.dataset.view;
-    selectedByMode[mode] = button.dataset.entityId;
-    screen = 'schedule';
-    renderAll();
-    entitySelect.focus();
-  });
-  structureSearch.addEventListener('input', applyStructureFilter);
   for (const control of [issueSeverity, issueCategory]) control.addEventListener('change', applyIssueFilters);
   issueSearch.addEventListener('input', applyIssueFilters);
   clearIssueFilters.addEventListener('click', () => {
@@ -571,6 +458,31 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       screen = 'structure';
       renderAll();
       backFromStructureButton.focus();
+    },
+    showEntitySchedule(nextMode, entityId, lessonId = null) {
+      if (!MODE_CONFIG[nextMode]) return false;
+      mode = nextMode;
+      selectedByMode[mode] = entityId;
+      screen = 'schedule';
+      selectedLessonId = lessonId && timetable.lessons.some(lesson => lesson.id === lessonId) ? lessonId : null;
+      renderAll();
+      if (lessonId) onLessonSelect(lessonFor(lessonId));
+      return true;
+    },
+    getNavigationState() {
+      return { screen, mode, selectedLessonId, selectedByMode: { ...selectedByMode } };
+    },
+    restoreNavigationState(state) {
+      if (!state) return;
+      screen = ['schedule', 'structure', 'issues'].includes(state.screen) ? state.screen : 'schedule';
+      mode = MODE_CONFIG[state.mode] ? state.mode : 'class';
+      selectedLessonId = timetable.lessons.some(lesson => lesson.id === state.selectedLessonId) ? state.selectedLessonId : null;
+      for (const key of Object.keys(selectedByMode)) selectedByMode[key] = state.selectedByMode?.[key] || null;
+      renderAll();
+    },
+    clearLessonSelection() {
+      selectedLessonId = null;
+      renderAll();
     },
     render(nextTimetable, nextDiagnostics = [], { preserveContext = false } = {}) {
       const previousMode = mode;

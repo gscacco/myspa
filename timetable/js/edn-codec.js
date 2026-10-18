@@ -41,8 +41,8 @@ function printValue(value, indent) {
     if (!entries.length) return '{}';
     const childIndent = indent + 2;
     return '{\n' + entries.map(([key, item]) => {
-      if (!KEYWORD_PATTERN.test(key)) throw new TypeError(`EDN map key is not a supported keyword: ${key}`);
-      return ' '.repeat(childIndent) + ':' + key + ' ' + printValue(item, childIndent);
+      const printedKey = KEYWORD_PATTERN.test(key) ? ':' + key : quoteString(key);
+      return ' '.repeat(childIndent) + printedKey + ' ' + printValue(item, childIndent);
     }).join('\n') + '\n' + ' '.repeat(indent) + '}';
   }
   throw new TypeError('EDN writer encountered an unsupported value');
@@ -113,11 +113,12 @@ export function readEDN(source) {
       if (index >= source.length) fail('unterminated map');
       if (source[index] === '}') { index++; return result; }
       const key = readValue();
-      if (!(key instanceof EDNKeyword)) fail('map keys must be keywords in the timetable interchange subset');
+      if (!(key instanceof EDNKeyword) && typeof key !== 'string') fail('map keys must be keywords or strings in the timetable interchange subset');
+      const keyName = key instanceof EDNKeyword ? key.name : key;
       skipSpace();
       if (index >= source.length || source[index] === '}') fail('map has a key without a value');
-      if (Object.hasOwn(result, key.name)) fail(`duplicate map key :${key.name}`);
-      Object.defineProperty(result, key.name, { value: readValue(), enumerable: true, writable: true, configurable: true });
+      if (Object.hasOwn(result, keyName)) fail(`duplicate map key ${JSON.stringify(keyName)}`);
+      Object.defineProperty(result, keyName, { value: readValue(), enumerable: true, writable: true, configurable: true });
     }
   }
 

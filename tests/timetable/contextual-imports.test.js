@@ -114,7 +114,7 @@ test('lessons sheet stages OFD lesson requirements and applies them without sour
   document.querySelector('[data-lessons-apply]').click();
   assert.equal(app.timetable.lessons.length, 1);
   assert.equal(app.timetable.lessons[0].assignedTime, null);
-  assert.deepEqual(app.timetable.source.assignmentHints[app.timetable.lessons[0].id], { dayIndex: 0, periodIndex: 1, sourceValue: '0.1' });
+  assert.equal(app.timetable.source.assignmentHints, undefined, 'OFD placements are not stored as calculation hints');
   assert.equal(app.timetable.entities.teachers.length, 1);
   assert.equal(app.timetable.entities.classes.length, 1);
   assert.equal(app.timetable.entities.subjects[0].name, 'Math');
@@ -127,7 +127,7 @@ test('lessons sheet stages OFD lesson requirements and applies them without sour
   assert.equal(app.schoolWorkbench.undo(), true);
   assert.equal(app.timetable.lessons.length, 0);
   assert.equal(app.timetable.entities.subjects.length, 0);
-  assert.deepEqual(app.timetable.source.assignmentHints, {});
+  assert.equal(app.timetable.source.assignmentHints, undefined);
   dom.window.close();
 });
 
@@ -160,13 +160,15 @@ test('lesson OFD import does not apply source times when its calendar differs', 
   app.schoolWorkbench.importEntities('teachers', [{ id: 'teacher:T1', name: 'T1' }]);
   app.schoolWorkbench.importEntities('classes', [{ id: 'class:C1', name: 'C1' }]);
   app.schoolWorkbench.importEntities('rooms', [{ id: 'room:R1', name: 'R1' }]);
+  app.timetable.source.calendarSourceId = 'existing-calendar';
+  app.schoolWorkbench.setTimetable(app.timetable);
   const ofd = minimalOFD({ lesson: lessonXML({ time: '0.1', timeframes: '<UNAVAIL value="0.0"/>' }) });
 
   assert.equal(await app.stageLessonsFile(fileFrom('different-calendar.ofd', ofd)), true);
   assert.match(document.querySelector('[data-lessons-status]').textContent, /calendario è diverso/i);
   document.querySelector('[data-lessons-apply]').click();
   assert.equal(app.timetable.lessons[0].assignedTime, null);
-  assert.deepEqual(app.timetable.source.assignmentHints, {});
+  assert.equal(app.timetable.source.assignmentHints, undefined);
   assert.deepEqual(app.timetable.lessons[0].timeframes, { unavailable: [], desired: [], undesired: [] });
   assert.deepEqual(app.timetable.lessons[0].sourceData.ofdTimeframes.unavailable, ['0.0']);
   assert.ok(app.diagnostics.some(item => item.code === 'lesson-timeframes-preserved'));
@@ -194,7 +196,7 @@ test('lesson sheet imports every lesson from the supplied OFD against its import
   document.querySelector('[data-lessons-apply]').click();
   assert.equal(app.timetable.lessons.length, parsed.timetable.lessons.length);
   assert.ok(app.timetable.lessons.every(lesson => lesson.assignedTime === null));
-  assert.equal(Object.keys(app.timetable.source.assignmentHints).length, parsed.summary.assignedLessons);
+  assert.equal(app.timetable.source.assignmentHints, undefined, 'the imported placements are not kept as calculation hints');
   assert.match(document.querySelector('[data-lessons-status]').textContent, /lezioni OFD.*UNKNOWN/i);
   assert.ok(app.diagnostics.some(item => item.code === 'lesson-without-class'));
   assert.equal(app.timetable.lessons.filter(lesson => app.timetable.entities.classes.find(item => item.id === lesson.classIds[0])?.placeholder === 'unknown').length, 166);

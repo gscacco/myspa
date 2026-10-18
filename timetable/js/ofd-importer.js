@@ -11,7 +11,8 @@ const ENTITIES = Object.freeze({
 const SUPPORTED_TAGS = new Set((
   'DOCUMENT VERSION ID PERIOD NAME MODULE SITE SUBJECT ROOM CLASS TEACHER SEX PERIODDATA PERIODDATA TIMEGRID TIMEUNIT DAYS HOURS CIRCULARITY DAY SHORTNAME LONGNAME HOUR BEGIN END PRINTBEGIN ' +
   'TEACHERDATA ROOMDATA CLASSDATA SUBJECTDATA NUMBER MIN MAX WEIGHT DISTMIN DISTMAX FORCELEFT FORCERIGHT AVOIDAMGAP FREEDAYS TIMEFRAMES UNAVAIL DESIRED UNDESIRED ' +
-  'BACKCOLOR FORECOLOR LINK SUBJECTA SUBJECTB PARAM CODE CUSTOM PRIORITY OPTIMIZED LOCKED FIXED ALLOW LESSON DURATION ALIGN PAUSE GROUP TIME'
+  'BACKCOLOR FORECOLOR LINK SUBJECTA SUBJECTB PARAM CODE CUSTOM PRIORITY OPTIMIZED LOCKED FIXED ALLOW LESSON DURATION ALIGN PAUSE GROUP TIME ' +
+  'WEEK WEEKS WEEKDATA SITEDATA MODULEDATA'
 ).split(/\s+/));
 
 export class OFDImportError extends Error {
@@ -122,14 +123,16 @@ function readTimeframes(element, path, calendar) {
 
 function collectUnsupported(document, diagnostics) {
   const unsupportedStructures = [];
+  const unsupportedTags = new Map();
+  const unsupportedAttributes = new Map();
   const visit = (element, parentPath, index) => {
     const path = `${parentPath}/${element.localName}[${index}]`;
     if (!SUPPORTED_TAGS.has(element.localName)) {
       unsupportedStructures.push({ tag: element.localName, path });
-      diagnostics.push({ severity: 'warning', code: 'unsupported-structure', message: `Unrecognized OFD element <${element.localName}> is preserved in the source XML.`, path });
+      unsupportedTags.set(element.localName, (unsupportedTags.get(element.localName) || 0) + 1);
     }
     for (const name of element.getAttributeNames()) {
-      if (name !== 'value') diagnostics.push({ severity: 'warning', code: 'unsupported-attribute', message: `Unrecognized attribute ${name} is preserved in the source XML.`, path });
+      if (name !== 'value') unsupportedAttributes.set(name, (unsupportedAttributes.get(name) || 0) + 1);
     }
     const counts = new Map();
     for (const child of Array.from(element.children)) {
@@ -139,7 +142,46 @@ function collectUnsupported(document, diagnostics) {
     }
   };
   visit(document.documentElement, '', 0);
+  if (unsupportedTags.size) diagnostics.push({
+    severity: 'warning', code: 'unsupported-structure',
+    message: `${unsupportedStructures.length} elementi OFD non interpretati sono conservati nel sorgente (${[...unsupportedTags.keys()].slice(0, 12).join(', ')}${unsupportedTags.size > 12 ? ', …' : ''}).`,
+    details: { count: unsupportedStructures.length, tags: [...unsupportedTags.keys()] },
+    path: unsupportedStructures[0]?.path || 'DOCUMENT',
+  });
+  if (unsupportedAttributes.size) diagnostics.push({
+    severity: 'warning', code: 'unsupported-attribute',
+    message: `Attributi OFD non interpretati conservati nel sorgente (${[...unsupportedAttributes.keys()].join(', ')}).`,
+    details: { counts: Object.fromEntries(unsupportedAttributes) }, path: 'DOCUMENT',
+  });
   return unsupportedStructures;
+}
+
+// Some OFD 12055 exports contain literal '<' characters inside quoted values.
+// Repair only those attribute values for the parser; keep the imported source intact.
+function escapeLessThanInAttributes(xml) {
+  let output = '';
+  let inTag = false;
+  let quote = '';
+  for (let index = 0; index < xml.length; index++) {
+    const rest = xml.slice(index);
+    if (!inTag && (rest.startsWith('<!--') || rest.startsWith('<![CDATA[') || rest.startsWith('<?'))) {
+      const endToken = rest.startsWith('<!--') ? '-->' : rest.startsWith('<![CDATA[') ? ']]>' : '?>';
+      const end = xml.indexOf(endToken, index + endToken.length);
+      const finish = end < 0 ? xml.length : end + endToken.length;
+      output += xml.slice(index, finish);
+      index = finish - 1;
+      continue;
+    }
+    const char = xml[index];
+    if (!inTag && char === '<') inTag = true;
+    if (inTag && quote && char === '<') output += '&lt;';
+    else output += char;
+    if (inTag && quote) {
+      if (char === quote) quote = '';
+    } else if (inTag && (char === '"' || char === "'")) quote = char;
+    else if (inTag && char === '>') inTag = false;
+  }
+  return output;
 }
 
 function readDefinitions(root, type, config) {
@@ -198,7 +240,16 @@ function attachEntityData(entities, dataIndex, config, calendar) {
     }
     const fields = config.idPrefix === 'room' ? [['NUMBER', 'number']] : constraintFields;
     const constraints = numericFields(data.element, fields, data.path);
-    constraints.timeframes = readTimeframes(one(data.element, 'TIMEFRAMES', data.path), `${data.path}/TIMEFRAMES`, calendar);
+    const directFrames = one(data.element, 'TIMEFRAMES', data.path);
+    let timeframeElement = directFrames;
+    let timeframePath = `${data.path}/TIMEFRAMES`;
+    if (!timeframeElement) {
+      const weekData = children(data.element, 'WEEKDATA').find(item =>
+        children(item, 'WEEK').some(week => valueOf(week, `${data.path}/WEEKDATA/WEEK`) === '0'));
+      timeframeElement = weekData && one(weekData, 'TIMEFRAMES', `${data.path}/WEEKDATA`);
+      if (timeframeElement) timeframePath = `${data.path}/WEEKDATA/TIMEFRAMES`;
+    }
+    constraints.timeframes = readTimeframes(timeframeElement, timeframePath, calendar);
     entity.constraints = constraints;
   }
 }
@@ -238,6 +289,8 @@ function readLessons(periodData, entities, calendar) {
   };
   return children(periodData, 'LESSON').map((element, index) => {
     const path = `PERIODDATA/LESSON[${index}]`;
+    const lessonWeek = one(element, 'WEEK', path);
+    if (lessonWeek && valueOf(lessonWeek, `${path}/WEEK`) !== '0') fail('Only one-week OFD calendars are supported.', `${path}/WEEK`);
     const subjectElement = one(element, 'SUBJECT', path);
     const subject = subjectElement ? valueOf(subjectElement, `${path}/SUBJECT`, { required: false }) : null;
     const durationPeriods = integer(valueOf(one(element, 'DURATION', path, { required: true }), `${path}/DURATION`), `${path}/DURATION`, { minimum: 1 });
@@ -292,12 +345,19 @@ function readTimeGrid(periodData) {
   const dayCount = integer(valueOf(one(grid, 'DAYS', 'TIMEGRID', { required: true }), 'TIMEGRID/DAYS'), 'TIMEGRID/DAYS', { minimum: 1 });
   const periodCount = integer(valueOf(one(grid, 'HOURS', 'TIMEGRID', { required: true }), 'TIMEGRID/HOURS'), 'TIMEGRID/HOURS', { minimum: 1 });
   const circularity = integer(valueOf(one(grid, 'CIRCULARITY', 'TIMEGRID', { required: true }), 'TIMEGRID/CIRCULARITY'), 'TIMEGRID/CIRCULARITY', { minimum: 0 });
-  const days = children(grid, 'DAY').map((day, index) => ({
+  const weeksElement = one(grid, 'WEEKS', 'TIMEGRID') || one(periodData, 'WEEKS', 'PERIODDATA');
+  const weekCount = weeksElement ? integer(valueOf(weeksElement, 'TIMEGRID/WEEKS'), 'TIMEGRID/WEEKS', { minimum: 1 }) : 1;
+  if (weekCount !== 1) fail(`This timetable model supports one week; the OFD file declares ${weekCount}.`, 'TIMEGRID/WEEKS');
+  const dayElements = children(grid, 'DAY').length ? children(grid, 'DAY') : children(periodData, 'DAY');
+  const nestedHours = dayElements.map(day => children(day, 'HOUR'));
+  const gridHours = children(grid, 'HOUR');
+  const periodElements = gridHours.length ? gridHours : (nestedHours[0] || []);
+  const days = dayElements.map((day, index) => ({
     index,
     shortName: valueOf(one(day, 'SHORTNAME', `TIMEGRID/DAY[${index}]`, { required: true }), `TIMEGRID/DAY[${index}]/SHORTNAME`),
     name: valueOf(one(day, 'LONGNAME', `TIMEGRID/DAY[${index}]`, { required: true }), `TIMEGRID/DAY[${index}]/LONGNAME`),
   }));
-  const periods = children(grid, 'HOUR').map((hour, index) => ({
+  const periods = periodElements.map((hour, index) => ({
     index,
     beginMinute: integer(valueOf(one(hour, 'BEGIN', `TIMEGRID/HOUR[${index}]`, { required: true }), `TIMEGRID/HOUR[${index}]/BEGIN`), `TIMEGRID/HOUR[${index}]/BEGIN`, { minimum: 0 }),
     endMinute: integer(valueOf(one(hour, 'END', `TIMEGRID/HOUR[${index}]`, { required: true }), `TIMEGRID/HOUR[${index}]/END`), `TIMEGRID/HOUR[${index}]/END`, { minimum: 0 }),
@@ -305,6 +365,9 @@ function readTimeGrid(periodData) {
   }));
   if (days.length !== dayCount) fail(`TIMEGRID declares ${dayCount} days but contains ${days.length}.`, 'TIMEGRID/DAY');
   if (periods.length !== periodCount) fail(`TIMEGRID declares ${periodCount} periods but contains ${periods.length}.`, 'TIMEGRID/HOUR');
+  if (!gridHours.length && nestedHours.some(hours => hours.length !== periodCount)) {
+    fail('Each day must contain the declared number of periods.', 'PERIODDATA/DAY/HOUR');
+  }
   const calendar = { unitMinutes, days, periods, circularity };
   for (const [index, period] of periods.entries()) {
     if (period.endMinute <= period.beginMinute) fail('Period end must follow its start.', `TIMEGRID/HOUR[${index}]`);
@@ -318,10 +381,13 @@ function readLinks(periodData, subjectByName) {
     const subjectAName = valueOf(one(link, 'SUBJECTA', path, { required: true }), `${path}/SUBJECTA`);
     const subjectBName = valueOf(one(link, 'SUBJECTB', path, { required: true }), `${path}/SUBJECTB`);
     if (!subjectByName.has(subjectAName) || !subjectByName.has(subjectBName)) fail('LINK refers to a missing subject.', path);
+    const daysElement = one(link, 'DAYS', path);
+    const hoursElement = one(link, 'HOURS', path);
     return {
       subjectAId: subjectByName.get(subjectAName),
       subjectBId: subjectByName.get(subjectBName),
-      days: integer(valueOf(one(link, 'DAYS', path, { required: true }), `${path}/DAYS`), `${path}/DAYS`, { minimum: 0 }),
+      days: daysElement ? integer(valueOf(daysElement, `${path}/DAYS`), `${path}/DAYS`, { minimum: 0 }) : 0,
+      ...(hoursElement ? { hours: integer(valueOf(hoursElement, `${path}/HOURS`), `${path}/HOURS`, { minimum: 0 }) } : {}),
     };
   });
 }
@@ -348,7 +414,7 @@ export function importOFD(input, { DOMParser: Parser = globalThis.DOMParser } = 
   if (decoded.encodingMismatch) {
     diagnostics.push({ severity: 'warning', code: 'encoding-mismatch', message: `The XML encoding declaration (${decoded.declaredEncoding}) does not match the file bytes; decoded as ${decoded.decodedEncoding}.`, declaredEncoding: decoded.declaredEncoding, decodedEncoding: decoded.decodedEncoding, path: 'xml-declaration' });
   }
-  const sourceForParser = decoded.text.replace(/^\uFEFF?\s*<\?xml\b[^?]*\?>/i, '');
+  const sourceForParser = escapeLessThanInAttributes(decoded.text.replace(/^\uFEFF?\s*<\?xml\b[^?]*\?>/i, ''));
   let document;
   try { document = new Parser().parseFromString(sourceForParser, 'application/xml'); }
   catch (error) { throw new OFDImportError(`Malformed OFD XML: ${error.message}`); }
@@ -356,9 +422,9 @@ export function importOFD(input, { DOMParser: Parser = globalThis.DOMParser } = 
   if (parserError) throw new OFDImportError(`Malformed OFD XML: ${parserError.textContent.trim()}`);
   const root = document.documentElement;
   if (!root || root.localName !== 'DOCUMENT') fail('Expected an OFD DOCUMENT root element.');
-  const unsupportedStructures = collectUnsupported(document, diagnostics);
   const version = valueOf(one(root, 'VERSION', 'DOCUMENT', { required: true }), 'VERSION');
-  if (version !== '5000') throw new OFDImportError(`OFD version ${version} is not verified; this importer supports the observed version 5000 sample only.`);
+  if (!['5000', '12055'].includes(version)) throw new OFDImportError(`OFD version ${version} is not verified; this importer supports versions 5000 and 12055 with one week.`);
+  const unsupportedStructures = collectUnsupported(document, diagnostics);
   const documentId = valueOf(one(root, 'ID', 'DOCUMENT', { required: true }), 'ID');
   const titleElement = one(one(root, 'PERIOD', 'DOCUMENT', { required: true }), 'NAME', 'PERIOD', { required: true });
   const name = valueOf(titleElement, 'PERIOD/NAME');
@@ -434,14 +500,11 @@ export function importOFD(input, { DOMParser: Parser = globalThis.DOMParser } = 
 export function withoutOFDAssignments(result) {
   const timetable = structuredClone(result.timetable);
   const cleared = timetable.lessons.filter(lesson => lesson.assignedTime !== null).length;
-  timetable.source.assignmentHints = Object.fromEntries(timetable.lessons
-    .filter(lesson => lesson.assignedTime !== null)
-    .map(lesson => [lesson.id, structuredClone(lesson.assignedTime)]));
   for (const lesson of timetable.lessons) lesson.assignedTime = null;
   const diagnostics = (result.diagnostics || []).filter(item => item.code !== 'unassigned-lessons');
   diagnostics.push({
     severity: 'info', code: 'assignments-omitted',
-    message: 'Source placements were omitted from the active timetable; they remain available as optional recalculation suggestions.',
+    message: 'Source placements were omitted from the active timetable and are not used by calculations.',
     details: { count: cleared }, path: 'PERIODDATA/LESSON/TIME',
   });
   const summary = {

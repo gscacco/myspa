@@ -34,13 +34,14 @@ test('OFD is imported from its roster sheet and adds only the selected entity ty
   const bytes = await readFile(samplePath);
   await app.stageRosterFile('classes', fileFrom(bytes, 'OR_30_SETT.ofd'));
   assert.ok(app.pendingRoster.items.length > 50);
-  assert.match(document.querySelector('[data-roster-status="classes"]').textContent, /fuori dal calendario/i);
+  assert.match(document.querySelector('[data-roster-status="classes"]').textContent, /classi pronte/i);
   assert.equal(app.timetable.lessons.length, 0, 'OFD roster import does not load assignments or lessons');
   document.querySelector('[data-roster-apply="classes"]').click();
   assert.ok(app.timetable.entities.classes.length > 50);
   assert.equal(app.timetable.entities.teachers.length, 0, 'only classes are imported from this action');
   assert.equal(app.timetable.entities.rooms.length, 0);
-  assert.ok(app.timetable.entities.classes.some(item => item.sourceData?.ofdTimeframes?.unavailable?.length), 'out-of-calendar timeframes are preserved but not activated');
+  assert.ok(app.timetable.source.calendarSourceId, 'the imported school calendar is adopted with its roster');
+  assert.equal(app.timetable.entities.classes.some(item => item.sourceData?.ofdTimeframes), false, 'the adopted calendar keeps imported constraints in the active model');
   assert.match(app.timetable.source.rosterImports[0].source.xml, /Questo file è stato generato/);
   assert.match(readEDN(app.exportEDN()).source.rosterImports[0].source.xml, /Questo file è stato generato/);
   document.querySelector('[data-screen="classes"]').click();

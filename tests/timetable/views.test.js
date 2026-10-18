@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { createTimetableViews } from '../../timetable/js/views.js';
+import { createTimetableApp } from '../../timetable/js/app.js';
 import { importOFD, withoutOFDAssignments } from '../../timetable/js/ofd-importer.js';
+import { exportTimetableEDN } from '../../timetable/js/edn-importer.js';
 import { domParser, timetableFixture } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
@@ -102,20 +104,22 @@ test('real supplied timetable renders its six-day grid and navigates to a lesson
   dom.window.close();
 });
 
-test('real OFD imported without placements exposes its full school roster and imported time constraints', async () => {
+test('OFD roster and constraints are available in their school sheets without placement hints', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const imported = importOFD(await readFile(samplePath), { DOMParser: domParser });
   const structureOnly = withoutOFDAssignments(imported);
-  const views = createTimetableViews({ document: dom.window.document });
-  views.render(structureOnly.timetable, structureOnly.diagnostics);
   const { document } = dom.window;
-  document.querySelector('#open-structure').click();
-  assert.equal(document.querySelectorAll('#structure-classes [data-entity-name]').length, 59);
-  assert.equal(document.querySelectorAll('#structure-teachers [data-entity-name]').length, 118);
-  assert.equal([...document.querySelectorAll('#structure-summary dd')].some(value => Number(value.textContent.replace(/\D/g, '')) === 1714), true);
+  const app = createTimetableApp({ document, DOMParser: domParser });
+  app.schoolWorkbench.setTimetable(structureOnly.timetable);
+  document.querySelector('[data-screen="classes"]').click();
+  assert.equal(document.querySelectorAll('#school-grid-classes tbody tr[data-entity-id]').length, 59);
+  document.querySelector('[data-screen="teachers"]').click();
+  assert.equal(document.querySelectorAll('#school-grid-teachers tbody tr[data-entity-id]').length, 118);
   assert.equal(structureOnly.timetable.lessons.every(lesson => lesson.assignedTime === null), true);
-  assert.match(document.querySelector('#structure-constraint-summary').textContent, /indisponibilità obbligatorie/);
-  assert.ok(document.querySelector('#constraint-editor').closest('#structure-page'));
+  assert.equal(structureOnly.timetable.source.assignmentHints, undefined);
+  document.querySelector('[data-screen="constraints"]').click();
+  assert.ok(document.querySelectorAll('#school-grid-constraints tbody tr[data-row]').length > 0);
+  assert.equal(document.querySelector('#constraint-editor').closest('[data-school-panel="constraints"]') !== null, true);
   dom.window.close();
 });
 
@@ -144,22 +148,23 @@ test('warnings stay off the timetable page and open in a filtered, navigable iss
   dom.window.close();
 });
 
-test('school structure screen lists classes, teachers, imported constraints, and entry points for editing', async () => {
-  const { dom, document } = await mount();
-  const structureButton = document.querySelector('#open-structure');
-  assert.ok(structureButton);
-  assert.equal(document.querySelector('#structure-page').hidden, true);
-  structureButton.click();
-  assert.equal(document.querySelector('#structure-page').hidden, false);
-  assert.equal(document.querySelector('#timetable-workspace').hidden, true);
-  assert.deepEqual([...document.querySelectorAll('#structure-classes [data-entity-name]')].map(item => item.dataset.entityName), ['Class One', 'Class Two']);
-  assert.deepEqual([...document.querySelectorAll('#structure-teachers [data-entity-name]')].map(item => item.dataset.entityName), ['Teacher One', 'Teacher Two']);
-  assert.match(document.querySelector('#structure-constraints').textContent, /Teacher One.*fascia da evitare/i);
-  assert.match(document.querySelector('#structure-constraints').textContent, /Teacher Two.*non disponibile/i);
-  assert.equal(document.querySelector('#constraint-editor').closest('#structure-page') !== null, true, 'constraint editing is visibly available on the structure screen');
-  document.querySelector('#structure-teachers [data-entity-name="Teacher One"]').click();
-  assert.equal(document.querySelector('#structure-page').hidden, true);
-  assert.equal(document.querySelector('[data-view="teacher"]').getAttribute('aria-pressed'), 'true');
-  assert.equal(document.querySelector('#entity-select').value, 'teacher:T1');
+test('school lists open persistent inline details without a close action', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const app = createTimetableApp({ document });
+  const fixture = timetableFixture();
+  const bytes = new TextEncoder().encode(exportTimetableEDN(fixture));
+  await app.stageEDNFile({ name: 'fixture.edn', arrayBuffer: async () => bytes.buffer });
+  app.applyImport();
+  document.querySelector('[data-screen="teachers"]').click();
+  const detailPanel = document.querySelector('#entity-detail-panel');
+  assert.equal(detailPanel.hidden, false);
+  assert.equal(detailPanel.querySelector('[data-detail-close]'), null);
+  document.querySelector('#school-grid-teachers tbody tr[data-entity-id="teacher:T1"]').click();
+  assert.match(document.querySelector('#entity-detail-title').textContent, /Teacher One/);
+  assert.match(document.querySelector('#entity-detail-content').textContent, /fascia da evitare/i);
+  assert.equal(detailPanel.hidden, false, 'opening a list detail keeps the detail column visible');
+  assert.equal(document.querySelector('#detail-back').hidden, true, 'back is hidden until navigating from one detail to another');
+  assert.equal(document.querySelector('#structure-page').hidden, true, 'the redundant structure view is no longer navigable');
   dom.window.close();
 });

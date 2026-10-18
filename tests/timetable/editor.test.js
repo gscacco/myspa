@@ -127,7 +127,7 @@ test('the application refreshes class and teacher views after apply and restores
   assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, 0);
   assert.equal(document.querySelector('[data-view="teacher"]').getAttribute('aria-pressed'), 'true', 'undo also retains the active view');
   assert.match(document.querySelector('#edit-status').textContent, /Modifica annullata/i);
-  assert.match(document.querySelector('#current-status').textContent, /Esporta EDN/i);
+  assert.match(document.querySelector('#current-status').textContent, /Modifiche non esportate/i);
   assert.ok(document.querySelector('#schedule-grid [data-lesson-id="target"]').style.gridRow.includes('1 / span'));
   dom.window.close();
 });
@@ -143,7 +143,8 @@ test('full timetable recalculation stays a proposal until explicitly confirmed a
   const editor = createTimetableEditor({ document, getTimetable: () => applied, onApply: next => { applied = next; }, confirm: () => { confirms++; return allow; } });
   assert.equal(document.querySelector('#recalculate-all').disabled, false);
   assert.ok(document.querySelector('.calculation-heading #recalculate-all'), 'the calculation action has its own phase screen');
-  assert.equal(document.querySelector('#prefer-source-hints').checked, true);
+  assert.equal(document.querySelector('#optimization-weight-undesired').value, '100');
+  assert.equal(document.querySelector('#optimization-weight-preferred').value, '25');
   document.querySelector('#recalculate-all').click();
   await editor.recalculationComplete;
   assert.ok(document.querySelector('.proposal-option'));
@@ -151,12 +152,10 @@ test('full timetable recalculation stays a proposal until explicitly confirmed a
   assert.equal(document.querySelector('#review-recalculation').hidden, false);
   assert.equal(current.lessons[0].assignedTime, null, 'search leaves the current timetable unchanged');
   document.querySelector('#review-recalculation').click();
-  assert.match(document.querySelector('#proposal-impact').textContent, /assegnazione completa/i);
-  document.querySelector('#apply-proposal').click();
   assert.equal(confirms, 1);
   assert.equal(applied.lessons[0].assignedTime, null, 'declining the complete reassignment keeps current data');
   allow = true;
-  document.querySelector('#apply-proposal').click();
+  document.querySelector('#review-recalculation').click();
   assert.equal(confirms, 2);
   assert.ok(applied.lessons[0].assignedTime);
   document.querySelector('#undo-change').click();
@@ -187,7 +186,7 @@ test('constraint controls add, edit, and delete an active unavailability rule', 
   dom.window.close();
 });
 
-test('editing an imported constraint from the structure screen keeps the overview open and current', async () => {
+test('constraint details are managed in the constraints sheet and undo stays on that sheet', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
   const source = structuredClone(solverFixture());
@@ -202,21 +201,20 @@ test('editing an imported constraint from the structure screen keeps the overvie
   document.querySelector('[data-screen="calculation"]').click();
   assert.equal(document.querySelector('#calculation-page').hidden, false);
   assert.equal(document.activeElement.id, 'recalculate-all', 'calculation is directly reachable from the sidebar');
-  document.querySelector('[data-screen="schedule"]').click();
-  document.querySelector('#open-structure').click();
-  assert.match(document.querySelector('#structure-summary').textContent, /Senza assegnazione1/);
+  document.querySelector('[data-screen="constraints"]').click();
+  assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false);
   assert.equal(document.querySelector('#constraint-target').value, 'teacher|teacher:T1', 'the constraint editor starts on an imported target with an existing timeframe');
   document.querySelector('#constraint-target').value = 'teacher|teacher:T1';
   document.querySelector('#constraint-day').value = '0';
   document.querySelector('#constraint-period').value = '2';
   document.querySelector('#add-constraint').click();
-  assert.equal(document.querySelector('#structure-page').hidden, false, 'saving a constraint preserves the active structure screen');
-  assert.match(document.querySelector('#structure-constraints').textContent, /Teacher One.*non disponibile.*Monday, 10:00/i);
+  assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false, 'saving keeps the constraints sheet open');
+  assert.match(document.querySelector('#school-grid-constraints').textContent, /Teacher One.*Obbligatorio.*Monday.*10:00/i);
   assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, ['0.2']);
-  document.querySelector('#undo-structure-change').click();
-  assert.equal(document.querySelector('#structure-page').hidden, false, 'undo is available without leaving the structure screen');
+  document.querySelector('#undo-constraint-change').click();
+  assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false, 'undo is available without leaving the constraints sheet');
   assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, []);
-  assert.doesNotMatch(document.querySelector('#structure-constraints').textContent, /Teacher One.*non disponibile.*Monday, 10:00/i);
+  assert.doesNotMatch(document.querySelector('#school-grid-constraints').textContent, /Teacher One.*Obbligatorio.*Monday.*10:00/i);
   dom.window.close();
 });
 

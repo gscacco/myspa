@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { optimizeTimetable } from '../../timetable/js/optimization.js';
+import { objectiveBreakdown, objectiveUpperBound } from '../../timetable/js/optimization-core.js';
 import { solverFixture, timetableFixture } from './helpers.js';
 
 test('optimization reports a monotonically improving best objective without changing the source', async () => {
@@ -42,6 +43,28 @@ test('the objective rewards preferred periods as well as avoiding unwanted ones'
   assert.equal(result.status, 'solved');
   assert.equal(result.assignments.get('target').periodIndex, 2);
   assert.equal(result.objective, 0);
+});
+
+test('soft preference weights are configurable and reflected in the objective and upper bound', () => {
+  const timetable = solverFixture();
+  const teacher = timetable.entities.teachers[0];
+  teacher.constraints.timeframes.desired = ['0.2'];
+  teacher.constraints.timeframes.undesired = ['0.1'];
+  const weights = { undesiredSlot: 70, missedPreferredSlot: 8 };
+  const missed = objectiveBreakdown(timetable, new Map([['target', { dayIndex: 0, periodIndex: 1 }]]), weights);
+  const preferred = objectiveBreakdown(timetable, new Map([['target', { dayIndex: 0, periodIndex: 2 }]]), weights);
+  assert.equal(missed.penalties.avoidedSlots, 70);
+  assert.equal(missed.penalties.missedPreferences, 8);
+  assert.equal(missed.total, 78);
+  assert.equal(preferred.total, 0);
+  assert.equal(objectiveUpperBound(timetable, weights), 78);
+});
+
+test('invalid soft preference weights are rejected', async () => {
+  await assert.rejects(
+    optimizeTimetable(solverFixture(), { workers: 1, timeLimitMs: 1000, objectiveWeights: { undesiredSlot: -1 } }),
+    /Objective weights must be finite, non-negative numbers/,
+  );
 });
 
 test('requested parallel workers run independently and the best valid result wins', async () => {

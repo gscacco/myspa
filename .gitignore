@@ -46,3 +46,6 @@ desktop.ini
 *.swp
 *.swo
 *~
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
+.playwright/

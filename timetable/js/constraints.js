@@ -1,9 +1,9 @@
 function clone(value) { return structuredClone(value); }
 
-/** Applies one unavailable/undesired timetable slot change to a copied model. */
+/** Applies one hard or soft timeframe change to a copied timetable model. */
 export function updateTimeframeConstraint(timetable, { scope, id, kind, action, slot, from = slot }) {
   if (!['lesson', 'teacher', 'class', 'room'].includes(scope)) throw new TypeError('Ambito del vincolo non supportato.');
-  if (!['unavailable', 'undesired'].includes(kind)) throw new TypeError('Tipo di vincolo non supportato.');
+  if (!['unavailable', 'undesired', 'desired'].includes(kind)) throw new TypeError('Tipo di vincolo non supportato.');
   if (!['add', 'update', 'delete'].includes(action)) throw new TypeError('Operazione sul vincolo non supportata.');
   const validSlot = value => {
     const match = /^(\d+)\.(\d+)$/.exec(value || '');
@@ -26,6 +26,7 @@ export function updateTimeframeConstraint(timetable, { scope, id, kind, action, 
   const timeframes = scope === 'lesson' ? target.timeframes : target.constraints.timeframes;
   timeframes.unavailable ||= [];
   timeframes.undesired ||= [];
+  timeframes.desired ||= [];
   const values = timeframes[kind];
   if (action === 'delete') {
     const index = values.indexOf(from);

@@ -5,6 +5,7 @@ import { analyzeSchedule } from './schedule.js';
 import { createProposal } from './proposals.js';
 import { createTimetableHistory } from './history.js';
 import { getCalculationReadiness } from './validation.js';
+import { objectiveUpperBound } from './optimization-core.js';
 
 function node(document, tag, className, text = '') {
   const result = document.createElement(tag);
@@ -39,19 +40,26 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const calculationStatus = document.querySelector('#recalculation-status');
   const iterationOutput = document.querySelector('#optimization-iteration');
   const objectiveOutput = document.querySelector('#optimization-objective');
+  const objectiveQualityOutput = document.querySelector('#optimization-quality');
+  const objectiveQualityBaseOutput = document.querySelector('#optimization-quality-base');
+  const objectiveBreakdownOutput = document.querySelector('#optimization-objective-breakdown');
   const optimizationStatus = document.querySelector('#optimization-status');
   const objectivePath = document.querySelector('#objective-chart-line');
   const objectiveEmpty = document.querySelector('#objective-chart-empty');
+  const algorithmInput = document.querySelector('#optimization-algorithm');
+  const mixedCutoffWrap = document.querySelector('#optimization-mixed-cutoff-wrap');
+  const mixedCutoffInput = document.querySelector('#optimization-mixed-cutoff');
   const timeLimitInput = document.querySelector('#optimization-time-limit');
   const targetInput = document.querySelector('#optimization-target');
   const workersInput = document.querySelector('#optimization-workers');
+  const undesiredWeightInput = document.querySelector('#optimization-weight-undesired');
+  const preferredWeightInput = document.querySelector('#optimization-weight-preferred');
   const reviewCalculationButton = document.querySelector('#review-recalculation');
   const applyButton = document.querySelector('#apply-proposal');
   const undoButton = document.querySelector('#undo-change');
-  const structureUndoButton = document.querySelector('#undo-structure-change');
+  const constraintUndoButton = document.querySelector('#undo-constraint-change');
   const recalculateButton = document.querySelector('#recalculate-all');
   const cancelRecalculationButton = document.querySelector('#cancel-recalculation');
-  const sourceHintToggle = document.querySelector('#prefer-source-hints');
   const constraintFilter = document.querySelector('#constraint-filter');
   const constraintTarget = document.querySelector('#constraint-target');
   const constraintKind = document.querySelector('#constraint-kind');
@@ -60,9 +68,9 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const addConstraintButton = document.querySelector('#add-constraint');
   const constraintStatus = document.querySelector('#constraint-status');
   const constraintList = document.querySelector('#constraint-list');
-  if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton, structureUndoButton,
-    calculationStatus, iterationOutput, objectiveOutput, optimizationStatus, objectivePath, objectiveEmpty, timeLimitInput, targetInput, workersInput,
-    reviewCalculationButton, recalculateButton, cancelRecalculationButton, sourceHintToggle, constraintFilter, constraintTarget, constraintKind, constraintDay,
+  if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton, constraintUndoButton,
+    calculationStatus, iterationOutput, objectiveOutput, objectiveQualityOutput, objectiveQualityBaseOutput, objectiveBreakdownOutput, optimizationStatus, objectivePath, objectiveEmpty, algorithmInput, mixedCutoffWrap, mixedCutoffInput, timeLimitInput, targetInput, workersInput, undesiredWeightInput, preferredWeightInput,
+    reviewCalculationButton, recalculateButton, cancelRecalculationButton, constraintFilter, constraintTarget, constraintKind, constraintDay,
     constraintPeriod, addConstraintButton, constraintStatus, constraintList].every(Boolean)) {
     throw new Error('Timetable editing controls are missing.');
   }
@@ -78,11 +86,31 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   let editingConstraint = null;
   const options = new Map();
   let objectiveHistory = [];
+  const percentFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
+
+  function updateMixedOptions() {
+    mixedCutoffWrap.hidden = algorithmInput.value !== 'mixed';
+    mixedCutoffInput.max = String(Math.max(1, Number(timeLimitInput.value) - 1));
+  }
+  algorithmInput.addEventListener('change', updateMixedOptions);
+  timeLimitInput.addEventListener('input', updateMixedOptions);
+  updateMixedOptions();
+
+  function renderObjectiveQuality(objective, maximum) {
+    if (!Number.isFinite(objective) || !Number.isFinite(maximum)) {
+      objectiveQualityOutput.textContent = '—';
+      objectiveQualityBaseOutput.textContent = '';
+      return;
+    }
+    const quality = maximum > 0 ? Math.max(0, Math.min(100, (1 - objective / maximum) * 100)) : objective === 0 ? 100 : null;
+    objectiveQualityOutput.textContent = quality == null ? '—' : `${percentFormat.format(quality)}%`;
+    objectiveQualityBaseOutput.textContent = maximum > 0 ? `su ${Number(maximum).toLocaleString('it-IT')} punti teorici` : 'nessuna penalità possibile';
+  }
 
   function renderUndo() {
     const disabled = !history?.canUndo;
     undoButton.disabled = disabled;
-    structureUndoButton.disabled = disabled;
+    constraintUndoButton.disabled = disabled;
   }
 
   function updateCalculationControl() {
@@ -90,6 +118,17 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     recalculateButton.disabled = !ready || Boolean(recalculationController);
     recalculateButton.textContent = ready && timetable.lessons.every(lesson => !lesson.assignedTime)
       ? 'Avvia calcolo automatico' : 'Ricalcola assegnazioni';
+  }
+
+  function renderObjectiveBreakdown(breakdown) {
+    if (!breakdown) return;
+    const { counts, penalties } = breakdown;
+    const parts = [
+      counts.avoidedSlotHits && `${Number(counts.avoidedSlotHits).toLocaleString('it-IT')} violazioni da evitare (${Number(penalties.avoidedSlots).toLocaleString('it-IT')} punti)`,
+      counts.missedPreferenceHits && `${Number(counts.missedPreferenceHits).toLocaleString('it-IT')} preferenze mancate (${Number(penalties.missedPreferences).toLocaleString('it-IT')} punti)`,
+      counts.unassignedLessons && `${Number(counts.unassignedLessons).toLocaleString('it-IT')} lezioni non assegnate (${Number(penalties.unassignedLessons).toLocaleString('it-IT')} punti)`,
+    ].filter(Boolean);
+    objectiveBreakdownOutput.textContent = parts.length ? `Composizione: ${parts.join(' · ')}.` : 'Composizione: nessuna penalità.';
   }
 
   function clearOptions() {
@@ -252,12 +291,12 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       : 'Vincoli obbligatori: rispettati sulle lezioni coinvolte.';
     impact.append(node(document, 'p', 'proposal-hard-status', hardText));
     const preferenceText = selectedOption.fullRecalculation
-      ? `Preferenze di fascia indesiderata: penalità ${suggestion.softAfter}. La ricerca si ferma alla prima assegnazione valida entro il limite; non garantisce l’ottimo globale.`
+      ? `Penalità soft: ${Number(suggestion.softAfter).toLocaleString('it-IT')} punti tra fasce da evitare e preferenze mancate. La ricerca si ferma alla prima assegnazione valida entro il limite; non garantisce l’ottimo globale.`
       : suggestion.softAfter < suggestion.softBefore
-      ? `Le preferenze indesiderate migliorano (${suggestion.softBefore} → ${suggestion.softAfter}).`
+      ? `Le penalità soft migliorano (${suggestion.softBefore} → ${suggestion.softAfter}).`
       : suggestion.softAfter > suggestion.softBefore
-        ? `Le preferenze indesiderate peggiorano (${suggestion.softBefore} → ${suggestion.softAfter}).`
-        : `Le preferenze indesiderate restano invariate (${suggestion.softAfter}).`;
+        ? `Le penalità soft peggiorano (${suggestion.softBefore} → ${suggestion.softAfter}).`
+        : `Le penalità soft restano invariate (${suggestion.softAfter}).`;
     impact.append(node(document, 'p', 'proposal-soft-status', preferenceText));
     applyButton.disabled = false;
   }
@@ -290,9 +329,9 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     }
     const suggestion = {
       changes,
-      rationale: `Ricalcolo completo rispettando indisponibilità e collisioni di docenti, classi e aule${sourceHintToggle.checked ? '; le posizioni originali conservate sono solo preferenze iniziali' : ''}. Le altre regole OFD restano conservate ma non sono applicate dal prototipo.`,
+      rationale: 'Ricalcolo completo rispettando indisponibilità, collisioni di docenti, classi e aule e le preferenze temporali supportate. Le posizioni del file importato non influiscono sui calcoli; le altre regole non supportate restano conservate ma non sono applicate.',
       softBefore: 0,
-      softAfter: result.softCost,
+      softAfter: result.objective ?? result.objectiveBreakdown?.total ?? 0,
     };
     const id = String(options.size);
     const proposal = createProposal(timetable, suggestion);
@@ -338,12 +377,19 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   async function recalculate() {
     if (!timetable?.lessons.length || recalculationController) return null;
     const timeLimitSeconds = Number(timeLimitInput.value);
+    const geneticStartAfterSeconds = Number(mixedCutoffInput.value);
     const maxObjective = Number(targetInput.value);
     const workers = Number(workersInput.value);
+    const objectiveWeights = {
+      undesiredSlot: Number(undesiredWeightInput.value),
+      missedPreferredSlot: Number(preferredWeightInput.value),
+    };
     if (!Number.isInteger(timeLimitSeconds) || timeLimitSeconds < 1 || timeLimitSeconds > 3600
       || !Number.isFinite(maxObjective) || maxObjective < 0
-      || !Number.isInteger(workers) || workers < 1 || workers > 8) {
-      calculationStatus.textContent = 'Controlla i parametri: tempo 1–3600 secondi, obiettivo non negativo, worker 1–8.';
+      || Object.values(objectiveWeights).some(value => !Number.isInteger(value) || value < 0 || value > 1000)
+      || !Number.isInteger(workers) || workers < 1 || workers > 8
+      || (algorithmInput.value === 'mixed' && (!Number.isInteger(geneticStartAfterSeconds) || geneticStartAfterSeconds < 1 || geneticStartAfterSeconds >= timeLimitSeconds))) {
+      calculationStatus.textContent = 'Controlla i parametri: il taglio genetico deve essere inferiore al tempo totale; pesi 0–1000, tempo 1–3600 secondi, obiettivo non negativo, worker 1–8.';
       optimizationStatus.textContent = 'Parametri non validi';
       return { status: 'invalid-options' };
     }
@@ -351,30 +397,40 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     recalculationController = new AbortController();
     const activeController = recalculationController;
     clearOptions();
+    const advancedCalculation = document.querySelector('.calculation-advanced');
+    if (advancedCalculation) advancedCalculation.open = true;
     searchButton.disabled = true; recalculateButton.disabled = true;
     cancelButton.disabled = true; cancelRecalculationButton.disabled = false;
     status.textContent = 'Ricalcolo completo in corso…';
     calculationStatus.textContent = 'Preparazione della ricerca…';
     iterationOutput.textContent = '0';
     objectiveOutput.textContent = '—';
+    renderObjectiveQuality(NaN, NaN);
+    objectiveBreakdownOutput.textContent = `Punteggio ponderato: ${objectiveWeights.undesiredSlot} punti per fascia da evitare, ${objectiveWeights.missedPreferredSlot} per preferenza mancata. Meno è meglio; zero è ideale.`;
     optimizationStatus.textContent = 'Avvio';
     objectiveHistory = [];
     objectivePath.setAttribute('d', '');
     objectiveEmpty.hidden = false;
     reviewCalculationButton.hidden = true;
     const timeLimitMs = timeLimitSeconds * 1000;
+    const objectiveMaximum = objectiveUpperBound(timetable, objectiveWeights);
+    const searchSeed = (Date.now() ^ Math.floor(Math.random() * 0x100000000)) >>> 0;
     const result = await recalculator(timetable, {
       signal: activeController.signal,
-      useSourceHints: sourceHintToggle.checked,
       timeLimitMs,
       maxObjective,
       workers,
+      algorithm: algorithmInput.value,
+      geneticStartAfterMs: geneticStartAfterSeconds * 1000,
+      objectiveWeights,
+      seed: searchSeed,
       onProgress: progress => {
         const iteration = progress.iterations ?? progress.visited ?? 0;
         const objective = progress.bestObjective;
         iterationOutput.textContent = Number(iteration).toLocaleString('it-IT');
         if (Number.isFinite(objective)) {
           objectiveOutput.textContent = Number(objective).toLocaleString('it-IT');
+          renderObjectiveQuality(objective, objectiveMaximum);
           if (!objectiveHistory.length || objective < objectiveHistory.at(-1)) objectiveHistory.push(objective);
           if (objectiveHistory.length > 60) objectiveHistory = objectiveHistory.filter((_, index) => index % 2 === 0);
           const maximum = Math.max(1, ...objectiveHistory);
@@ -382,10 +438,29 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
           objectivePath.setAttribute('d', points.map((point, index) => `${index ? 'L' : 'M'} ${point}`).join(' '));
           objectiveEmpty.hidden = true;
         }
+        if (progress.phase === 'feasibility') {
+          const assigned = Number(progress.feasibilityAssigned ?? progress.maxAssigned ?? progress.assigned ?? 0).toLocaleString('it-IT');
+          const total = Number(progress.feasibilityTotal ?? progress.total ?? timetable.lessons.length).toLocaleString('it-IT');
+          const geneticPhase = progress.algorithmStage === 'genetic' || (!progress.algorithmStage && algorithmInput.value === 'genetic');
+          const phaseLabel = geneticPhase ? 'Genetico · ricerca soluzione valida' : algorithmInput.value === 'mixed' ? 'Classico · ricerca soluzione valida' : 'Ricerca soluzione valida';
+          const attempt = Number(progress.feasibilityAttempt ?? progress.attempt ?? 1);
+          const attemptLabel = attempt > 1 ? ` · tentativo ${attempt.toLocaleString('it-IT')}` : '';
+          objectiveBreakdownOutput.textContent = `${phaseLabel}${attemptLabel} · avanzamento massimo ${assigned}/${total} lezioni. La scomposizione del costo compare appena è completa la prima assegnazione.`;
+        } else renderObjectiveBreakdown(progress.objectiveBreakdown);
         const workerLabel = progress.workersTotal ? ` · worker ${progress.workersCompleted || 0}/${progress.workersTotal}` : '';
-        const message = `Iterazione ${Number(iteration).toLocaleString('it-IT')}${Number.isFinite(objective) ? ` · obiettivo ${Number(objective).toLocaleString('it-IT')}` : ''}${workerLabel}`;
+        const stageLabel = algorithmInput.value === 'mixed' ? progress.algorithmStage === 'genetic' ? 'Genetico · ' : progress.algorithmStage === 'classic' ? 'Classico · ' : '' : '';
+        const message = `${stageLabel}Iterazione ${Number(iteration).toLocaleString('it-IT')}${Number.isFinite(objective) ? ` · obiettivo ${Number(objective).toLocaleString('it-IT')}` : ''}${workerLabel}`;
         status.textContent = message; calculationStatus.textContent = message;
-        optimizationStatus.textContent = progress.phase === 'feasibility' ? 'Ricerca soluzione valida' : 'In miglioramento';
+        const stageSeconds = Math.floor(Number(progress.stageElapsedMs || 0) / 1000).toLocaleString('it-IT');
+        const cutoffLabel = `${Number(geneticStartAfterSeconds).toLocaleString('it-IT')} s`;
+        optimizationStatus.textContent = progress.phase === 'mixed-transition' ? 'Avvio genetico dalla soluzione classica'
+          : algorithmInput.value === 'mixed' && progress.algorithmStage === 'classic' ? `Classico · ${stageSeconds}/${cutoffLabel}`
+            : algorithmInput.value === 'mixed' && progress.algorithmStage === 'genetic' && progress.phase !== 'feasibility' ? `Genetico · generazione ${Number(progress.generation || 0).toLocaleString('it-IT')}`
+          : progress.phase === 'feasibility' ? `${progress.algorithmStage === 'genetic' || algorithmInput.value === 'genetic' ? 'Preparazione genetica' : 'Ricerca soluzione valida'}${Number(progress.feasibilityAttempt ?? progress.attempt) > 1 ? ` · tentativo ${Number(progress.feasibilityAttempt ?? progress.attempt).toLocaleString('it-IT')}` : ''}`
+          : progress.phase === 'restart' ? `Nuovo tentativo ${Number(progress.restart || 0).toLocaleString('it-IT')}`
+            : progress.phase === 'block' ? `Riorganizzo ${Number(progress.blockSize || 0).toLocaleString('it-IT')} lezioni`
+              : progress.phase === 'perturbation' ? `Uscita dal minimo locale · scossa ${Number(progress.round || 0).toLocaleString('it-IT')}`
+                : progress.phase === 'genetic' ? `Generazione ${Number(progress.generation || 0).toLocaleString('it-IT')}` : 'In miglioramento';
       },
     });
     if (recalculationController !== activeController) return result;
@@ -393,31 +468,40 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     searchButton.disabled = !currentLesson(); updateCalculationControl();
     cancelRecalculationButton.disabled = true;
     if (result.objective != null) objectiveOutput.textContent = Number(result.objective).toLocaleString('it-IT');
+    renderObjectiveQuality(Number(result.objective), objectiveMaximum);
     if (result.iterations != null) iterationOutput.textContent = Number(result.iterations).toLocaleString('it-IT');
+    renderObjectiveBreakdown(result.objectiveBreakdown);
     const hasCompleteProposal = result.assignments instanceof Map && result.assignments.size === timetable.lessons.length;
     if (result.status === 'solved' || (hasCompleteProposal && ['cancelled', 'time-limit'].includes(result.status))) {
       const added = addFullScheduleProposal(result);
-      if (added && result.status === 'solved') status.textContent = `Ricerca conclusa: ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni · obiettivo ${Number(result.objective || 0).toLocaleString('it-IT')}${result.workersFallback ? ' · worker non disponibili, calcolo locale' : ''}. Rivedi la proposta prima di applicarla.`;
-      else if (added && result.status === 'cancelled') status.textContent = `Calcolo fermato; la proposta valida trovata è pronta per la revisione. L’orario corrente è invariato.`;
-      else if (added && result.status === 'time-limit') status.textContent = `Tempo limite raggiunto; proposta valida con obiettivo ${Number(result.objective ?? 0).toLocaleString('it-IT')}. Rivedila prima di applicarla.`;
-    } else if (result.status === 'cancelled') status.textContent = `Calcolo fermato a ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni; l’orario corrente è invariato.`;
+      if (added && result.status === 'solved') status.textContent = result.objective === 0
+        ? `Obiettivo zero raggiunto: ottimo globale dimostrato · ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni. Proposta pronta.`
+        : `Soglia richiesta raggiunta (obiettivo ${Number(result.objective || 0).toLocaleString('it-IT')}); ottimo globale non dimostrato. Proposta pronta.`;
+      else if (added && result.status === 'cancelled') status.textContent = `Calcolo fermato; la proposta valida trovata è pronta da applicare. L’orario corrente è invariato.`;
+      else if (added && result.status === 'time-limit') status.textContent = `Tempo limite raggiunto; migliore proposta trovata: ${Number(result.objective ?? 0).toLocaleString('it-IT')} punti. Ottimo globale non dimostrato.`;
+    } else if (result.status === 'cancelled') status.textContent = Number.isFinite(result.feasibilityTotal)
+      ? `Calcolo fermato durante la preparazione: ${Number(result.feasibilityAssigned || 0).toLocaleString('it-IT')}/${Number(result.feasibilityTotal).toLocaleString('it-IT')} lezioni assegnate; nessuna proposta completa.`
+      : `Calcolo fermato a ${Number(result.iterations || 0).toLocaleString('it-IT')} iterazioni; l’orario corrente è invariato.`;
     else if (result.status === 'time-limit') status.textContent = `Tempo limite raggiunto; non è stata trovata una proposta completa.`;
     else if (result.status === 'limit') status.textContent = `Ricerca interrotta al limite (${result.visited} tentativi); nessuna assegnazione applicata.`;
+    else if (result.reason?.type === 'resource-capacity') status.textContent = `${result.reason.resourceName}: ${result.reason.demand} fasce richieste, ma il calendario ne consente al massimo ${result.reason.capacity}.`;
+    else if (result.reason?.type === 'empty-domain') status.textContent = `${result.reason.lessonName}: nessuna fascia disponibile. Controlla durata e indisponibilità.`;
     else status.textContent = 'Nessuna assegnazione completa compatibile trovata; l’orario corrente è rimasto invariato.';
     calculationStatus.textContent = status.textContent;
-    optimizationStatus.textContent = result.workersFallback ? 'Concluso · calcolo locale' : result.status === 'solved' ? 'Concluso' : result.status === 'cancelled' ? 'Fermato' : result.status === 'time-limit' ? 'Tempo esaurito' : 'Nessuna soluzione';
+    optimizationStatus.textContent = result.workersFallback ? 'Concluso · calcolo locale'
+      : result.status === 'solved' ? result.objective === 0 ? 'Ottimo globale dimostrato' : 'Soglia raggiunta · ottimo non dimostrato'
+        : result.status === 'cancelled' ? 'Fermato'
+          : result.status === 'time-limit' ? 'Tempo esaurito'
+          : result.status === 'limit' ? 'Limite di ricerca raggiunto'
+            : result.reason?.type === 'resource-capacity' ? 'Capacità insufficiente'
+              : result.reason?.type === 'empty-domain' ? 'Nessuna fascia disponibile' : 'Nessuna soluzione';
     if (result.status !== 'solved' && !hasCompleteProposal) list.append(node(document, 'li', 'muted', 'Nessuna proposta applicabile.'));
     return result;
   }
 
   searchButton.addEventListener('click', () => { activeSearch = search(); });
   recalculateButton.addEventListener('click', () => { activeRecalculation = recalculate(); });
-  reviewCalculationButton.addEventListener('click', () => {
-    document.querySelector('[data-screen="schedule"]')?.click();
-    panel.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
-    list.querySelector('.proposal-option')?.click();
-    applyButton.focus();
-  });
+  reviewCalculationButton.addEventListener('click', () => applyLatestRecalculation());
   cancelButton.addEventListener('click', () => {
     if (!controller) return;
     controller.abort();
@@ -427,7 +511,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     recalculationController?.abort();
     status.textContent = 'Annullamento ricalcolo…';
   });
-  applyButton.addEventListener('click', () => {
+  function applySelectedProposal() {
     if (!selectedOption || !history) return;
     if (selectedOption.fullRecalculation || selectedOption.proposal.changes.length > 1) {
       const affected = selectedOption.proposal.changes.length;
@@ -442,7 +526,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     try {
       const next = history.apply(selectedOption.proposal);
       const lessonId = selectedLessonId;
-      status.textContent = 'Modifica applicata. Verifica l’orario nelle viste di classe e docente.';
+      status.textContent = selectedOption.fullRecalculation ? 'Proposta applicata. Consulta l’orario aggiornato.' : 'Modifica applicata. Consulta l’orario aggiornato.';
       calculationStatus.textContent = status.textContent;
       reviewCalculationButton.hidden = true;
       clearOptions();
@@ -455,7 +539,16 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       status.textContent = error.message || 'La proposta non è più applicabile. Cerca nuove alternative.';
       clearOptions();
     }
-  });
+  }
+  applyButton.addEventListener('click', applySelectedProposal);
+
+  function applyLatestRecalculation() {
+    const fullOption = [...options.values()].reverse().find(item => item.fullRecalculation);
+    if (!fullOption) return false;
+    selectedOption = fullOption;
+    applySelectedProposal();
+    return true;
+  }
   undoButton.addEventListener('click', () => {
     if (!history?.undo()) return;
     const restored = history.current;
@@ -470,12 +563,15 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     status.textContent = 'Modifica annullata; l’orario precedente è stato ripristinato.';
     onApply(restored, lessonId, 'undo');
   });
-  structureUndoButton.addEventListener('click', () => undoButton.click());
+  constraintUndoButton.addEventListener('click', () => undoButton.click());
 
   updateCalculationControl();
   refreshConstraintControls();
 
   return {
+    applyLatestRecalculation() {
+      return applyLatestRecalculation();
+    },
     selectLesson(lessonId) {
       selectedLessonId = lessonId;
       controller?.abort();
@@ -508,7 +604,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       clearOptions();
       editingConstraint = null;
       status.textContent = 'Seleziona una lezione per esplorare alternative.';
-      constraintStatus.textContent = next ? 'Puoi gestire indisponibilità e fasce da evitare.' : 'Importa un orario per gestire i vincoli.';
+      constraintStatus.textContent = next ? 'Puoi gestire indisponibilità e preferenze temporali.' : 'Importa un orario per gestire i vincoli.';
       addConstraintButton.textContent = 'Aggiungi vincolo';
       refreshConstraintControls();
       renderUndo();

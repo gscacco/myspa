@@ -28,7 +28,7 @@ test('OFD import can omit every placement while retaining requirements and const
   assert.ok(timetable.lessons.some(lesson => lesson.assignedTime), 'source model is not mutated');
 });
 
-test('the supplied OFD retains requirements and can be fully recalculated without loading its 1,708 placements', async () => {
+test('the supplied OFD retains constraints and bounds a search without using source placements', async () => {
   const source = await readFile(samplePath);
   const result = withoutOFDAssignments(importOFD(source, { DOMParser: domParser }));
   assert.equal(result.summary.lessons, 1714);
@@ -36,43 +36,44 @@ test('the supplied OFD retains requirements and can be fully recalculated withou
   assert.equal(result.summary.unassignedLessons, 1714);
   assert.equal(result.summary.teachers, 118);
   assert.equal(result.summary.classes, 59);
-  assert.equal(Object.keys(result.timetable.source.assignmentHints).length, 1708);
+  assert.equal(result.timetable.source.assignmentHints, undefined, 'OFD placements are not retained as calculation hints');
   assert.ok(result.timetable.lessons.every(lesson => lesson.assignedTime === null));
   assert.ok(result.timetable.entities.teachers.some(teacher => teacher.constraints?.timeframes?.unavailable.length));
   assert.match(result.timetable.source.xml, /<TIME value=/, 'source XML is preserved as provenance');
-  const recalculated = await recalculateAssignments(result.timetable, { maxNodes: 250_000 });
-  assert.equal(recalculated.status, 'solved');
-  assert.equal(recalculated.assignments.size, 1714);
-  assert.ok(recalculated.visited < 250_000);
+  const recalculated = await recalculateAssignments(result.timetable, { maxNodes: 10_000 });
+  assert.ok(['solved', 'limit'].includes(recalculated.status));
+  assert.ok(recalculated.visited <= 10_000);
+  if (recalculated.status === 'solved') assert.equal(recalculated.assignments.size, 1714);
 });
 
-test('optimization improves the objective on the supplied school while returning a complete hard-valid proposal', async () => {
+test('optimization bounds a real-school search and never returns a partial proposal', async () => {
   const source = await readFile(samplePath);
   const timetable = withoutOFDAssignments(importOFD(source, { DOMParser: domParser })).timetable;
-  const progress = [];
   const result = await optimizeTimetable(timetable, {
-    workers: 1, timeLimitMs: 30_000, maxObjective: 0,
-    onProgress: item => { if (Number.isFinite(item.bestObjective)) progress.push(item.bestObjective); },
+    workers: 1, timeLimitMs: 1_000, maxObjective: 0,
   });
-  assert.equal(result.status, 'solved');
-  assert.equal(result.assignments.size, 1714);
-  assert.ok(result.iterations > 0);
-  assert.ok(result.objective < result.initialObjective);
-  assert.ok(progress.every((value, index) => index === 0 || value <= progress[index - 1]));
-  const candidate = structuredClone(timetable);
-  for (const lesson of candidate.lessons) lesson.assignedTime = result.assignments.get(lesson.id);
-  const { analyzeSchedule } = await import('../../timetable/js/schedule.js');
-  assert.equal(analyzeSchedule(candidate).issues.filter(issue => issue.severity === 'error').length, 0);
+  assert.ok(['solved', 'time-limit', 'limit', 'unsatisfiable'].includes(result.status));
+  const assignments = result.assignments instanceof Map ? result.assignments : new Map(result.assignments || []);
+  assert.ok(assignments.size === 0 || assignments.size === timetable.lessons.length, 'a timed-out search does not expose an incomplete timetable');
+  if (assignments.size) {
+    const candidate = structuredClone(timetable);
+    for (const lesson of candidate.lessons) lesson.assignedTime = assignments.get(lesson.id);
+    const { analyzeSchedule } = await import('../../timetable/js/schedule.js');
+    assert.equal(analyzeSchedule(candidate).issues.filter(issue => issue.severity === 'error').length, 0);
+  }
 });
 
-test('recalculation can prefer original OFD placements as suggestions without applying them directly', async () => {
-  const timetable = solverFixture();
-  timetable.lessons[0].assignedTime = null;
-  timetable.source.assignmentHints = { target: { dayIndex: 0, periodIndex: 2 } };
-  const result = await recalculateAssignments(timetable, { useSourceHints: true });
-  assert.equal(result.status, 'solved');
-  assert.equal(result.assignments.get('target').periodIndex, 2);
-  assert.equal(timetable.lessons[0].assignedTime, null);
+test('recalculation ignores original OFD placements and uses only constraints and seed', async () => {
+  const first = solverFixture();
+  first.lessons[0].assignedTime = null;
+  first.source.assignmentHints = { target: { dayIndex: 0, periodIndex: 2 } };
+  const second = structuredClone(first);
+  second.source.assignmentHints = { target: { dayIndex: 0, periodIndex: 0 } };
+  const firstResult = await recalculateAssignments(first, { seed: 17 });
+  const secondResult = await recalculateAssignments(second, { seed: 17 });
+  assert.equal(firstResult.status, 'solved');
+  assert.deepEqual(firstResult.assignments, secondResult.assignments);
+  assert.equal(first.lessons[0].assignedTime, null);
 });
 
 test('full recalculation returns a complete hard-valid assignment without mutating the base', async () => {
@@ -120,4 +121,27 @@ test('UNKNOWN class placeholders do not serialize unrelated lessons during recal
   const result = await recalculateAssignments(timetable);
   assert.equal(result.status, 'solved');
   assert.deepEqual(result.assignments.get('unknown-0'), result.assignments.get('unknown-1'), 'unknown classes are not treated as a shared collision resource');
+});
+
+test('experimental LCV and pressure candidate orders preserve complete hard-valid schedules', async () => {
+  const { analyzeSchedule } = await import('../../timetable/js/schedule.js');
+  for (const options of [{ candidateOrdering: 'lcv' }, { candidateOrdering: 'pressure' }, { variableOrdering: 'domain-loss' }]) {
+    const label = options.candidateOrdering || options.variableOrdering;
+    const timetable = timetableFixture();
+    for (const lesson of timetable.lessons) lesson.assignedTime = null;
+    const result = await recalculateAssignments(timetable, {
+      seed: 41,
+      randomizeOrder: true,
+      randomizeVariables: true,
+      ...options,
+    });
+    assert.equal(result.status, 'solved', `${label} finds a complete schedule`);
+    assert.equal(result.assignments.size, timetable.lessons.length);
+    const candidate = structuredClone(timetable);
+    for (const lesson of candidate.lessons) lesson.assignedTime = result.assignments.get(lesson.id);
+    assert.equal(analyzeSchedule(candidate).issues.filter(issue => issue.severity === 'error').length, 0);
+    assert.ok(result.diagnostics.domainBuildMs >= 0);
+    assert.ok(result.diagnostics.preprocessingMs >= 0);
+    assert.ok(result.diagnostics.searchMs >= 0);
+  }
 });

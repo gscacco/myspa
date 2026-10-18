@@ -182,22 +182,21 @@ test('the school grids edit names in place, add by blank row, and undo the lates
   assert.equal(document.querySelector('#school-constraint-count').textContent, '1–1 di 1');
 });
 
-test('the constraint sheet adds and removes an unavailable slot without an add button', () => {
+test('constraint rows are read-only selectable details with the correct pointer semantics', () => {
   const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
-  const workbench = createSchoolWorkbench({ document });
+  const details = [];
+  const workbench = createSchoolWorkbench({ document, onDetail: detail => details.push(detail) });
   const source = timetableFixture();
   workbench.setTimetable(source);
-  const row = document.querySelector('#school-grid-constraints [data-new-row="true"]');
-  const [target, kind, day, period] = row.querySelectorAll('input, select');
-  target.value = 'Docente · Teacher One';
-  target.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
-  kind.value = 'unavailable'; kind.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
-  day.value = '0'; day.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
-  period.value = '0'; period.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
-  assert.deepEqual(source.entities.teachers[0].constraints.timeframes.unavailable, ['0.0']);
-  const added = document.querySelector('#school-grid-constraints tbody tr[data-row="0"]');
-  added.dispatchEvent(new document.defaultView.KeyboardEvent('keydown', { key: 'Delete', ctrlKey: true, bubbles: true }));
-  assert.deepEqual(source.entities.teachers[0].constraints.timeframes.unavailable, []);
+  const row = [...document.querySelectorAll('#school-grid-constraints tbody tr')]
+    .find(item => item.textContent.includes('Teacher One'));
+  assert.ok(row.classList.contains('selectable-detail-row'));
+  assert.equal(row.querySelector('input, select, [contenteditable="true"]'), null);
+  row.click();
+  assert.equal(details.at(-1).type, 'constraint');
+  assert.equal(details.at(-1).constraint.id, 'teacher:T1');
+  row.dispatchEvent(new document.defaultView.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.equal(details.length, 2, 'the same detail opens from the keyboard');
 });
 
 test('calculation controls expose time, objective and worker limits', async () => {

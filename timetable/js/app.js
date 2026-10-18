@@ -5,6 +5,7 @@ import { createTimetableEditor } from './editor.js';
 import { createEmptySchool, createSchoolWorkbench } from './school-workbench.js';
 import { parseRosterCSV } from './roster-importer.js';
 import { getCalculationReadiness, validateTimetable } from './validation.js';
+import { TIMETABLE_VERSION } from './version.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 const rosterWarningCodes = new Set(['encoding-mismatch', 'period-name-mismatch', 'unsupported-structure', 'unsupported-attribute']);
@@ -19,8 +20,8 @@ function diagnosticText(item) {
   if (item.code === 'encoding-mismatch') return `La codifica dichiarata (${item.declaredEncoding || ''}) non corrisponde ai byte del file; è stata usata ${item.decodedEncoding || 'una codifica compatibile'}.`;
   if (item.code === 'period-name-mismatch') return 'Il nome del documento e quello dei dati non coincidono; entrambi sono conservati.';
   if (item.code === 'unassigned-lessons') return `${numberFormat.format(item.details?.count ?? 0)} lezioni senza orario assegnato nel file.`;
-  if (item.code === 'assignments-omitted') return `${numberFormat.format(item.details?.count ?? 0)} collocazioni OFD omesse; docenti, classi e vincoli sono conservati. Gli orari originali restano disponibili solo come preferenze iniziali del ricalcolo.`;
-  if (item.code === 'unsupported-structure') return `Elemento OFD non riconosciuto ${item.path || ''}: resta conservato nel sorgente.`;
+  if (item.code === 'assignments-omitted') return `${numberFormat.format(item.details?.count ?? 0)} collocazioni del file non importate; le posizioni originali non sono usate nei calcoli.`;
+  if (item.code === 'unsupported-structure') return `Elemento OFD non riconosciuto ${item.details?.tags?.join(', ') || item.path || ''}: resta conservato nel sorgente.`;
   if (item.code === 'unsupported-attribute') return `Attributo OFD non riconosciuto ${item.path || ''}: resta conservato nel sorgente.`;
   if (item.code === 'unsupported-schema-version') return `Versione dello schema EDN non supportata (${item.path}).`;
   if (item.code === 'missing-reference') return `Riferimento a un elemento mancante (${item.path}).`;
@@ -45,10 +46,17 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const cancelButton = document.querySelector('#cancel-import');
   const currentStatus = document.querySelector('#current-status');
   const importCard = document.querySelector('#import-card');
+  const detailPanel = document.querySelector('#entity-detail-panel');
+  const detailTitle = document.querySelector('#entity-detail-title');
+  const detailContent = document.querySelector('#entity-detail-content');
+  const detailActions = document.querySelector('#entity-detail-actions');
+  const detailBackButton = document.querySelector('#detail-back');
   const appWorkspace = document.querySelector('.workspace');
-  if (![report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, appWorkspace].every(Boolean)) {
+  const versionOutput = document.querySelector('#app-version');
+  if (![report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, appWorkspace, detailPanel, detailTitle, detailContent, detailActions, detailBackButton].every(Boolean)) {
     throw new Error('Timetable import screen is missing a required accessible control.');
   }
+  if (versionOutput) versionOutput.textContent = `v${TIMETABLE_VERSION}`;
 
   let current = createEmptySchool();
   let currentDiagnostics = [];
@@ -59,6 +67,25 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let editor;
   let activeScreen = 'school';
   let activeSchoolView = 'teachers';
+  let activeDetail = null;
+  let detailNavigationStack = [];
+  let navigatingToEntity = false;
+  let hasUnexportedChanges = false;
+  const saveStateBadge = document.querySelector('.draft-badge');
+  function markUnsavedChanges() {
+    hasUnexportedChanges = true;
+    currentStatus.textContent = 'Modifiche non esportate';
+    if (saveStateBadge) saveStateBadge.textContent = 'Non esportato';
+  }
+  function markChangesExported() {
+    hasUnexportedChanges = false;
+    if (saveStateBadge) saveStateBadge.textContent = 'Salvato';
+  }
+  document.defaultView?.addEventListener('beforeunload', event => {
+    if (!hasUnexportedChanges) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
   const unknownCount = (timetable, collection, lessonField) => {
     const unknownIds = new Set((timetable.entities?.[collection] || []).filter(item => item.placeholder === 'unknown').map(item => item.id));
     return timetable.lessons.filter(lesson => lessonField === 'subjectId'
@@ -67,6 +94,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   };
   const schoolWorkbench = createSchoolWorkbench({
     document,
+    onDetail: detail => {
+      if (!navigatingToEntity) detailNavigationStack = [];
+      openEntityDetail(detail);
+    },
     onChange: next => {
       current = next;
       const activeLessonWarnings = (next.source.lessonImports || []).flatMap(item => item.diagnostics || [])
@@ -85,10 +116,11 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       currentDiagnostics = [...currentDiagnostics.filter(item => !String(item.code || '').startsWith('lesson-')), ...currentLessonWarnings];
       editor?.setTimetable(current);
       if (views) refreshViews(true);
+      if (activeDetail && !detailPanel.hidden) openEntityDetail(activeDetail);
       updateCalculationReadiness();
       document.querySelector('#topbar-school-name').textContent = current.name;
       document.querySelector('#school-name').value = current.name;
-      currentStatus.textContent = 'Modifiche alla scuola · Esporta EDN per salvarle';
+      markUnsavedChanges();
       exportButton.disabled = false;
       exportToolsButton.disabled = false;
     },
@@ -100,15 +132,38 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     onApply: (next, _lessonId, action) => {
       current = next;
       schoolWorkbench.setTimetable(current);
-      const stateLabel = action === 'undo' ? 'Modifica annullata' : 'Modifiche applicate';
-      currentStatus.textContent = `${stateLabel} · Esporta EDN per salvarle`;
+      markUnsavedChanges();
       refreshViews(true);
+      if (activeDetail && !detailPanel.hidden) openEntityDetail(activeDetail);
     },
   });
-  views = createTimetableViews({ document, onLessonSelect: lesson => editor.selectLesson(lesson.id) });
+  views = createTimetableViews({ document,
+    onBeforeLessonNavigate: () => {
+      detailNavigationStack.push({ label: 'Avvisi e conflitti', state: captureDetailContext() });
+      updateDetailBackButton();
+    },
+    onLessonSelect: (lesson, { navigate = false } = {}) => {
+    if (!navigate) detailNavigationStack = [];
+    editor.selectLesson(lesson.id);
+    openEntityDetail({ type: 'lessons', id: lesson.id });
+  } });
   schoolWorkbench.setTimetable(current);
   editor.setTimetable(current);
   views.render(current, currentDiagnostics);
+
+  for (const panel of document.querySelectorAll('#school-page [data-school-panel]')) {
+    const tools = panel.querySelector('.sheet-tools');
+    const table = panel.querySelector('.school-grid');
+    if (!tools || !table?.querySelector('[data-grid-column-filter]')) continue;
+    const toggle = element(document, 'button', { type: 'button', class: 'secondary-button column-filter-toggle', 'aria-expanded': 'false' });
+    toggle.textContent = 'Filtri per colonna';
+    toggle.addEventListener('click', () => {
+      const expanded = panel.classList.toggle('column-filters-open');
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.textContent = expanded ? 'Nascondi filtri per colonna' : 'Filtri per colonna';
+    });
+    tools.append(toggle);
+  }
 
   function updateCalculationReadiness() {
     const missing = getCalculationReadiness(current);
@@ -197,18 +252,34 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     }
     activeScreen = screen;
     if (screen === 'schedule' && views.screen !== 'schedule') views.showSchedule();
-    if (screen !== 'school') {
-      importCard.hidden = true;
-      importToolsButton?.setAttribute('aria-expanded', 'false');
+    if (!['school', 'schedule'].includes(screen)) {
+      detailPanel.hidden = true;
+      appWorkspace.classList.remove('has-detail-panel');
+    } else {
+      detailPanel.hidden = false;
+      appWorkspace.classList.add('has-detail-panel');
+      if (!activeDetail) showEmptyDetail();
     }
     document.querySelector('#school-page').hidden = screen !== 'school';
+    document.querySelector('#settings-page').hidden = screen !== 'settings';
+    importCard.hidden = screen !== 'settings';
     document.querySelector('#calculation-page').hidden = screen !== 'calculation';
     document.querySelector('#timetable-workspace').hidden = screen !== 'schedule';
-    document.querySelector('.current-card').hidden = screen !== 'schedule' || !current.lessons.length;
+    document.querySelector('.current-card').hidden = screen !== 'settings' || !current.lessons.length;
     document.querySelector('#issues-page').hidden = true;
     document.querySelector('#structure-page').hidden = true;
     for (const panel of document.querySelectorAll('[data-school-panel]')) panel.hidden = panel.dataset.schoolPanel !== activeSchoolView;
-    document.querySelector('#school-view-label').textContent = ({ teachers: 'Docenti', classes: 'Classi', students: 'Studenti', lessons: 'Lezioni', rooms: 'Aule', constraints: 'Vincoli' })[activeSchoolView] || 'Docenti';
+    const schoolCopy = {
+      teachers: ['Docenti', 'Elenco dei docenti e delle relative disponibilità.'],
+      classes: ['Classi e materie', 'Gestisci classi, materie e piani di studio.'],
+      students: ['Studenti', 'Elenco degli studenti e della classe associata.'],
+      lessons: ['Lezioni', 'Definisci materia, docenti, classi e durata; il calcolo assegna giorno e ora.'],
+      rooms: ['Aule', 'Gestisci gli spazi disponibili e le relative indisponibilità.'],
+      constraints: ['Vincoli', 'Gestisci le fasce non disponibili e le preferenze temporali.'],
+    }[activeSchoolView] || ['Docenti', 'Elenco dei docenti e delle relative disponibilità.'];
+    document.querySelector('#school-view-label').textContent = schoolCopy[0];
+    document.querySelector('#school-heading').textContent = schoolCopy[0];
+    document.querySelector('#school-heading-intro').textContent = schoolCopy[1];
     for (const button of document.querySelectorAll('[data-screen]')) {
       const active = button.dataset.screen === screen || (screen === 'school' && button.dataset.screen === activeSchoolView);
       button.setAttribute('aria-pressed', String(active));
@@ -221,28 +292,351 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     views.render(current, currentDiagnostics, { preserveContext });
     if (activeScreen !== 'schedule') document.querySelector('#timetable-workspace').hidden = true;
   }
-  for (const button of document.querySelectorAll('[data-screen]')) button.addEventListener('click', () => showScreen(button.dataset.screen));
-  document.querySelector('#go-to-schedule')?.addEventListener('click', () => showScreen('schedule'));
-  const importToolsButton = document.querySelector('#show-import-tools');
-  importToolsButton?.addEventListener('click', () => {
-    showScreen('school');
-    importCard.hidden = !importCard.hidden;
-    importToolsButton.setAttribute('aria-expanded', String(!importCard.hidden));
-    if (!importCard.hidden) ednInput.focus();
+  for (const button of document.querySelectorAll('[data-screen]')) button.addEventListener('click', () => {
+    detailNavigationStack = [];
+    activeDetail = null;
+    if (button.dataset.screen === 'schedule') views.clearLessonSelection();
+    showScreen(button.dataset.screen);
   });
+  document.querySelector('#go-to-schedule')?.addEventListener('click', () => showScreen('schedule'));
   document.querySelector('#school-name').addEventListener('change', event => {
     const name = event.currentTarget.value.trim();
     if (!name) { event.currentTarget.value = current.name; return; }
     schoolWorkbench.setName(name);
     document.querySelector('#topbar-school-name').textContent = name;
-    document.querySelector('#school-heading').dataset.name = name;
-    currentStatus.textContent = `Scuola: ${name} · Esporta EDN per salvarla`;
+    markUnsavedChanges();
     exportButton.disabled = false;
     exportToolsButton.disabled = false;
     refreshViews(true);
   });
   showScreen('school');
   updateCalculationReadiness();
+
+  function addDetailSection(title, lines) {
+    const section = element(document, 'section', { class: 'entity-detail-section' });
+    const heading = element(document, 'h3'); heading.textContent = title; section.append(heading);
+    if (!lines.length) {
+      const empty = element(document, 'p', { class: 'muted' }); empty.textContent = 'Nessun dato.'; section.append(empty);
+    } else {
+      const list = element(document, 'ul');
+      for (const line of lines) { const item = element(document, 'li'); item.textContent = line; list.append(item); }
+      section.append(list);
+    }
+    detailContent.append(section);
+  }
+
+  function addLessonSection(title, lessons, contextCollection = null, contextId = null) {
+    const section = element(document, 'section', { class: 'entity-detail-section' });
+    const heading = element(document, 'h3'); heading.textContent = title; section.append(heading);
+    if (!lessons.length) {
+      const empty = element(document, 'p', { class: 'muted' }); empty.textContent = 'Nessun dato.'; section.append(empty);
+      detailContent.append(section);
+      return;
+    }
+    const list = element(document, 'ul', { class: 'entity-lesson-list' });
+    const appendEntityLink = (parent, collection, id, className = '') => {
+      const linked = current.entities[collection]?.find(item => item.id === id);
+      if (!linked) return false;
+      const button = element(document, 'button', { type: 'button', class: `detail-link ${className}`.trim(), title: `Apri i dettagli di ${collectionLabels[collection] || collection} ${linked.name}` });
+      button.textContent = linked.name;
+      button.addEventListener('click', () => navigateToEntity(collection, id));
+      parent.append(button);
+      return true;
+    };
+    const collectionLabels = { teachers: 'docente', classes: 'classe', subjects: 'materia', rooms: 'aula' };
+    const separator = parent => parent.append(document.createTextNode(' · '));
+    for (const lesson of lessons) {
+      const row = element(document, 'li');
+      let hasPart = false;
+      const addPart = callback => {
+        if (hasPart) separator(row);
+        const before = row.childNodes.length;
+        const added = callback();
+        if (added === false) {
+          if (hasPart) row.lastChild.remove();
+          return;
+        }
+        if (row.childNodes.length > before) hasPart = true;
+      };
+      if (!(contextCollection === 'subjects' && lesson.subjectId === contextId)) {
+        addPart(() => appendEntityLink(row, 'subjects', lesson.subjectId, 'detail-link-subject'));
+      }
+      if (lesson.assignedTime) {
+        const day = current.calendar.days[lesson.assignedTime.dayIndex]?.name || 'Giorno';
+        const start = current.calendar.periods[lesson.assignedTime.periodIndex];
+        const end = current.calendar.periods[lesson.assignedTime.periodIndex + lesson.durationPeriods - 1];
+        const format = period => period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
+        addPart(() => {
+          const button = element(document, 'button', { type: 'button', class: 'detail-link', title: 'Apri la lezione nell’elenco' }, `${day} ${format(start)}–${format(end)}`);
+          button.addEventListener('click', () => navigateToEntity('lessons', lesson.id));
+          row.append(button);
+        });
+      } else addPart(() => row.append(document.createTextNode('Senza orario')));
+      for (const [collection, ids] of [['classes', lesson.classIds || []], ['teachers', lesson.teacherIds || []], ['rooms', lesson.roomIds || []]]) {
+        const remaining = ids.filter(id => !(contextCollection === collection && id === contextId));
+        for (const id of remaining) addPart(() => appendEntityLink(row, collection, id));
+      }
+      list.append(row);
+    }
+    section.append(list);
+    detailContent.append(section);
+  }
+
+  function detailContextLabel() {
+    if (activeScreen === 'school') return ({ teachers: 'Docenti', classes: 'Classi e materie', students: 'Studenti', lessons: 'Lezioni', rooms: 'Aule', constraints: 'Vincoli' })[activeSchoolView];
+    return 'Orario';
+  }
+
+  function captureDetailContext() {
+    const panels = [...document.querySelectorAll(`[data-school-panel="${activeSchoolView}"]`)];
+    const selectedRow = document.activeElement?.closest?.('tr');
+    const filters = panels.flatMap(panel => [...panel.querySelectorAll('input[type="search"]')].map(input => ({ id: input.id, value: input.value })));
+    const scrollPositions = panels.flatMap((panel, panelIndex) => [...panel.querySelectorAll('.sheet-scroll')]
+      .map((node, index) => ({ panelIndex, index, top: node.scrollTop, left: node.scrollLeft })));
+    return {
+      screen: activeScreen,
+      schoolView: activeSchoolView,
+      viewState: views.getNavigationState(),
+      detail: activeDetail ? structuredClone(activeDetail) : null,
+      filters,
+      scrollPositions,
+      selectedRow: selectedRow ? { entityId: selectedRow.dataset.entityId, lessonId: selectedRow.dataset.lessonId } : null,
+      issueFilters: ['issue-severity', 'issue-category', 'issue-search'].map(id => ({ id, value: document.getElementById(id)?.value || '' })),
+      selectedIssueLesson: document.activeElement?.closest?.('[data-lesson-id]')?.dataset.lessonId || null,
+      pageY: document.defaultView?.scrollY || 0,
+    };
+  }
+
+  function restoreDetailContext(context) {
+    if (!context) return;
+    showScreen(context.screen === 'school' ? context.schoolView : context.screen);
+    if (context.screen === 'schedule') views.restoreNavigationState(context.viewState);
+    const panels = [...document.querySelectorAll(`[data-school-panel="${context.schoolView}"]`)];
+    for (const item of context.filters || []) {
+      const input = document.getElementById(item.id);
+      if (input && input.value !== item.value) {
+        input.value = item.value;
+        input.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+      }
+    }
+    for (const item of context.issueFilters || []) {
+      const input = document.getElementById(item.id);
+      if (input && input.value !== item.value) {
+        input.value = item.value;
+        input.dispatchEvent(new document.defaultView.Event(input.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+      }
+    }
+    (context.scrollPositions || []).forEach(position => {
+      const node = panels[position.panelIndex]?.querySelectorAll('.sheet-scroll')[position.index];
+      if (node) { node.scrollTop = position.top; node.scrollLeft = position.left; }
+    });
+    activeDetail = context.detail;
+    if (activeDetail) openEntityDetail(activeDetail);
+    else showEmptyDetail();
+    document.defaultView?.scrollTo?.({ top: context.pageY });
+    if (context.selectedRow) {
+      const row = panels.flatMap(panel => [...panel.querySelectorAll('tbody tr')]).find(item => item.dataset.entityId === context.selectedRow.entityId || item.dataset.lessonId === context.selectedRow.lessonId);
+      navigatingToEntity = true;
+      row?.focus?.({ preventScroll: true });
+      navigatingToEntity = false;
+    }
+    if (context.selectedIssueLesson) {
+      const item = [...document.querySelectorAll('#issues-list [data-lesson-id]')].find(node => node.dataset.lessonId === context.selectedIssueLesson);
+      item?.focus?.({ preventScroll: true });
+    }
+  }
+
+  function showEmptyDetail() {
+    activeDetail = null;
+    detailTitle.textContent = 'Dettagli';
+    detailContent.replaceChildren();
+    const message = element(document, 'p', { class: 'muted' });
+    message.textContent = 'Seleziona un elemento nell’elenco per vederne i dettagli.';
+    detailContent.append(message);
+    detailActions.replaceChildren();
+    updateDetailBackButton();
+  }
+
+  function updateDetailBackButton() {
+    detailBackButton.hidden = detailNavigationStack.length === 0;
+    detailBackButton.textContent = detailBackButton.hidden ? '' : `← Torna a ${detailNavigationStack.at(-1).label}`;
+  }
+
+  detailBackButton.addEventListener('click', () => {
+    const context = detailNavigationStack.pop();
+    if (!context) return;
+    restoreDetailContext(context.state);
+  });
+
+  function navigateToEntity(collection, id) {
+    const screenByCollection = { teachers: 'teachers', classes: 'classes', subjects: 'classes', students: 'students', rooms: 'rooms', lessons: 'lessons' };
+    const screen = screenByCollection[collection];
+    if (!screen) return;
+    detailNavigationStack.push({ label: detailContextLabel() || 'elenco', state: captureDetailContext() });
+    updateDetailBackButton();
+    showScreen(screen);
+    openEntityDetail({ type: collection, id });
+
+    const table = document.querySelector(`#school-grid-${collection}`);
+    if (!table) return;
+    const globalFilter = document.querySelector(`#school-filter-${collection}`);
+    if (globalFilter?.value) {
+      globalFilter.value = '';
+      globalFilter.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    for (const filter of table.querySelectorAll('[data-grid-column-filter]')) {
+      if (!filter.value) continue;
+      filter.value = '';
+      filter.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const row = [...table.querySelectorAll('tbody tr')].find(item => item.dataset.entityId === id || item.dataset.lessonId === id);
+    if (!row) return;
+    document.querySelector('.detail-target-row')?.classList.remove('detail-target-row');
+    row.classList.add('detail-target-row');
+    row.tabIndex = -1;
+    navigatingToEntity = true;
+    row.focus({ preventScroll: true });
+    navigatingToEntity = false;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }
+
+  function openEntityDetail(detail) {
+    let constraint = detail.type === 'constraint' ? detail.constraint : null;
+    const collectionLabels = { teachers: 'Docente', classes: 'Classe', subjects: 'Materia', rooms: 'Aula', students: 'Studente', lessons: 'Lezione' };
+    const collection = detail.type === 'constraint' ? constraint.scope : detail.type;
+    const targetId = detail.id || constraint?.id;
+    const entity = collection === 'lessons'
+      ? current.lessons.find(item => item.id === targetId)
+      : collection === 'students' ? current.entities.students?.find(item => item.id === targetId)
+        : current.entities[collection]?.find(item => item.id === targetId);
+    if (constraint) {
+      const owner = collection === 'lessons' ? entity : current.entities[collection]?.find(item => item.id === targetId);
+      const frames = owner?.constraints?.timeframes || owner?.timeframes;
+      if (!owner || !frames?.[constraint.kind]?.includes(constraint.slot)) { showEmptyDetail(); return; }
+      const name = collection === 'lessons' ? current.entities.subjects.find(item => item.id === owner.subjectId)?.name || 'Lezione' : owner.name;
+      constraint = { ...constraint, name };
+      detail = { type: 'constraint', constraint };
+    }
+    if (!entity && !constraint) { showEmptyDetail(); return; }
+    activeDetail = detail;
+    const nameOf = (name, id) => current.entities[name]?.find(item => item.id === id)?.name || 'Non assegnato';
+    const relatedLessons = constraint
+      ? collection === 'lessons' ? current.lessons.filter(item => item.id === constraint.id)
+        : collection === 'teachers' ? current.lessons.filter(item => item.teacherIds?.includes(constraint.id))
+          : collection === 'classes' ? current.lessons.filter(item => item.classIds?.includes(constraint.id))
+            : current.lessons.filter(item => item.roomIds?.includes(constraint.id))
+      : collection === 'lessons' ? [entity]
+        : collection === 'students' ? current.lessons.filter(item => item.classIds?.includes(entity.classId))
+          : collection === 'subjects' ? current.lessons.filter(item => item.subjectId === entity.id)
+            : collection === 'teachers' ? current.lessons.filter(item => item.teacherIds?.includes(entity.id))
+              : collection === 'classes' ? current.lessons.filter(item => item.classIds?.includes(entity.id))
+                : current.lessons.filter(item => item.roomIds?.includes(entity.id));
+    const lessonIds = new Set(relatedLessons.map(item => item.id));
+    const analysis = views.analysis;
+    const relevantIssues = analysis.issues.filter(item => (item.lessonIds || []).some(id => lessonIds.has(id))
+      && (!constraint && collection !== 'lessons' && collection !== 'subjects' && collection !== 'students'
+        ? item.resourceId === entity.id
+        : true));
+    const label = collectionLabels[collection] || 'Vincolo';
+    detailTitle.textContent = constraint ? `Vincolo · ${constraint.name}` : collection === 'lessons' ? 'Dettaglio lezione' : `${label} · ${entity.name}`;
+    detailContent.replaceChildren(); detailActions.replaceChildren(); detailPanel.hidden = false;
+    appWorkspace.classList.add('has-detail-panel');
+    updateDetailBackButton();
+
+    if (constraint) {
+      const kindLabels = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' };
+      const [dayIndex, periodIndex] = constraint.slot.split('.').map(Number);
+      const dayName = current.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
+      const period = current.calendar.periods[periodIndex];
+      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : `ora ${periodIndex + 1}`;
+      const overlaps = relatedLessons.some(lesson => {
+        if (!lesson.assignedTime) return false;
+        const sameDay = lesson.assignedTime.dayIndex === dayIndex;
+        const covers = periodIndex >= lesson.assignedTime.periodIndex && periodIndex < lesson.assignedTime.periodIndex + lesson.durationPeriods;
+        return sameDay && (constraint.kind === 'unavailable' ? covers : lesson.assignedTime.periodIndex === periodIndex);
+      });
+      const pending = relatedLessons.some(lesson => !lesson.assignedTime);
+      const outcome = overlaps
+        ? constraint.kind === 'desired' ? 'Soddisfatto: una lezione è assegnata in questa fascia preferita.'
+          : constraint.kind === 'undesired' ? 'Non rispettato: una lezione occupa questa fascia da evitare.'
+            : 'Non rispettato: una lezione occupa questa fascia indisponibile.'
+        : pending ? 'Da verificare: ci sono lezioni senza orario.'
+          : constraint.kind === 'desired' ? 'Non soddisfatto: nessuna lezione è assegnata a questa fascia.'
+            : 'Rispettato: nessuna lezione occupa questa fascia.';
+      addDetailSection('Esito', [`${kindLabels[constraint.kind] || constraint.kind} · ${dayName}, ${time}`, outcome]);
+    } else if (collection === 'lessons') {
+      const lesson = entity;
+      addLessonSection('Lezione', [lesson]);
+      addDetailSection('Durata', [`${lesson.durationPeriods} ${lesson.durationPeriods === 1 ? 'ora' : 'ore'}`]);
+    } else {
+      addLessonSection('Lezioni in orario', relatedLessons.filter(lesson => lesson.assignedTime), collection, entity?.id || constraint?.id);
+    }
+
+    if (relevantIssues.length) {
+      addDetailSection('Violazioni e avvisi', relevantIssues.map(issue => {
+        const kind = issue.severity === 'error' ? 'Non rispettato' : 'Preferenza mancata';
+        const resource = { teacher: 'docente', class: 'classe', room: 'aula', lesson: 'lezione' }[issue.resourceType] || 'risorsa';
+        const description = issue.code === 'resource-collision' ? `conflitto di ${resource}: più lezioni contemporanee`
+          : issue.code === 'unavailable-time' ? `${resource} non disponibile`
+            : issue.code === 'soft-preference' ? `fascia da evitare per ${resource}`
+              : issue.code === 'unassigned-lesson' ? 'lezione senza orario assegnato' : issue.message;
+        const day = issue.dayIndex == null ? '' : ` · ${current.calendar.days[issue.dayIndex]?.name || ''}`;
+        return `${kind}: ${description}${day}`;
+      }));
+    }
+
+    if (!constraint) {
+      const frames = collection === 'lessons' ? entity.timeframes : entity.constraints?.timeframes;
+      const kindLabels = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' };
+      const frameLines = [];
+      for (const kind of ['unavailable', 'undesired', 'desired']) for (const slot of frames?.[kind] || []) {
+        const [dayIndex, periodIndex] = slot.split('.').map(Number);
+        const assignedRelated = relatedLessons.filter(lesson => lesson.assignedTime);
+        const affected = assignedRelated.some(lesson => {
+          if (lesson.assignedTime.dayIndex !== dayIndex) return false;
+          const startsHere = lesson.assignedTime.periodIndex === periodIndex;
+          const overlaps = periodIndex >= lesson.assignedTime.periodIndex && periodIndex < lesson.assignedTime.periodIndex + lesson.durationPeriods;
+          return kind === 'unavailable' ? overlaps : startsHere;
+        });
+        const day = current.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
+        const period = current.calendar.periods[periodIndex];
+        const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : `ora ${periodIndex + 1}`;
+        const result = kind === 'desired' ? (affected ? 'soddisfatta' : 'non soddisfatta')
+          : affected ? 'non rispettato' : 'rispettato';
+        const pendingCount = relatedLessons.filter(lesson => !lesson.assignedTime).length;
+        frameLines.push(`${kindLabels[kind]} · ${day}, ${time}: ${result}${pendingCount ? ` · ${pendingCount} lezioni senza orario` : ''}`);
+      }
+      addDetailSection('Vincoli assegnati', frameLines);
+      if (!relevantIssues.length && !frameLines.length) addDetailSection('Esito', ['Nessuna violazione rilevata; non ci sono vincoli temporali associati.']);
+    }
+
+    const unsupported = collection === 'lessons' ? [] : Object.entries(entity?.constraints || {})
+      .filter(([key, value]) => key !== 'timeframes' && value != null && value !== false && value !== '')
+      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)} · conservato, non verificato dal calcolo`);
+    if (unsupported.length) addDetailSection('Altri dati conservati', unsupported);
+
+    const scheduleButton = element(document, 'button', { type: 'button', class: 'primary-button' }, 'Apri nell’orario');
+    let mode = ({ teachers: 'teacher', classes: 'class', rooms: 'room' })[collection];
+    let scheduleEntityId = entity?.id;
+    const firstLesson = relatedLessons[0];
+    let lessonId = collection === 'lessons' ? entity?.id : firstLesson?.id;
+    if (collection === 'subjects' && firstLesson) { mode = 'class'; scheduleEntityId = firstLesson.classIds?.[0]; }
+    if (collection === 'students') { mode = 'class'; scheduleEntityId = entity?.classId; }
+    if (constraint && collection === 'lessons') lessonId = constraint.id;
+    else if (constraint && firstLesson) lessonId = firstLesson.id;
+    if (!mode && firstLesson?.classIds?.length) { mode = 'class'; scheduleEntityId = firstLesson.classIds[0]; }
+    scheduleButton.disabled = !mode || !scheduleEntityId;
+    scheduleButton.addEventListener('click', () => {
+      if (!mode || !scheduleEntityId) return;
+      detailNavigationStack.push({ label: detailContextLabel() || 'elenco', state: captureDetailContext() });
+      updateDetailBackButton();
+      showScreen('schedule');
+      navigatingToEntity = true;
+      views.showEntitySchedule(mode, scheduleEntityId, collection === 'lessons' ? lessonId : null);
+      navigatingToEntity = false;
+    });
+    if (collection === 'lessons' || collection === 'teachers' || collection === 'classes' || collection === 'rooms' || collection === 'subjects' || collection === 'students' || constraint) detailActions.append(scheduleButton);
+  }
 
   function renderDiagnostics(items) {
     diagnosticsList.replaceChildren();
@@ -337,10 +731,13 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     try {
       if (typeof file?.arrayBuffer !== 'function') throw new Error('Il browser non può leggere il file selezionato.');
       const bytes = new Uint8Array(await file.arrayBuffer());
-      let items, warning = '', sourceInfo;
+      let items, warning = '', sourceInfo, calendar = null;
       if (/\.ofd$/i.test(file.name || '')) {
         if (collection === 'students') throw new Error('Il file OFD non fornisce un’anagrafica studenti; scegli un CSV con nome e classe.');
         const result = await importer(bytes);
+        const adoptCalendar = !current.lessons.length && !current.source?.calendarSourceId;
+        const importCalendar = adoptCalendar ? result.timetable.calendar : current.calendar;
+        if (adoptCalendar) calendar = structuredClone(result.timetable.calendar);
         items = structuredClone(result.timetable.entities[collection]);
         warning = result.diagnostics.filter(item => item.severity === 'warning' && rosterWarningCodes.has(item.code)).map(diagnosticText).join(' ');
         let outsideCalendar = 0;
@@ -351,7 +748,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
             const values = frames[kind] || [];
             const active = values.filter(slot => {
               const [day, period] = slot.split('.').map(Number);
-              return day < current.calendar.days.length && period < current.calendar.periods.length;
+              return day < importCalendar.days.length && period < importCalendar.periods.length;
             });
             const preserved = values.filter(slot => !active.includes(slot));
             if (preserved.length) {
@@ -375,7 +772,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       }
       const existing = new Set(current.entities[collection].map(item => item.name.trim().toLocaleLowerCase()));
       const duplicates = items.filter(item => existing.has(item.name.trim().toLocaleLowerCase())).length;
-      pendingRoster = { collection, items, sourceInfo };
+      pendingRoster = { collection, items, sourceInfo, calendar };
       apply.disabled = items.length === 0;
       const labels = { teachers: 'docenti pronti', classes: 'classi pronte', rooms: 'aule pronte', students: 'studenti pronti' };
       status.textContent = `${items.length} ${labels[collection]}${duplicates ? `; ${duplicates} già presenti` : ''}.${warning ? ` ${warning}` : ''} Conferma per aggiungerli.`;
@@ -410,7 +807,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       const targetNames = Object.fromEntries(['teachers', 'classes', 'rooms'].map(collection => [collection, byName(collection)]));
       const missing = { teachers: new Set(), classes: new Set(), rooms: new Set() };
       const lessons = result.timetable.lessons.map(lesson => {
-        const mapped = { ...structuredClone(lesson), assignedTime: null, sourceAssignment: lesson.assignedTime };
+        const mapped = { ...structuredClone(lesson), assignedTime: null };
         for (const collection of ['teachers', 'classes', 'rooms']) {
           const field = collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : 'roomIds';
           mapped[field] = lesson[field].flatMap(id => {
@@ -427,22 +824,22 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       if (missingLabels) throw new Error(`Importa prima dal foglio corrispondente gli elementi richiesti (${missingLabels}).`);
 
       const normalized = value => String(value || '').trim().toLocaleLowerCase();
-      const sameCalendar = result.timetable.calendar.days.length === current.calendar.days.length
-        && result.timetable.calendar.periods.length === current.calendar.periods.length
-        && result.timetable.calendar.periods.every((period, index) => period.beginMinute === current.calendar.periods[index]?.beginMinute && period.endMinute === current.calendar.periods[index]?.endMinute);
+      const adoptCalendar = !current.lessons.length && !current.source?.calendarSourceId;
+      const importCalendar = adoptCalendar ? result.timetable.calendar : current.calendar;
+      const sameCalendar = result.timetable.calendar.days.length === importCalendar.days.length
+        && result.timetable.calendar.periods.length === importCalendar.periods.length
+        && result.timetable.calendar.periods.every((period, index) => period.beginMinute === importCalendar.periods[index]?.beginMinute && period.endMinute === importCalendar.periods[index]?.endMinute);
       const existingSubjects = new Set(currentEntities.subjects.map(item => normalized(item.name)));
       const subjects = sourceEntities.subjects.map(item => structuredClone(item));
-      let omittedHints = 0, preservedTimeframes = 0;
+      let preservedTimeframes = 0;
       for (const lesson of lessons) {
         if (!sameCalendar) {
-          if (lesson.sourceAssignment) omittedHints++;
           const frames = lesson.timeframes;
           if (Object.values(frames || {}).some(values => values?.length)) {
             lesson.sourceData = { ...(lesson.sourceData || {}), ofdTimeframes: structuredClone(frames) };
             lesson.timeframes = { unavailable: [], desired: [], undesired: [] };
             preservedTimeframes++;
           }
-          lesson.sourceAssignment = null;
         }
       }
       const unknownClassIds = new Set(sourceEntities.classes.filter(item => item.placeholder === 'unknown').map(item => item.id));
@@ -453,12 +850,13 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       const warnings = [
         lessonsWithoutClass && { severity: 'warning', code: 'lesson-without-class', message: `${lessonsWithoutClass} lezioni OFD non hanno una classe; useranno UNKNOWN e il calcolo potrà procedere.` },
         lessonsWithoutSubject && { severity: 'warning', code: 'lesson-without-subject', message: `${lessonsWithoutSubject} lezioni OFD non hanno una materia; useranno UNKNOWN e il calcolo potrà procedere.` },
-        omittedHints && { severity: 'warning', code: 'lesson-calendar-mismatch', message: `${omittedHints} orari originali non sono stati usati come suggerimenti perché il calendario è diverso.` },
         preservedTimeframes && { severity: 'warning', code: 'lesson-timeframes-preserved', message: `${preservedTimeframes} lezioni hanno vincoli temporali conservati nei dati sorgente perché il calendario è diverso.` },
       ].filter(Boolean);
       const warning = warnings.map(item => item.message).join(' ');
       pendingLessons = {
-        lessons, subjects, warning, diagnostics: warnings, sourceInfo: {
+        lessons, subjects, warning, diagnostics: warnings,
+        calendar: adoptCalendar ? structuredClone(result.timetable.calendar) : null,
+        sourceInfo: {
           format: 'orario-facile-ofd-lessons', filename: file.name || '',
           source: result.timetable.source,
           diagnostics: [...result.diagnostics, ...warnings].map(item => ({ severity: item.severity || 'info', code: item.code || '', message: item.message || '' })),
@@ -479,7 +877,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     if (!pendingLessons) return false;
     const staged = pendingLessons;
     currentDiagnostics.push(...staged.diagnostics);
-    const { imported, subjects } = schoolWorkbench.importLessons(staged.lessons, staged.subjects, staged.sourceInfo);
+    const { imported, subjects } = schoolWorkbench.importLessons(staged.lessons, staged.subjects, staged.sourceInfo, staged.calendar);
     document.querySelector('[data-lessons-status]').textContent = `${imported} lezioni importate${subjects ? ` · ${subjects} materie aggiunte` : ''}; collocazioni da ricalcolare.${staged.warning ? ` ${staged.warning}` : ''}`;
     pendingLessons = null;
     document.querySelector('[data-lessons-apply]').disabled = true;
@@ -489,7 +887,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
 
   function applyRosterImport(collection) {
     if (!pendingRoster || pendingRoster.collection !== collection) return false;
-    const { imported, duplicates } = schoolWorkbench.importEntities(collection, pendingRoster.items, pendingRoster.sourceInfo);
+    const { imported, duplicates } = schoolWorkbench.importEntities(collection, pendingRoster.items, pendingRoster.sourceInfo, pendingRoster.calendar);
     const status = document.querySelector(`[data-roster-status="${collection}"]`);
     status.textContent = `${imported} elementi importati${duplicates ? `; ${duplicates} duplicati già presenti` : ''}.`;
     pendingRoster = null;
@@ -517,8 +915,8 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     cancelButton.disabled = true;
     const unassigned = current.lessons.filter(lesson => !lesson.assignedTime).length;
     currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} lezioni · ${numberFormat.format(unassigned)} da assegnare`;
+    markChangesExported();
     document.querySelector('.current-card').hidden = false;
-    importCard.hidden = true;
     appWorkspace.classList.add('has-timetable');
     exportButton.disabled = false;
     exportToolsButton.disabled = false;
@@ -542,9 +940,9 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   }
 
   const ednInput = document.querySelector('#edn-file');
-  const exportButton = document.querySelector('#export-edn');
-  const exportToolsButton = document.querySelector('#export-edn-tools');
-  if (!ednInput || !exportButton || !exportToolsButton) throw new Error('EDN interchange controls are missing.');
+  const exportButton = document.querySelector('#export-edn-tools');
+  const exportToolsButton = exportButton;
+  if (!ednInput || !exportButton) throw new Error('EDN interchange controls are missing.');
   ednInput.addEventListener('change', () => {
     const file = ednInput.files?.[0];
     if (file) void stageEDNFile(file);
@@ -590,14 +988,12 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     document.querySelector('[data-lessons-status]').textContent = 'Importazione annullata; la scuola è rimasta invariata.';
   });
   currentStatus.textContent = 'Nuova scuola pronta · aggiungi classi, docenti e lezioni';
-  exportButton.addEventListener('click', () => {
-    handleExportEDN();
-  });
-  exportToolsButton.addEventListener('click', () => { handleExportEDN(); });
+  exportButton.addEventListener('click', handleExportEDN);
 
   function handleExportEDN() {
     try {
       if (exportEDN()) {
+        markChangesExported();
         report.dataset.state = 'ready';
         report.textContent = 'Dati esportati in formato EDN.';
       }

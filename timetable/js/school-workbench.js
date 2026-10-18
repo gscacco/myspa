@@ -13,7 +13,7 @@ export function createEmptySchool() {
   return {
     schemaVersion: TIMETABLE_SCHEMA_VERSION,
     name: 'Nuova scuola',
-    source: { format: 'native', version: '1', xml: '', unsupportedStructures: [], assignmentHints: {}, lessonImports: [] },
+    source: { format: 'native', version: '1', xml: '', unsupportedStructures: [], lessonImports: [] },
     calendar: {
       unitMinutes: 60,
       days: days.map((name, index) => ({ index, name, shortName: name.slice(0, 3).toLocaleUpperCase() })),
@@ -32,6 +32,26 @@ function element(document, tag, attrs = {}, text = '') {
 }
 
 function resourceType(collection) { return collection.slice(0, -1); }
+function adoptImportedCalendar(timetable, calendar, sourceInfo) {
+  if (!calendar) return;
+  timetable.calendar = structuredClone(calendar);
+  for (const collection of ['teachers', 'classes', 'rooms']) for (const entity of timetable.entities[collection] || []) {
+    const preserved = entity.sourceData?.ofdTimeframes;
+    const frames = entity.constraints?.timeframes;
+    if (!preserved || !frames) continue;
+    for (const kind of ['unavailable', 'desired', 'undesired']) {
+      frames[kind] ||= [];
+      for (const slot of preserved[kind] || []) {
+        const [day, period] = slot.split('.').map(Number);
+        if (day < calendar.days.length && period < calendar.periods.length && !frames[kind].includes(slot)) frames[kind].push(slot);
+      }
+    }
+    delete entity.sourceData.ofdTimeframes;
+    if (!Object.keys(entity.sourceData).length) delete entity.sourceData;
+  }
+  timetable.source.calendarSourceId = sourceInfo?.source?.documentId || sourceInfo?.filename || 'ofd';
+}
+
 function uniqueId(collection, name, values) {
   const stem = String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'elemento';
   let suffix = 1, id = `${COLLECTION_TYPES[collection]}:${stem}-${suffix}`;
@@ -50,7 +70,7 @@ function ensureUnknownEntity(timetable, collection) {
   return unknown;
 }
 
-export function createSchoolWorkbench({ document = globalThis.document, onChange = () => {} } = {}) {
+export function createSchoolWorkbench({ document = globalThis.document, onChange = () => {}, onDetail = () => {} } = {}) {
   if (!document) throw new TypeError('A document is required to mount the school workbench.');
   const tables = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms'].map(key => [key, document.querySelector(`#school-grid-${key}`)]));
   const studentTable = document.querySelector('#school-grid-students');
@@ -88,6 +108,19 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   function commit(message) {
     status.textContent = message;
     onChange(timetable);
+  }
+
+  function bindDetailRow(row, detail) {
+    row.classList.add('selectable-detail-row');
+    row.tabIndex = 0;
+    row.setAttribute('aria-label', `Apri i dettagli: ${[...row.cells].map(cell => cell.textContent.trim()).filter(Boolean).join(' · ')}`);
+    row.addEventListener('click', () => onDetail(detail));
+    row.addEventListener('focusin', () => onDetail(detail));
+    row.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      onDetail(detail);
+    });
   }
 
   function editableTable(table, gridName, headers) {
@@ -188,6 +221,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     const values = timetable.entities[collection];
     const addRow = (entity, index, fresh = false) => {
       const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
+      if (!fresh) row.dataset.entityId = entity.id;
       const usageCount = fresh ? 0 : timetable.lessons.filter(lesson => lesson[collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : collection === 'rooms' ? 'roomIds' : 'subjectId']?.includes?.(entity.id) || lesson.subjectId === entity.id).length;
       const usageText = fresh ? 'Nuova riga' : `${usageCount} lezioni`;
       row.dataset.filterValues = JSON.stringify([entity?.name || '', usageText]);
@@ -204,6 +238,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const usageCell = element(document, 'td', { class: 'grid-usage' }, usageText);
       row.append(usageCell);
       body.append(row);
+      if (!fresh) bindDetailRow(row, { type: collection, id: entity.id });
       input.addEventListener('change', () => {
         const value = input.value.trim();
         if (fresh && !value) return;
@@ -321,6 +356,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     }));
     const appendLesson = state => {
       const row = element(document, 'tr', { 'data-row': state.index, ...(state.fresh ? { 'data-new-row': 'true' } : {}) });
+      if (!state.fresh) row.dataset.lessonId = state.lesson.id;
       const fields = [
         ['subjects', 'subjectId', 'Materia'], ['teachers', 'teacherId', 'Docente'],
         ['classes', 'classId', 'Classe'], ['rooms', 'roomId', 'Aula'],
@@ -333,7 +369,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const durationCell = element(document, 'td');
       const duration = element(document, 'select', { 'aria-label': 'Durata in ore' });
       [1, 2, 3, 4].forEach(value => option(duration, String(value), String(value)));
-      durationCell.append(duration); row.append(durationCell); body.append(row);
+      durationCell.append(duration);
+      row.append(durationCell); body.append(row);
       const syncRow = () => {
         const lesson = state.lesson;
         inputs[0].value = byId.subjects.get(lesson?.subjectId)?.name || '';
@@ -358,6 +395,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         row.dataset.sortValues = row.dataset.filterValues;
       };
       syncRow();
+      if (!state.fresh) bindDetailRow(row, { type: 'lessons', id: state.lesson.id });
       const save = () => {
         const resolved = inputs.map((input, fieldIndex) => {
           const collection = fields[fieldIndex][0];
@@ -405,7 +443,9 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           state.fresh = false;
           state.row = row;
           row.dataset.row = String(state.index);
+          row.dataset.lessonId = next.id;
           delete row.dataset.newRow;
+          bindDetailRow(row, { type: 'lessons', id: next.id });
           const freshState = { index: values.length, lesson: null, fresh: true };
           appendLesson(freshState);
         } else values[state.index] = next;
@@ -494,7 +534,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
       const kind = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' }[row.kind] || row.kind;
       const scope = { teachers: 'Docente', classes: 'Classe', rooms: 'Aula', lessons: 'Lezione' }[row.scope] || row.scope;
-      return { values: [row.name, kind, day, time], search: `${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot} ${day} ${time}` };
+      return { values: [`${scope} · ${row.name}`, kind, day, time], search: `${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot} ${day} ${time}` };
     };
     const columnQueries = columnFilters.constraints.map(normalizedSearch);
     const rows = allRows.filter(row => {
@@ -516,72 +556,20 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     constraintCount.textContent = rows.length ? `${offset + 1}–${Math.min(offset + CONSTRAINT_PAGE_SIZE, rows.length)} di ${rows.length}` : 'Nessun vincolo';
     previousConstraints.disabled = constraintPage === 0;
     nextConstraints.disabled = constraintPage >= pageCount - 1;
-    const targets = [];
-    for (const scope of ['teachers', 'classes', 'rooms']) for (const item of timetable.entities[scope]) {
-      const label = scope === 'teachers' ? 'Docente' : scope === 'classes' ? 'Classe' : 'Aula';
-      targets.push({ key: `${scope}|${item.id}`, label: `${label} · ${item.name}` });
-    }
-    if (timetable.lessons.length <= 100) for (const item of timetable.lessons) {
-      targets.push({ key: `lessons|${item.id}`, label: `Lezione · ${timetable.entities.subjects.find(s => s.id === item.subjectId)?.name || item.id}` });
-    }
-    for (const item of allRows.filter(row => row.scope === 'lessons')) {
-      if (!targets.some(target => target.key === `lessons|${item.id}`)) targets.push({ key: `lessons|${item.id}`, label: `Lezione · ${item.name}` });
-    }
-    const listId = 'school-constraint-targets';
-    const datalist = element(document, 'datalist', { id: listId });
-    targets.forEach(item => { const choice = element(document, 'option', { value: item.label }); choice.dataset.target = item.key; datalist.append(choice); });
-    constraintTable.parentElement.querySelector(`#${listId}`)?.remove();
-    constraintTable.parentElement.append(datalist);
-    const renderRow = (constraint, index, fresh = false) => {
-      const row = element(document, 'tr', { 'data-row': index, ...(fresh ? { 'data-new-row': 'true' } : {}) });
-      const details = constraint ? constraintDetails(constraint) : { values: ['', '', '', ''], search: '' };
+    pageRows.forEach((constraint, index) => {
+      const row = element(document, 'tr', { 'data-row': offset + index });
+      const details = constraintDetails(constraint);
       row.dataset.filterValues = JSON.stringify(details.values);
       row.dataset.sortValues = row.dataset.filterValues;
       row.dataset.search = normalizedSearch(details.search);
-      const target = element(document, 'input', { type: 'text', list: listId, 'aria-label': 'Elemento soggetto al vincolo', placeholder: fresh ? 'Cerca elemento…' : '' });
-      target.value = targets.find(item => item.key === `${constraint?.scope}|${constraint?.id}`)?.label || '';
-      const kind = element(document, 'select', { 'aria-label': 'Tipo di vincolo' });
-      option(kind, '', '—'); option(kind, 'unavailable', 'Obbligatorio'); option(kind, 'undesired', 'Da evitare'); option(kind, 'desired', 'Preferita');
-      kind.value = constraint?.kind || '';
-      const [dayValue, periodValue] = constraint?.slot?.split('.') || ['', ''];
-      const day = element(document, 'select', { 'aria-label': 'Giorno' }); option(day, '', '—');
-      timetable.calendar.days.forEach(item => option(day, String(item.index), item.name)); day.value = dayValue;
-      const period = element(document, 'select', { 'aria-label': 'Ora' }); option(period, '', '—');
-      timetable.calendar.periods.forEach(item => option(period, String(item.index), `${String(Math.floor(item.beginMinute / 60)).padStart(2, '0')}:${String(item.beginMinute % 60).padStart(2, '0')}`)); period.value = periodValue;
-      for (const control of [target, kind, day, period]) { const cell = element(document, 'td'); cell.append(control); row.append(cell); }
+      for (const value of details.values) {
+        const cell = element(document, 'td');
+        cell.textContent = value;
+        row.append(cell);
+      }
       body.append(row);
-      const save = () => {
-        if (fresh && (!target.value || !kind.value || day.value === '' || period.value === '')) return;
-        if (!target.value || !kind.value || day.value === '' || period.value === '') return;
-        const targetKey = targets.find(item => item.label === target.value)?.key;
-        if (!targetKey) { status.textContent = 'Scegli un elemento presente nell’elenco.'; return; }
-        const [scope, id] = targetKey.split('|');
-        const owner = constraintTarget(scope, id);
-        if (!owner) return;
-        const old = constraint;
-        remember();
-        const frames = owner.constraints?.timeframes || owner.timeframes || { unavailable: [], desired: [], undesired: [] };
-        if (owner.constraints) owner.constraints.timeframes = frames; else owner.timeframes = frames;
-        if (old) frames[old.kind] = (frames[old.kind] || []).filter(slot => slot !== old.slot);
-        const slot = `${day.value}.${period.value}`;
-        frames[kind.value] ||= [];
-        if (!frames[kind.value].includes(slot)) frames[kind.value].push(slot);
-        render(); commit(fresh ? 'Vincolo aggiunto.' : 'Vincolo aggiornato.');
-      };
-      [target, kind, day, period].forEach(control => control.addEventListener('change', save));
-      row.addEventListener('keydown', event => {
-        if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !fresh) {
-          event.preventDefault();
-          remember();
-          const owner = constraintTarget(constraint.scope, constraint.id);
-          const frames = owner?.constraints?.timeframes || owner?.timeframes;
-          if (frames) frames[constraint.kind] = (frames[constraint.kind] || []).filter(slot => slot !== constraint.slot);
-          render(); commit('Vincolo rimosso.');
-        }
-      });
-    };
-    pageRows.forEach((constraint, index) => renderRow(constraint, offset + index));
-    renderRow(null, offset + pageRows.length, true);
+      bindDetailRow(row, { type: 'constraint', constraint: structuredClone(constraint) });
+    });
   }
 
   function render() {
@@ -618,7 +606,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
 
   return {
     setTimetable(value) { timetable = value || createEmptySchool(); timetable.entities.students ||= []; undoStack.length = 0; undoButton.disabled = true; render(); },
-    importEntities(collection, incoming = [], sourceInfo = null) {
+    importEntities(collection, incoming = [], sourceInfo = null, calendar = null) {
       const values = timetable.entities[collection];
       if (!Array.isArray(values)) throw new TypeError(`Collezione non importabile: ${collection}.`);
       const knownNames = new Set(values.map(item => item.name.trim().toLocaleLowerCase()));
@@ -634,6 +622,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       }
       if (additions.length || sourceInfo) {
         remember(); values.push(...additions);
+        adoptImportedCalendar(timetable, calendar, sourceInfo);
         if (sourceInfo) {
           timetable.source.rosterImports ||= [];
           timetable.source.rosterImports.push(structuredClone(sourceInfo));
@@ -644,7 +633,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       }
       return { imported: additions.length, duplicates };
     },
-    importLessons(incoming = [], incomingSubjects = [], sourceInfo = null) {
+    importLessons(incoming = [], incomingSubjects = [], sourceInfo = null, calendar = null) {
       const subjects = timetable.entities.subjects;
       const knownNames = new Map(subjects.map(item => [normalizedName(item.name), item]));
       const knownIds = new Set(Object.values(timetable.entities).flat().map(item => item.id));
@@ -668,7 +657,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const knownLessonIds = new Set(timetable.lessons.map(item => item.id));
       const sourceId = idPart(sourceInfo?.source?.documentId || sourceInfo?.filename || 'ofd');
       const additions = incoming.map(item => {
-        const { sourceAssignment = null, ...lesson } = structuredClone(item);
+        const lesson = structuredClone(item);
         lesson.subjectId = subjectIds.get(item.subjectId) || item.subjectId || null;
         lesson.classIds = (item.classIds || []).filter(id => timetable.entities.classes.some(schoolClass => schoolClass.id === id));
         const stem = `lesson:ofd-${sourceId}-${Number.isInteger(item.sourceIndex) ? item.sourceIndex : 'x'}`;
@@ -676,23 +665,20 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         while (knownLessonIds.has(id)) id = `${stem}-${++suffix}`;
         lesson.id = id;
         knownLessonIds.add(id);
-        return { lesson, sourceAssignment };
+        return lesson;
       });
       if (additions.length || subjectAdditions.length || sourceInfo) {
         remember();
         subjects.push(...subjectAdditions);
-        for (const { lesson } of additions) {
+        for (const lesson of additions) {
           if (!subjects.some(item => item.id === lesson.subjectId)) lesson.subjectId = ensureUnknownEntity(timetable, 'subjects').id;
           if (!lesson.classIds.length) lesson.classIds = [ensureUnknownEntity(timetable, 'classes').id];
         }
-        timetable.lessons.push(...additions.map(item => item.lesson));
+        timetable.lessons.push(...additions);
+        adoptImportedCalendar(timetable, calendar, sourceInfo);
         if (sourceInfo) {
           timetable.source.lessonImports ||= [];
           timetable.source.lessonImports.push(structuredClone(sourceInfo));
-        }
-        timetable.source.assignmentHints ||= {};
-        for (const { lesson, sourceAssignment } of additions) if (sourceAssignment) {
-          timetable.source.assignmentHints[lesson.id] = structuredClone(sourceAssignment);
         }
         render();
         status.textContent = `${additions.length} lezioni importate${subjectAdditions.length ? ` · ${subjectAdditions.length} materie aggiunte` : ''}.`;

@@ -1,4 +1,4 @@
-import { optimizeLocally } from './optimization-core.js';
+import { normalizeObjectiveWeights, optimizeLocally } from './optimization-core.js';
 
 function defaultWorkerFactory() {
   const inline = globalThis.document?.querySelector('#optimization-worker-source')?.textContent;
@@ -12,11 +12,16 @@ function defaultWorkerFactory() {
   return null;
 }
 
-function normalizeOptions({ workers = 1, timeLimitMs = 30_000, maxObjective = 0, seed = 1 } = {}) {
+function normalizeOptions({ workers = 1, timeLimitMs = 30_000, maxObjective = 0, seed = 1, algorithm = 'local', geneticStartAfterMs = 10_000, objectiveWeights } = {}) {
   if (!Number.isInteger(workers) || workers < 1 || workers > 8) throw new RangeError('workers must be an integer from 1 to 8.');
   if (!Number.isFinite(timeLimitMs) || timeLimitMs < 0) throw new RangeError('timeLimitMs must be a non-negative number.');
   if (!Number.isFinite(maxObjective) || maxObjective < 0) throw new RangeError('maxObjective must be a non-negative number.');
-  return { workers, timeLimitMs, maxObjective, seed };
+  if (!['local', 'genetic', 'mixed'].includes(algorithm)) throw new RangeError('algorithm must be local, genetic, or mixed.');
+  if (algorithm === 'mixed' && (!Number.isInteger(geneticStartAfterMs) || geneticStartAfterMs < 1
+    || geneticStartAfterMs >= timeLimitMs)) {
+    throw new RangeError('geneticStartAfterMs must be a positive integer below the total time limit for mixed mode.');
+  }
+  return { workers, timeLimitMs, maxObjective, seed, algorithm, geneticStartAfterMs, objectiveWeights: normalizeObjectiveWeights(objectiveWeights) };
 }
 
 /** Runs independent seeded searches in Web Workers when available; results remain proposals. */
@@ -25,22 +30,26 @@ export async function optimizeTimetable(timetable, options = {}) {
   const { signal, onProgress = () => {}, workerFactory = defaultWorkerFactory } = options;
   if (signal?.aborted) return { status: 'cancelled', iterations: 0, workersUsed: 0 };
   if (normalized.workers === 1) {
-    return { ...await optimizeLocally(timetable, { ...normalized, useSourceHints: options.useSourceHints, signal, onProgress }), workersUsed: 1 };
+    return { ...await optimizeLocally(timetable, { ...normalized, signal, onProgress }), workersUsed: 1 };
   }
   const workerCandidates = [];
   try { for (let index = 0; index < normalized.workers; index++) workerCandidates.push(workerFactory()); }
   catch {
     workerCandidates.forEach(worker => worker?.terminate?.());
-    return { ...await optimizeLocally(timetable, { ...normalized, useSourceHints: options.useSourceHints, signal, onProgress }), workersUsed: 1, workersFallback: true };
+    return { ...await optimizeLocally(timetable, { ...normalized, signal, onProgress }), workersUsed: 1, workersFallback: true };
   }
   if (workerCandidates.some(worker => !worker)) {
     for (const worker of workerCandidates) worker?.terminate?.();
-    return { ...await optimizeLocally(timetable, { ...normalized, useSourceHints: options.useSourceHints, signal, onProgress }), workersUsed: 1, workersFallback: true };
+    return { ...await optimizeLocally(timetable, { ...normalized, signal, onProgress }), workersUsed: 1, workersFallback: true };
   }
 
   let iterations = 0;
   let bestObjective = Infinity;
+  let bestObjectiveBreakdown = null;
   let initialObjective = null;
+  let feasibilityAssigned = 0;
+  let feasibilityTotal = null;
+  let feasibilityAttempt = 1;
   const results = [];
   const workers = workerCandidates;
   const finishWorkers = () => workers.forEach(worker => worker.terminate?.());
@@ -55,23 +64,39 @@ export async function optimizeTimetable(timetable, options = {}) {
     };
     const abort = () => {
       workers.forEach(worker => worker.postMessage({ type: 'cancel' }));
-      settle({ status: 'cancelled', objective: Number.isFinite(bestObjective) ? bestObjective : undefined, initialObjective });
+      settle({ status: 'cancelled', objective: Number.isFinite(bestObjective) ? bestObjective : undefined, objectiveBreakdown: bestObjectiveBreakdown, initialObjective, feasibilityAssigned, feasibilityTotal });
     };
     signal?.addEventListener('abort', abort, { once: true });
     workers.forEach((worker, index) => {
       worker.addEventListener('message', event => {
         const message = event.data || {};
         if (message.type === 'progress') {
-          iterations += Math.max(0, message.progress.iterations - (worker.lastIterations || 0));
-          worker.lastIterations = message.progress.iterations;
-          initialObjective ??= message.progress.initialObjective;
-          bestObjective = Math.min(bestObjective, message.progress.bestObjective);
-          onProgress({ phase: message.progress.phase, iterations, bestObjective, initialObjective, workersCompleted: results.length, workersTotal: workers.length });
+          const progress = message.progress || {};
+          const progressCount = Number.isFinite(progress.iterations)
+            ? progress.iterations
+            : Number.isFinite(progress.visited) ? progress.visited : worker.lastIterations || 0;
+          iterations += Math.max(0, progressCount - (worker.lastIterations || 0));
+          worker.lastIterations = progressCount;
+          if (progress.phase === 'feasibility') {
+            feasibilityAssigned = Math.max(feasibilityAssigned, Number(progress.maxAssigned ?? progress.assigned) || 0);
+            feasibilityTotal = progress.total ?? feasibilityTotal;
+            feasibilityAttempt = Math.max(feasibilityAttempt, Number(progress.attempt) || 1);
+          }
+          if (Number.isFinite(progress.initialObjective)) initialObjective ??= progress.initialObjective;
+          if (Number.isFinite(progress.bestObjective) && progress.bestObjective < bestObjective) {
+            bestObjective = progress.bestObjective;
+            bestObjectiveBreakdown = progress.objectiveBreakdown || bestObjectiveBreakdown;
+          }
+          onProgress({ phase: progress.phase, algorithmStage: progress.algorithmStage, stageElapsedMs: progress.stageElapsedMs, iterations, bestObjective, objectiveBreakdown: bestObjectiveBreakdown, initialObjective, feasibilityAssigned, feasibilityTotal, feasibilityAttempt, workersCompleted: results.length, workersTotal: workers.length });
         } else if (message.type === 'result') {
           const result = message.result;
-          if (result.iterations > (worker.lastIterations || 0)) iterations += result.iterations - (worker.lastIterations || 0);
-          worker.lastIterations = result.iterations;
-          if (Number.isFinite(result.objective)) bestObjective = Math.min(bestObjective, result.objective);
+          const resultCount = Number.isFinite(result.iterations) ? result.iterations : worker.lastIterations || 0;
+          if (resultCount > (worker.lastIterations || 0)) iterations += resultCount - (worker.lastIterations || 0);
+          worker.lastIterations = resultCount;
+          if (Number.isFinite(result.objective) && result.objective < bestObjective) {
+            bestObjective = result.objective;
+            bestObjectiveBreakdown = result.objectiveBreakdown || bestObjectiveBreakdown;
+          }
           initialObjective ??= result.initialObjective;
           results.push({ ...result, assignments: new Map(result.assignments || []) });
           if (results.length === workers.length) {
@@ -86,7 +111,7 @@ export async function optimizeTimetable(timetable, options = {}) {
       worker.addEventListener('error', event => {
         if (!settled) { settled = true; signal?.removeEventListener('abort', abort); finishWorkers(); reject(new Error(event.message || 'Worker non disponibile.')); }
       });
-      worker.postMessage({ type: 'start', timetable, options: { ...normalized, useSourceHints: options.useSourceHints, seed: normalized.seed + index } });
+      worker.postMessage({ type: 'start', timetable, options: { ...normalized, seed: normalized.seed + index } });
     });
   });
 }
