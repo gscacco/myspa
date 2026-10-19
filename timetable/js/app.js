@@ -568,14 +568,21 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     const heading = element(document, 'h3'); heading.textContent = 'Vincoli'; section.append(heading);
     const labels = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' };
     const formatSlot = slot => {
-      const [dayIndex, periodIndex] = slot.split('.').map(Number);
-      const day = current.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
-      const period = current.calendar.periods[periodIndex];
-      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : `ora ${periodIndex + 1}`;
+      const match = /^(\d+)\.(\d+)$/.exec(String(slot || ''));
+      const dayIndex = match ? Number(match[1]) : null;
+      const periodIndex = match ? Number(match[2]) : null;
+      const day = current.calendar.days.find(item => item.index === dayIndex)?.name || 'Giorno non specificato';
+      const period = current.calendar.periods.find(item => item.index === periodIndex);
+      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : 'Ora non specificata';
       return `${day} · ${time}`;
     };
     const list = element(document, 'ul', { class: 'context-constraint-list' });
-    const editState = { value: selectedConstraint ? { ...selectedConstraint } : null };
+    const selectedSlot = selectedConstraint && /^(\d+)\.(\d+)$/.exec(String(selectedConstraint.slot || ''));
+    const selectedSlotValid = selectedSlot
+      && current.calendar.days.some(day => day.index === Number(selectedSlot[1]))
+      && current.calendar.periods.some(period => period.index === Number(selectedSlot[2]));
+    const editState = { value: selectedSlotValid ? { ...selectedConstraint } : null };
+
     const kindSelect = element(document, 'select', { 'aria-label': 'Categoria del vincolo' });
     for (const [value, labelText] of Object.entries(labels)) kindSelect.append(element(document, 'option', { value }, labelText));
     const daySelect = element(document, 'select', { 'aria-label': 'Giorno del vincolo' });
@@ -594,7 +601,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       kindSelect.value = editState.value.kind;
       daySelect.value = String(Number(editState.value.slot.split('.')[0]));
       periodSelect.value = String(Number(editState.value.slot.split('.')[1]));
-      kindSelect.disabled = true;
+      kindSelect.disabled = false;
     }
     const saveConstraint = () => {
       const slot = `${daySelect.value}.${periodSelect.value}`;
@@ -602,27 +609,40 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
         if (editState.value && activeDetail?.type === 'constraint') {
           activeDetail = { type: 'constraint', constraint: { ...activeDetail.constraint, slot } };
         }
-        schoolWorkbench.updateConstraint({ scope, id, kind: kindSelect.value, action: editState.value ? 'update' : 'add', slot, from: editState.value?.slot });
+        if (editState.value && editState.value.kind !== kindSelect.value) {
+          schoolWorkbench.updateConstraintGroup({
+            records: [{ scope: collection, id, kind: editState.value.kind, slot: editState.value.slot }],
+            kind: kindSelect.value,
+            periodIndex: Number(slot.split('.')[1]),
+            targetSlots: [slot],
+          });
+        } else schoolWorkbench.updateConstraint({ scope, id, kind: kindSelect.value, action: editState.value ? 'update' : 'add', slot, from: editState.value?.slot });
         resetForm();
       } catch (error) { status.textContent = error.message; }
     };
     for (const kind of ['unavailable', 'undesired', 'desired']) for (const slot of frames[kind] || []) {
+      const match = /^(\d+)\.(\d+)$/.exec(String(slot || ''));
+      const editable = match && current.calendar.days.some(day => day.index === Number(match[1]))
+        && current.calendar.periods.some(period => period.index === Number(match[2]));
       const row = element(document, 'li', { class: `constraint-category-${kind}` });
       const text = element(document, 'span');
       text.textContent = `${labels[kind]} · ${formatSlot(slot)}`;
-      const edit = element(document, 'button', { type: 'button', class: 'detail-link' }); edit.textContent = 'Modifica';
-      edit.addEventListener('click', () => {
-        editState.value = { kind, slot };
-        kindSelect.value = kind; kindSelect.disabled = true;
-        daySelect.value = String(Number(slot.split('.')[0])); periodSelect.value = String(Number(slot.split('.')[1]));
-        save.textContent = 'Salva vincolo';
-      });
+      if (editable) {
+        const edit = element(document, 'button', { type: 'button', class: 'detail-link' }); edit.textContent = 'Modifica';
+        edit.addEventListener('click', () => {
+          editState.value = { kind, slot };
+          kindSelect.value = kind; kindSelect.disabled = false;
+          daySelect.value = String(Number(slot.split('.')[0])); periodSelect.value = String(Number(slot.split('.')[1]));
+          save.textContent = 'Salva vincolo';
+        });
+        row.append(text, edit);
+      } else row.append(text);
       const remove = element(document, 'button', { type: 'button', class: 'detail-link' }); remove.textContent = 'Elimina';
       remove.addEventListener('click', () => {
         try { schoolWorkbench.updateConstraint({ scope, id, kind, action: 'delete', slot }); }
         catch (error) { status.textContent = error.message; }
       });
-      row.append(text, edit, remove); list.append(row);
+      row.append(remove); list.append(row);
     }
     if (!list.children.length) list.append(element(document, 'li', { class: 'muted' }, 'Nessun vincolo associato.'));
     const form = element(document, 'div', { class: 'context-constraint-form' });
@@ -686,9 +706,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
 
   function openEntityDetail(detail) {
     let constraint = detail.type === 'constraint' ? detail.constraint : null;
+    const constraintGroup = detail.type === 'constraint-group' ? detail.group : null;
     const collectionLabels = { teachers: 'Docente', classes: 'Classe', subjects: 'Materia', rooms: 'Aula', students: 'Studente', lessons: 'Lezione' };
-    const collection = detail.type === 'constraint' ? constraint.scope : detail.type;
-    const targetId = detail.id || constraint?.id;
+    const collection = constraintGroup?.scope || (detail.type === 'constraint' ? constraint.scope : detail.type);
+    const targetId = detail.id || constraint?.id || constraintGroup?.id;
     const entity = collection === 'lessons'
       ? current.lessons.find(item => item.id === targetId)
       : collection === 'students' ? current.entities.students?.find(item => item.id === targetId)
@@ -700,6 +721,12 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       const name = collection === 'lessons' ? current.entities.subjects.find(item => item.id === owner.subjectId)?.name || 'Lezione' : owner.name;
       constraint = { ...constraint, name };
       detail = { type: 'constraint', constraint };
+    }
+    if (constraintGroup) {
+      const frames = collection === 'lessons' ? entity?.timeframes : entity?.constraints?.timeframes;
+      const groupIsCurrent = entity && constraintGroup.records.length
+        && constraintGroup.records.every(record => record.id === constraintGroup.id && record.scope === constraintGroup.scope && frames?.[record.kind]?.includes(record.slot));
+      if (!groupIsCurrent) { showEmptyDetail(); return; }
     }
     if (!entity && !constraint) { showEmptyDetail(); return; }
     activeDetail = detail;
@@ -722,18 +749,21 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
         ? item.resourceId === entity.id
         : true));
     const label = collectionLabels[collection] || 'Vincolo';
-    detailTitle.textContent = constraint ? `Vincolo · ${constraint.name}` : collection === 'lessons' ? 'Dettaglio lezione' : `${label} · ${entity.name}`;
+    detailTitle.textContent = constraint ? `Vincolo · ${constraint.name}` : constraintGroup ? `Gruppo · ${label} · ${entity.name}` : collection === 'lessons' ? 'Dettaglio lezione' : `${label} · ${entity.name}`;
     detailContent.replaceChildren(); detailActions.replaceChildren(); detailPanel.hidden = false;
     appWorkspace.classList.add('has-detail-panel');
     updateDetailBackButton();
-    if (!constraint) appendEntityEditor(collection, entity);
+    if (!constraint && !constraintGroup) appendEntityEditor(collection, entity);
 
     if (constraint) {
       const kindLabels = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' };
-      const [dayIndex, periodIndex] = constraint.slot.split('.').map(Number);
-      const dayName = current.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
-      const period = current.calendar.periods[periodIndex];
-      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : `ora ${periodIndex + 1}`;
+      const slotMatch = /^(\d+)\.(\d+)$/.exec(String(constraint.slot || ''));
+      const dayIndex = slotMatch ? Number(slotMatch[1]) : null;
+      const periodIndex = slotMatch ? Number(slotMatch[2]) : null;
+      const dayRecord = current.calendar.days.find(item => item.index === dayIndex);
+      const dayName = dayRecord?.name || 'Giorno non specificato';
+      const period = current.calendar.periods.find(item => item.index === periodIndex);
+      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : 'Ora non specificata';
       const overlaps = relatedLessons.some(lesson => {
         if (!lesson.assignedTime) return false;
         const sameDay = lesson.assignedTime.dayIndex === dayIndex;
@@ -741,7 +771,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
         return sameDay && (constraint.kind === 'unavailable' ? covers : lesson.assignedTime.periodIndex === periodIndex);
       });
       const pending = relatedLessons.some(lesson => !lesson.assignedTime);
-      const outcome = !['teachers', 'classes'].includes(collection)
+      const slotIsSpecified = dayRecord && period;
+      const outcome = !slotIsSpecified
+        ? 'Esito non verificabile: giorno o ora non specificati.'
+        : !['teachers', 'classes'].includes(collection)
         ? 'Questo ambito non è verificato dal solver corrente.'
         : overlaps
         ? constraint.kind === 'desired' ? 'Soddisfatto: una lezione è assegnata in questa fascia preferita.'
@@ -752,6 +785,55 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
             : 'Rispettato: nessuna lezione occupa questa fascia.';
       addDetailSection('Esito', [`${kindLabels[constraint.kind] || constraint.kind} · ${dayName}, ${time}`, outcome]);
       appendContextConstraints(collection, targetId, entity, constraint);
+    } else if (constraintGroup) {
+      const kindLabels = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' };
+      const period = current.calendar.periods.find(item => item.index === constraintGroup.periodIndex);
+      const formatTime = minute => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+      const dayNames = constraintGroup.records.map(record => {
+        const match = /^(\d+)\.(\d+)$/.exec(String(record.slot || ''));
+        return match ? current.calendar.days.find(day => day.index === Number(match[1]))?.name || 'Giorno non specificato' : 'Giorno non specificato';
+      });
+      const groupLabel = `${kindLabels[constraintGroup.kind] || constraintGroup.kind} · ${period ? formatTime(period.beginMinute) : 'Ora non specificata'}`;
+      addDetailSection('Gruppo di vincoli', [`${groupLabel} · ${constraintGroup.records.length} occorrenze`, `Giorni: ${dayNames.join(', ')}`]);
+
+      const editable = constraintGroup.records.every(record => {
+        const match = /^(\d+)\.(\d+)$/.exec(String(record.slot || ''));
+        return match && current.calendar.days.some(day => day.index === Number(match[1])) && current.calendar.periods.some(item => item.index === Number(match[2]));
+      }) && Boolean(period);
+      if (editable) {
+        const section = element(document, 'section', { class: 'entity-detail-section constraint-group-editor' });
+        const heading = element(document, 'h3'); heading.textContent = 'Modifica il gruppo'; section.append(heading);
+        const kindSelect = element(document, 'select', { 'aria-label': 'Categoria del gruppo' });
+        for (const [value, text] of Object.entries(kindLabels)) {
+          const option = element(document, 'option', { value }, text);
+          kindSelect.append(option);
+        }
+        kindSelect.value = constraintGroup.kind;
+        const periodSelect = element(document, 'select', { 'aria-label': 'Fascia oraria del gruppo' });
+        for (const item of current.calendar.periods) {
+          const option = element(document, 'option', { value: String(item.index) }, `${formatTime(item.beginMinute)}–${formatTime(item.endMinute)}`);
+          periodSelect.append(option);
+        }
+        periodSelect.value = String(constraintGroup.periodIndex);
+        const save = element(document, 'button', { type: 'button', class: 'secondary-button' }, 'Aggiorna tutte le occorrenze');
+        const status = element(document, 'p', { class: 'muted', role: 'status', 'aria-live': 'polite' });
+        save.addEventListener('click', () => {
+          const nextKind = kindSelect.value;
+          const nextPeriodIndex = Number(periodSelect.value);
+          const nextPeriod = current.calendar.periods.find(item => item.index === nextPeriodIndex);
+          const nextRecords = constraintGroup.records.map(record => ({ ...record, kind: nextKind, slot: `${Number(record.slot.split('.')[0])}.${nextPeriodIndex}` }));
+          const previousDetail = activeDetail;
+          activeDetail = { type: 'constraint-group', group: { ...constraintGroup, kind: nextKind, periodIndex: nextPeriodIndex, period: nextPeriod, records: nextRecords } };
+          try { schoolWorkbench.updateConstraintGroup({ records: constraintGroup.records, kind: nextKind, periodIndex: nextPeriodIndex }); }
+          catch (error) { activeDetail = previousDetail; status.textContent = error.message; }
+        });
+        section.append(kindSelect, periodSelect, save, status);
+        detailContent.append(section);
+      } else {
+        addDetailSection('Modifica il gruppo', ['Le occorrenze senza giorno o fascia restano visibili, ma non possono essere modificate insieme finché non hanno valori validi nel calendario.']);
+      }
+      if (collection === 'lessons') appendContextConstraints(collection, targetId, entity);
+      else if (['teachers', 'classes', 'rooms'].includes(collection)) appendContextConstraints(collection, targetId, entity);
     } else if (collection === 'lessons') {
       const lesson = entity;
       addLessonSection('Lezione', [lesson]);

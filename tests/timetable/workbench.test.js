@@ -162,7 +162,7 @@ test('every table column can filter and sort its own values', async () => {
   const dayFilter = dom.window.document.querySelector('#school-grid-constraints [data-grid-column-filter][data-column-index="2"]');
   dayFilter.value = 'Monday';
   dayFilter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-  assert.match(dom.window.document.querySelector('#school-constraint-count').textContent, /di 2$/);
+  assert.match(dom.window.document.querySelector('#school-constraint-count').textContent, /2 vincoli$/);
   dom.window.close();
 });
 
@@ -185,7 +185,7 @@ test('the school grids edit names in place, add by blank row, and undo the lates
   const filter = document.querySelector('#school-constraint-filter');
   filter.value = 'Teacher Two';
   filter.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
-  assert.equal(document.querySelector('#school-constraint-count').textContent, '1–1 di 1');
+  assert.match(document.querySelector('#school-constraint-count').textContent, /1 vincoli$/);
 });
 
 test('constraint rows are read-only selectable details with the correct pointer semantics', () => {

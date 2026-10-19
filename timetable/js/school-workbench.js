@@ -79,6 +79,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   const lessonTable = document.querySelector('#school-grid-lessons');
   const constraintTable = document.querySelector('#school-grid-constraints');
   const constraintFilter = document.querySelector('#school-constraint-filter');
+  const constraintGroups = document.querySelector('#school-constraint-groups');
+  const constraintViewToggle = document.querySelector('#school-constraint-view-toggle');
   const gridNames = ['teachers', 'classes', 'subjects', 'rooms', 'students', 'lessons', 'constraints'];
   const gridFilters = Object.fromEntries(gridNames.slice(0, -1).map(key => [key, document.querySelector(`#school-filter-${key}`)]));
   const gridFilterCounts = Object.fromEntries(Object.keys(gridFilters).map(key => [key, document.querySelector(`[data-grid-filter-count="${key}"]`)]));
@@ -93,6 +95,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   if ([...Object.values(tables), lessonTable, constraintTable, constraintFilter, constraintCount, previousConstraints, nextConstraints, undoButton, status].some(item => !item)) throw new Error('School workbench controls are missing.');
   let timetable = createEmptySchool();
   let constraintPage = 0;
+  let groupedConstraintPage = 0;
+  let groupedConstraintView = true;
   const undoStack = [];
 
   function remember() {
@@ -529,14 +533,22 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     const body = editableTable(constraintTable, 'constraints', ['Elemento', 'Vincolo', 'Giorno', 'Ora']);
     const allRows = allConstraints();
     const query = normalizedSearch(constraintFilter.value);
+    const scopeLabels = { teachers: 'Docente', classes: 'Classe', rooms: 'Aula', lessons: 'Lezione' };
+    const kindLabels = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' };
+    const shortDays = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
     const constraintDetails = row => {
-      const [dayIndex, periodIndex] = row.slot.split('.').map(Number);
-      const day = timetable.calendar.days.find(item => item.index === dayIndex)?.name || '';
-      const period = timetable.calendar.periods.find(item => item.index === periodIndex);
-      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
-      const kind = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' }[row.kind] || row.kind;
-      const scope = { teachers: 'Docente', classes: 'Classe', rooms: 'Aula', lessons: 'Lezione' }[row.scope] || row.scope;
-      return { values: [`${scope} · ${row.name}`, kind, day, time], search: `${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot} ${day} ${time}` };
+      const match = /^(\d+)\.(\d+)$/.exec(String(row.slot || ''));
+      const dayIndex = match ? Number(match[1]) : null;
+      const periodIndex = match ? Number(match[2]) : null;
+      const dayRecord = dayIndex == null ? null : timetable.calendar.days.find(item => item.index === dayIndex);
+      const period = periodIndex == null ? null : timetable.calendar.periods.find(item => item.index === periodIndex);
+      const day = dayRecord?.name || 'Giorno non specificato';
+      const time = period
+        ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}`
+        : 'Ora non specificata';
+      const kind = kindLabels[row.kind] || row.kind;
+      const scope = scopeLabels[row.scope] || row.scope;
+      return { values: [`${scope} · ${row.name}`, kind, day, time], search: `${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot || ''} ${day} ${time}`, dayIndex: dayRecord ? dayIndex : null, periodIndex, period };
     };
     const columnQueries = columnFilters.constraints.map(normalizedSearch);
     const rows = allRows.filter(row => {
@@ -546,18 +558,112 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         && columnQueries.every((value, index) => !value || (values[index] || '').includes(value));
     });
     const constraintSort = sortStates.constraints;
-    if (constraintSort) rows.sort((left, right) => {
-      const a = constraintDetails(left).values[constraintSort.columnIndex] || '';
-      const b = constraintDetails(right).values[constraintSort.columnIndex] || '';
-      return sortCollator.compare(String(a), String(b)) * (constraintSort.direction === 'asc' ? 1 : -1);
-    });
+    const compareRows = (left, right) => {
+      const leftDetails = constraintDetails(left), rightDetails = constraintDetails(right);
+      if (constraintSort) {
+        const index = constraintSort.columnIndex;
+        let compared = index === 2 ? (leftDetails.dayIndex ?? Number.MAX_SAFE_INTEGER) - (rightDetails.dayIndex ?? Number.MAX_SAFE_INTEGER)
+          : index === 3 ? (leftDetails.period?.beginMinute ?? Number.MAX_SAFE_INTEGER) - (rightDetails.period?.beginMinute ?? Number.MAX_SAFE_INTEGER)
+            : sortCollator.compare(leftDetails.values[index] || '', rightDetails.values[index] || '');
+        if (compared) return compared * (constraintSort.direction === 'asc' ? 1 : -1);
+      }
+      return sortCollator.compare(leftDetails.values[0], rightDetails.values[0])
+        || sortCollator.compare(left.kind, right.kind)
+        || (leftDetails.period?.beginMinute ?? Number.MAX_SAFE_INTEGER) - (rightDetails.period?.beginMinute ?? Number.MAX_SAFE_INTEGER)
+        || (leftDetails.dayIndex ?? Number.MAX_SAFE_INTEGER) - (rightDetails.dayIndex ?? Number.MAX_SAFE_INTEGER)
+        || sortCollator.compare(String(left.slot || ''), String(right.slot || ''));
+    };
+    rows.sort(compareRows);
     const pageCount = Math.max(1, Math.ceil(rows.length / CONSTRAINT_PAGE_SIZE));
     constraintPage = Math.min(constraintPage, pageCount - 1);
     const offset = constraintPage * CONSTRAINT_PAGE_SIZE;
     const pageRows = rows.slice(offset, offset + CONSTRAINT_PAGE_SIZE);
-    constraintCount.textContent = rows.length ? `${offset + 1}–${Math.min(offset + CONSTRAINT_PAGE_SIZE, rows.length)} di ${rows.length}` : 'Nessun vincolo';
-    previousConstraints.disabled = constraintPage === 0;
-    nextConstraints.disabled = constraintPage >= pageCount - 1;
+    const groupsByKey = new Map();
+    for (const record of rows) {
+      const detail = constraintDetails(record);
+      const timeKey = detail.period ? `${detail.period.index}:${detail.period.beginMinute}:${detail.period.endMinute}` : `unspecified:${record.slot || ''}`;
+      const dayKey = detail.dayIndex == null ? `unspecified:${record.slot || ''}` : 'calendar-days';
+      const key = JSON.stringify([record.scope, record.id, record.kind, timeKey, dayKey]);
+      if (!groupsByKey.has(key)) groupsByKey.set(key, { key, scope: record.scope, id: record.id, name: record.name, kind: record.kind, periodIndex: detail.periodIndex, period: detail.period, records: [] });
+      groupsByKey.get(key).records.push(structuredClone(record));
+    }
+    const groups = [...groupsByKey.values()];
+    const groupSortValue = (group, index) => constraintDetails(group.records[0]).values[index] || '';
+    groups.sort((left, right) => {
+      if (constraintSort) {
+        const index = constraintSort.columnIndex;
+        let compared = index === 2
+          ? Math.min(...left.records.map(item => constraintDetails(item).dayIndex ?? Number.MAX_SAFE_INTEGER)) - Math.min(...right.records.map(item => constraintDetails(item).dayIndex ?? Number.MAX_SAFE_INTEGER))
+          : index === 3 ? (left.period?.beginMinute ?? Number.MAX_SAFE_INTEGER) - (right.period?.beginMinute ?? Number.MAX_SAFE_INTEGER)
+            : sortCollator.compare(groupSortValue(left, index), groupSortValue(right, index));
+        if (compared) return compared * (constraintSort.direction === 'asc' ? 1 : -1);
+      }
+      return sortCollator.compare(left.name, right.name)
+        || sortCollator.compare(left.scope, right.scope)
+        || sortCollator.compare(left.kind, right.kind)
+        || (left.period?.beginMinute ?? Number.MAX_SAFE_INTEGER) - (right.period?.beginMinute ?? Number.MAX_SAFE_INTEGER)
+        || (left.records[0]?.slot || '').localeCompare(right.records[0]?.slot || '', 'en', { numeric: true });
+    });
+    const groupPageCount = Math.max(1, Math.ceil(groups.length / CONSTRAINT_PAGE_SIZE));
+    groupedConstraintPage = Math.min(groupedConstraintPage, groupPageCount - 1);
+    const groupOffset = groupedConstraintPage * CONSTRAINT_PAGE_SIZE;
+    const visibleGroups = groups.slice(groupOffset, groupOffset + CONSTRAINT_PAGE_SIZE);
+    constraintCount.textContent = groupedConstraintView
+      ? (groups.length ? `${groupOffset + 1}–${Math.min(groupOffset + CONSTRAINT_PAGE_SIZE, groups.length)} gruppi · ${rows.length} vincoli` : 'Nessun vincolo')
+      : (rows.length ? `${offset + 1}–${Math.min(offset + CONSTRAINT_PAGE_SIZE, rows.length)} di ${rows.length}` : 'Nessun vincolo');
+    previousConstraints.disabled = groupedConstraintView ? groupedConstraintPage === 0 : constraintPage === 0;
+    nextConstraints.disabled = groupedConstraintView ? groupedConstraintPage >= groupPageCount - 1 : constraintPage >= pageCount - 1;
+    if (constraintViewToggle) constraintViewToggle.textContent = groupedConstraintView ? 'Vista tabellare' : 'Vista raggruppata';
+    body.hidden = groupedConstraintView;
+    if (constraintGroups) {
+      constraintGroups.hidden = !groupedConstraintView;
+      constraintGroups.replaceChildren();
+      const elementsByKey = new Map();
+      for (const group of visibleGroups) {
+        const elementKey = JSON.stringify([group.scope, group.id]);
+        if (!elementsByKey.has(elementKey)) elementsByKey.set(elementKey, { scope: group.scope, id: group.id, name: group.name, groups: [] });
+        elementsByKey.get(elementKey).groups.push(group);
+      }
+      for (const owner of elementsByKey.values()) {
+        const section = element(document, 'section', { class: 'constraint-element-group' });
+        const ownerButton = element(document, 'button', { type: 'button', class: 'constraint-element-heading', 'aria-label': `Apri dettagli ${scopeLabels[owner.scope] || owner.scope} ${owner.name}` });
+        const ownerName = element(document, 'strong', {}, `${scopeLabels[owner.scope] || owner.scope} · ${owner.name}`);
+        const ownerCount = element(document, 'span', { class: 'constraint-element-count' }, `${owner.groups.reduce((sum, group) => sum + group.records.length, 0)} vincoli`);
+        ownerButton.append(ownerName, ownerCount);
+        ownerButton.addEventListener('click', () => onDetail({ type: owner.scope, id: owner.id }));
+        section.append(ownerButton);
+        for (const group of owner.groups) {
+          const article = element(document, 'article', { class: `constraint-group constraint-category-${group.kind}` });
+          const heading = element(document, 'div', { class: 'constraint-group-heading' });
+          const periodLabel = group.period
+            ? `${String(Math.floor(group.period.beginMinute / 60)).padStart(2, '0')}:${String(group.period.beginMinute % 60).padStart(2, '0')}`
+            : 'Ora non specificata';
+          const selectGroup = element(document, 'button', { type: 'button', class: 'constraint-group-select', 'aria-label': `Dettaglio ${kindLabels[group.kind] || group.kind}, ${periodLabel}` }, `${kindLabels[group.kind] || group.kind} · ${periodLabel}`);
+          selectGroup.addEventListener('click', () => onDetail({ type: 'constraint-group', group: structuredClone(group) }));
+          const expand = element(document, 'button', { type: 'button', class: 'constraint-group-expand', 'aria-expanded': 'false' }, `Occorrenze (${group.records.length})`);
+          const occurrences = element(document, 'div', { class: 'constraint-occurrences', hidden: '' });
+          expand.addEventListener('click', () => {
+            const expanded = expand.getAttribute('aria-expanded') === 'true';
+            expand.setAttribute('aria-expanded', String(!expanded));
+            occurrences.hidden = expanded;
+          });
+          const days = element(document, 'div', { class: 'constraint-weekdays', 'aria-label': 'Giorni interessati' });
+          for (const record of group.records) {
+            const detail = constraintDetails(record);
+            const dayText = detail.dayIndex == null ? 'Giorno n.s.' : shortDays[detail.dayIndex] || `G${detail.dayIndex + 1}`;
+            const badge = element(document, 'span', { class: 'constraint-weekday', title: detail.values[2] }, dayText);
+            days.append(badge);
+            const occurrence = element(document, 'button', { type: 'button', class: 'constraint-occurrence', 'aria-label': `Apri vincolo ${detail.values[2]}, ${detail.values[3]}` }, `${detail.values[2]} · ${detail.values[3]}`);
+            occurrence.addEventListener('click', () => onDetail({ type: 'constraint', constraint: structuredClone(record) }));
+            occurrences.append(occurrence);
+          }
+          heading.append(selectGroup, expand);
+          article.append(heading, days, occurrences);
+          section.append(article);
+        }
+        constraintGroups.append(section);
+      }
+    }
     pageRows.forEach((constraint, index) => {
       const row = element(document, 'tr', { 'data-row': offset + index });
       row.dataset.kind = constraint.kind;
@@ -583,9 +689,14 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   }
 
   for (const [gridName, filter] of Object.entries(gridFilters)) filter?.addEventListener('input', () => applyGridFilter(gridName));
-  constraintFilter.addEventListener('input', () => { constraintPage = 0; renderConstraints(); });
-  previousConstraints.addEventListener('click', () => { constraintPage = Math.max(0, constraintPage - 1); renderConstraints(); });
-  nextConstraints.addEventListener('click', () => { constraintPage++; renderConstraints(); });
+  constraintFilter.addEventListener('input', () => { constraintPage = 0; groupedConstraintPage = 0; renderConstraints(); });
+  constraintViewToggle?.addEventListener('click', () => { groupedConstraintView = !groupedConstraintView; renderConstraints(); });
+  previousConstraints.addEventListener('click', () => {
+    if (groupedConstraintView) groupedConstraintPage = Math.max(0, groupedConstraintPage - 1);
+    else constraintPage = Math.max(0, constraintPage - 1);
+    renderConstraints();
+  });
+  nextConstraints.addEventListener('click', () => { if (groupedConstraintView) groupedConstraintPage++; else constraintPage++; renderConstraints(); });
   undoButton.addEventListener('click', () => {
     if (!undoStack.length) return;
     const change = undoStack.pop();
@@ -809,6 +920,33 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const next = updateTimeframeConstraint(timetable, change);
       if (JSON.stringify(next) === JSON.stringify(timetable)) return next;
       remember(); timetable = next; render(); commit('Vincolo aggiornato.');
+      return structuredClone(timetable);
+    },
+    updateConstraintGroup({ records = [], kind, periodIndex, targetSlots = [] } = {}) {
+      if (!records.length) throw new TypeError('Il gruppo non contiene vincoli da modificare.');
+      if (!['unavailable', 'undesired', 'desired'].includes(kind)) throw new TypeError('Tipo di vincolo non supportato.');
+      if (!Number.isInteger(periodIndex) || !timetable.calendar.periods.some(period => period.index === periodIndex)) throw new RangeError('La fascia scelta non rientra nel calendario.');
+      if (records.every((record, index) => record.kind === kind && /^(\d+)\.(\d+)$/.test(String(record.slot || ''))
+        && (targetSlots[index] ? targetSlots[index] === record.slot : Number(record.slot.split('.')[1]) === periodIndex))) return structuredClone(timetable);
+      const scopes = { teachers: 'teacher', classes: 'class', rooms: 'room', lessons: 'lesson' };
+      let next = structuredClone(timetable);
+      for (const record of records) {
+        const match = /^(\d+)\.(\d+)$/.exec(String(record.slot || ''));
+        if (!match) throw new RangeError('Il gruppo contiene un vincolo senza giorno o fascia modificabile.');
+        const dayIndex = Number(match[1]);
+        if (!timetable.calendar.days.some(day => day.index === dayIndex)) throw new RangeError('Il gruppo contiene un giorno fuori dal calendario.');
+        const scope = scopes[record.scope];
+        if (!scope) throw new TypeError('Ambito del vincolo non supportato.');
+        next = updateTimeframeConstraint(next, { scope, id: record.id, kind: record.kind, action: 'delete', slot: record.slot });
+      }
+      for (const [index, record] of records.entries()) {
+        const dayIndex = Number(record.slot.split('.')[0]);
+        const scope = scopes[record.scope];
+        const slot = targetSlots[index] || `${dayIndex}.${periodIndex}`;
+        next = updateTimeframeConstraint(next, { scope, id: record.id, kind, action: 'add', slot });
+      }
+      if (JSON.stringify(next) === JSON.stringify(timetable)) return structuredClone(timetable);
+      remember(); timetable = next; render(); commit('Gruppo di vincoli aggiornato.');
       return structuredClone(timetable);
     },
     undo() { if (undoButton.disabled) return false; undoButton.click(); return true; },

@@ -264,6 +264,26 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .lesson-sheet .school-grid { min-width: 680px; }
 .constraint-sheet .school-grid { min-width: 760px; }
 .constraint-sheet .school-grid tr[data-new-row="true"] { box-shadow: inset 3px 0 #7ba5bf; }
+.constraint-sheet .school-grid tbody[hidden] { display: none; }
+.constraint-groups { display: grid; gap: 9px; }
+.constraint-element-group { padding: 8px 0 2px; border-bottom: 1px solid #e3e9ee; }
+.constraint-element-heading { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 2px 7px; border: 0; color: var(--ink); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.constraint-element-heading strong { font-size: 13px; }
+.constraint-element-count { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.constraint-group { margin: 0 0 6px 9px; padding: 7px 9px; border-left: 3px solid #92a7b8; background: #f7f9fb; }
+.constraint-group.constraint-category-unavailable { border-left-color: #294e72; }
+.constraint-group.constraint-category-undesired { border-left-color: #9675d7; }
+.constraint-group.constraint-category-desired { border-left-color: #43a69c; }
+.constraint-group-heading { display: flex; align-items: center; gap: 8px; }
+.constraint-group-select, .constraint-group-expand, .constraint-occurrence { border: 0; color: var(--ink); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.constraint-group-select { flex: 1; padding: 2px 0; font-size: 12px; font-weight: 650; }
+.constraint-group-expand { padding: 3px 5px; color: #526678; font-size: 10px; white-space: nowrap; }
+.constraint-group-expand:hover, .constraint-occurrence:hover, .constraint-group-select:hover, .constraint-element-heading:hover { color: #075fae; }
+.constraint-weekdays { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.constraint-weekday { min-width: 31px; padding: 2px 5px; border-radius: 3px; color: #43576a; background: #e7edf2; font-size: 10px; text-align: center; }
+.constraint-occurrences { display: flex; flex-wrap: wrap; gap: 4px 10px; padding-top: 7px; }
+.constraint-occurrence { padding: 2px 0; color: #53687a; font-size: 10px; }
+.constraint-group button:focus-visible, .constraint-element-heading:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sheet-tools { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .sheet-tools input { flex: 1; min-width: 160px; min-height: 34px; border: 1px solid #aebbc6; border-radius: 5px; padding: 5px 8px; font: inherit; font-size: 11px; }
 .sheet-tools span { color: var(--muted); font-size: 10px; white-space: nowrap; }
