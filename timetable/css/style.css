@@ -274,9 +274,19 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .constraint-group.constraint-category-unavailable { border-left-color: #294e72; }
 .constraint-group.constraint-category-undesired { border-left-color: #9675d7; }
 .constraint-group.constraint-category-desired { border-left-color: #43a69c; }
+.constraint-type-group { margin: 0 0 6px 8px; }
+.constraint-type-heading { padding: 2px 0 4px; }
+.constraint-type-label, .constraint-type-badge { display: inline-flex; align-items: center; border-radius: 4px; font-size: 10px; font-weight: 700; line-height: 1.4; }
+.constraint-type-label { padding: 2px 6px; }
+.constraint-type-badge { flex: 0 0 auto; padding: 2px 6px; white-space: nowrap; }
+.constraint-type-label.constraint-category-unavailable, .constraint-type-badge.constraint-category-unavailable { color: #23486b; background: #e3edf7; }
+.constraint-type-label.constraint-category-undesired, .constraint-type-badge.constraint-category-undesired { color: #5c438e; background: #eee8fa; }
+.constraint-type-label.constraint-category-desired, .constraint-type-badge.constraint-category-desired { color: #21645c; background: #e1f1ed; }
+.constraint-type-group .constraint-group { margin-left: 0; }
 .constraint-group-heading { display: flex; align-items: center; gap: 8px; }
 .constraint-group-select, .constraint-group-expand, .constraint-occurrence { border: 0; color: var(--ink); background: transparent; font: inherit; text-align: left; cursor: pointer; }
-.constraint-group-select { flex: 1; padding: 2px 0; font-size: 12px; font-weight: 650; }
+.constraint-group-select { display: flex; flex: 1; align-items: center; gap: 7px; padding: 2px 0; font-size: 12px; font-weight: 650; }
+.constraint-group-time { color: #334b5f; }
 .constraint-group-expand { padding: 3px 5px; color: #526678; font-size: 10px; white-space: nowrap; }
 .constraint-group-expand:hover, .constraint-occurrence:hover, .constraint-group-select:hover, .constraint-element-heading:hover { color: #075fae; }
 .constraint-weekdays { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }

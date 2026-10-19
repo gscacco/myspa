@@ -632,34 +632,46 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         ownerButton.append(ownerName, ownerCount);
         ownerButton.addEventListener('click', () => onDetail({ type: owner.scope, id: owner.id }));
         section.append(ownerButton);
-        for (const group of owner.groups) {
-          const article = element(document, 'article', { class: `constraint-group constraint-category-${group.kind}` });
-          const heading = element(document, 'div', { class: 'constraint-group-heading' });
-          const periodLabel = group.period
-            ? `${String(Math.floor(group.period.beginMinute / 60)).padStart(2, '0')}:${String(group.period.beginMinute % 60).padStart(2, '0')}`
-            : 'Ora non specificata';
-          const selectGroup = element(document, 'button', { type: 'button', class: 'constraint-group-select', 'aria-label': `Dettaglio ${kindLabels[group.kind] || group.kind}, ${periodLabel}` }, `${kindLabels[group.kind] || group.kind} · ${periodLabel}`);
-          selectGroup.addEventListener('click', () => onDetail({ type: 'constraint-group', group: structuredClone(group) }));
-          const expand = element(document, 'button', { type: 'button', class: 'constraint-group-expand', 'aria-expanded': 'false' }, `Occorrenze (${group.records.length})`);
-          const occurrences = element(document, 'div', { class: 'constraint-occurrences', hidden: '' });
-          expand.addEventListener('click', () => {
-            const expanded = expand.getAttribute('aria-expanded') === 'true';
-            expand.setAttribute('aria-expanded', String(!expanded));
-            occurrences.hidden = expanded;
-          });
-          const days = element(document, 'div', { class: 'constraint-weekdays', 'aria-label': 'Giorni interessati' });
-          for (const record of group.records) {
-            const detail = constraintDetails(record);
-            const dayText = detail.dayIndex == null ? 'Giorno n.s.' : shortDays[detail.dayIndex] || `G${detail.dayIndex + 1}`;
-            const badge = element(document, 'span', { class: 'constraint-weekday', title: detail.values[2] }, dayText);
-            days.append(badge);
-            const occurrence = element(document, 'button', { type: 'button', class: 'constraint-occurrence', 'aria-label': `Apri vincolo ${detail.values[2]}, ${detail.values[3]}` }, `${detail.values[2]} · ${detail.values[3]}`);
-            occurrence.addEventListener('click', () => onDetail({ type: 'constraint', constraint: structuredClone(record) }));
-            occurrences.append(occurrence);
+        const kinds = [...new Set(owner.groups.map(group => group.kind))];
+        for (const kind of kinds) {
+          const typeGroup = element(document, 'section', { class: `constraint-type-group constraint-category-${kind}` });
+          const typeHeading = element(document, 'div', { class: 'constraint-type-heading' });
+          const typeLabel = element(document, 'span', { class: `constraint-type-label constraint-category-${kind}` }, kindLabels[kind] || kind);
+          typeHeading.append(typeLabel);
+          typeGroup.append(typeHeading);
+          for (const group of owner.groups.filter(item => item.kind === kind)) {
+            const article = element(document, 'article', { class: `constraint-group constraint-category-${group.kind}` });
+            const heading = element(document, 'div', { class: 'constraint-group-heading' });
+            const periodLabel = group.period
+              ? `${String(Math.floor(group.period.beginMinute / 60)).padStart(2, '0')}:${String(group.period.beginMinute % 60).padStart(2, '0')}`
+              : 'Ora non specificata';
+            const selectGroup = element(document, 'button', { type: 'button', class: 'constraint-group-select', 'aria-label': `Dettaglio ${kindLabels[group.kind] || group.kind}, ${periodLabel}` });
+            const typeBadge = element(document, 'span', { class: `constraint-type-badge constraint-category-${group.kind}` }, kindLabels[group.kind] || group.kind);
+            const time = element(document, 'span', { class: 'constraint-group-time' }, ` · ${periodLabel}`);
+            selectGroup.append(typeBadge, time);
+            selectGroup.addEventListener('click', () => onDetail({ type: 'constraint-group', group: structuredClone(group) }));
+            const expand = element(document, 'button', { type: 'button', class: 'constraint-group-expand', 'aria-expanded': 'false' }, `Occorrenze (${group.records.length})`);
+            const occurrences = element(document, 'div', { class: 'constraint-occurrences', hidden: '' });
+            expand.addEventListener('click', () => {
+              const expanded = expand.getAttribute('aria-expanded') === 'true';
+              expand.setAttribute('aria-expanded', String(!expanded));
+              occurrences.hidden = expanded;
+            });
+            const days = element(document, 'div', { class: 'constraint-weekdays', 'aria-label': 'Giorni interessati' });
+            for (const record of group.records) {
+              const detail = constraintDetails(record);
+              const dayText = detail.dayIndex == null ? 'Giorno n.s.' : shortDays[detail.dayIndex] || `G${detail.dayIndex + 1}`;
+              const badge = element(document, 'span', { class: 'constraint-weekday', title: detail.values[2] }, dayText);
+              days.append(badge);
+              const occurrence = element(document, 'button', { type: 'button', class: 'constraint-occurrence', 'aria-label': `Apri vincolo ${detail.values[2]}, ${detail.values[3]}` }, `${detail.values[2]} · ${detail.values[3]}`);
+              occurrence.addEventListener('click', () => onDetail({ type: 'constraint', constraint: structuredClone(record) }));
+              occurrences.append(occurrence);
+            }
+            heading.append(selectGroup, expand);
+            article.append(heading, days, occurrences);
+            typeGroup.append(article);
           }
-          heading.append(selectGroup, expand);
-          article.append(heading, days, occurrences);
-          section.append(article);
+          section.append(typeGroup);
         }
         constraintGroups.append(section);
       }

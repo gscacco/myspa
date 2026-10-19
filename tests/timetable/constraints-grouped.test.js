@@ -30,8 +30,14 @@ test('the default constraints list groups equivalent records and keeps occurrenc
   assert.equal(document.querySelector('#school-constraint-count').textContent, '1–5 gruppi · 6 vincoli');
   const groups = [...document.querySelectorAll('.constraint-group')];
   assert.equal(groups.length, 5, 'hard/soft categories, types and times stay separate');
+  const typeGroups = [...document.querySelectorAll('.constraint-type-group')];
+  assert.equal(typeGroups.length, 4, 'each element separates its constraints by type');
+  assert.deepEqual([...new Set(typeGroups.map(group => group.querySelector('.constraint-type-label').textContent))].sort(), [
+    'Hard · Indisponibilità', 'Soft · Da evitare', 'Soft · Preferita',
+  ]);
   const avoidNine = groups.find(group => group.textContent.includes('Soft · Da evitare · 09:00'));
   assert.ok(avoidNine);
+  assert.ok(avoidNine.querySelector('.constraint-type-badge').classList.contains('constraint-category-undesired'));
   assert.deepEqual([...avoidNine.querySelectorAll('.constraint-weekday')].map(item => item.textContent), ['Lun', 'Mar']);
   avoidNine.querySelector('.constraint-group-select').click();
   assert.match(document.querySelector('#entity-detail-title').textContent, /Gruppo/);
