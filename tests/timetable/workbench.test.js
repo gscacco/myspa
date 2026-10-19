@@ -235,6 +235,9 @@ test('the application shell has the three stable areas and exact operational nav
     assert.ok(document.querySelector(`[data-screen="${view}"]`), `missing ${view} navigation`);
   }
   assert.match(css, /grid-template-columns:\s*minmax\(320px,\s*1fr\)\s+12px\s+minmax\(250px,\s*var\(--detail-panel-width,\s*320px\)\)/i);
+  assert.equal((css.match(/:root\s*\{/g) || []).length, 1, 'the interface uses one shared design token palette');
+  assert.match(css, /--font-sans:\s*Inter,/i);
+  assert.doesNotMatch(css, /Plus Jakarta Sans/);
   assert.match(css, /html\[data-active-screen="lessons"\] \.entity-detail-panel,[\s\S]*?margin-top:\s*96px/i, 'lesson details align with the main table below the page heading');
   assert.equal(document.querySelector('#detail-resizer')?.getAttribute('role'), 'separator');
   assert.match(css, /\.entity-detail-panel\s*\{[^}]*width:\s*320px/s);
