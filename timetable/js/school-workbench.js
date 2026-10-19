@@ -646,9 +646,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
               ? `${String(Math.floor(group.period.beginMinute / 60)).padStart(2, '0')}:${String(group.period.beginMinute % 60).padStart(2, '0')}`
               : 'Ora non specificata';
             const selectGroup = element(document, 'button', { type: 'button', class: 'constraint-group-select', 'aria-label': `Dettaglio ${kindLabels[group.kind] || group.kind}, ${periodLabel}` });
-            const typeBadge = element(document, 'span', { class: `constraint-type-badge constraint-category-${group.kind}` }, kindLabels[group.kind] || group.kind);
-            const time = element(document, 'span', { class: 'constraint-group-time' }, ` · ${periodLabel}`);
-            selectGroup.append(typeBadge, time);
+            const time = element(document, 'span', { class: 'constraint-group-time' }, periodLabel);
+            selectGroup.append(time);
             selectGroup.addEventListener('click', () => onDetail({ type: 'constraint-group', group: structuredClone(group) }));
             const expand = element(document, 'button', { type: 'button', class: 'constraint-group-expand', 'aria-expanded': 'false' }, `Occorrenze (${group.records.length})`);
             const occurrences = element(document, 'div', { class: 'constraint-occurrences', hidden: '' });

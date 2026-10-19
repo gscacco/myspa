@@ -35,9 +35,11 @@ test('the default constraints list groups equivalent records and keeps occurrenc
   assert.deepEqual([...new Set(typeGroups.map(group => group.querySelector('.constraint-type-label').textContent))].sort(), [
     'Hard · Indisponibilità', 'Soft · Da evitare', 'Soft · Preferita',
   ]);
-  const avoidNine = groups.find(group => group.textContent.includes('Soft · Da evitare · 09:00'));
+  const avoidNine = groups.find(group => group.classList.contains('constraint-category-undesired') && group.textContent.includes('09:00'));
   assert.ok(avoidNine);
-  assert.ok(avoidNine.querySelector('.constraint-type-badge').classList.contains('constraint-category-undesired'));
+  assert.equal(avoidNine.querySelector('.constraint-type-badge'), null, 'the type is shown only by the outer category label');
+  assert.equal(avoidNine.querySelector('.constraint-group-select').textContent.trim(), '09:00');
+  assert.equal(avoidNine.closest('.constraint-type-group').querySelector('.constraint-type-label').textContent, 'Soft · Da evitare');
   assert.deepEqual([...avoidNine.querySelectorAll('.constraint-weekday')].map(item => item.textContent), ['Lun', 'Mar']);
   avoidNine.querySelector('.constraint-group-select').click();
   assert.match(document.querySelector('#entity-detail-title').textContent, /Gruppo/);
@@ -95,7 +97,7 @@ test('group-level edits update each occurrence together and can be undone', asyn
   app.schoolWorkbench.setTimetable(school);
   syncAppWorkbench(app);
   const group = [...dom.window.document.querySelectorAll('.constraint-group')]
-    .find(item => item.textContent.includes('Soft · Da evitare · 09:00'));
+    .find(item => item.classList.contains('constraint-category-undesired') && item.textContent.includes('09:00'));
   group.querySelector('.constraint-group-select').click();
   const panel = dom.window.document.querySelector('#entity-detail-content');
   panel.querySelector('[aria-label="Categoria del gruppo"]').value = 'desired';
@@ -118,7 +120,7 @@ test('editing an expanded occurrence changes only that underlying record', async
   app.schoolWorkbench.setTimetable(school);
   syncAppWorkbench(app);
   const group = [...dom.window.document.querySelectorAll('.constraint-group')]
-    .find(item => item.textContent.includes('Soft · Da evitare · 09:00'));
+    .find(item => item.classList.contains('constraint-category-undesired') && item.textContent.includes('09:00'));
   group.querySelector('.constraint-group-expand').click();
   group.querySelectorAll('.constraint-occurrence')[1].click();
   const panel = dom.window.document.querySelector('#entity-detail-content');
