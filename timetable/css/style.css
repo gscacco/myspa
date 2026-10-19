@@ -561,7 +561,7 @@ body { min-width: 1000px; }
 .app-main { min-width: 0; flex: 1; }
 .workspace, .workspace.has-timetable, .workspace.has-detail-panel { width: 100%; max-width: none; grid-template-columns: minmax(320px, 1fr) 12px minmax(250px, var(--detail-panel-width, 320px)); align-items: start; margin: 0; padding: 20px; column-gap: 0; row-gap: 16px; }
 .school-page, .settings-page, .calculation-page, .timetable-workspace, .issues-page, .structure-page { grid-column: 1; min-width: 0; }
-.entity-detail-panel { position: sticky; top: 78px; grid-column: 3; grid-row: 1; width: 320px; min-width: 250px; min-height: 210px; max-height: calc(100vh - 94px); overflow: auto; }
+.entity-detail-panel { position: sticky; top: 78px; grid-column: 3; grid-row: 1; align-self: stretch; width: 320px; min-width: 250px; min-height: 210px; max-height: calc(100vh - 94px); overflow: auto; }
 .workspace.has-detail-panel .entity-detail-panel { width: auto; }
 .detail-resizer { position: sticky; top: 78px; z-index: 3; grid-column: 2; grid-row: 1; display: flex; align-items: center; justify-content: center; width: 12px; min-height: 240px; height: min(70vh, 620px); margin-top: 96px; cursor: col-resize; touch-action: none; user-select: none; }
 .detail-resizer::before { width: 2px; height: 100%; border-radius: 2px; background: #cbd5e1; content: ""; transition: background-color .15s ease, width .15s ease; }
