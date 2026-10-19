@@ -488,6 +488,11 @@ button:focus-visible, .file-picker:focus-visible { outline: 2px solid #2563eb66;
 .entity-detail-section { margin-top: 16px; }
 .entity-detail-section h3 { margin: 0 0 6px; font-size: 13px; }
 .entity-detail-section ul { display: grid; gap: 5px; margin: 0; padding-left: 19px; color: #475569; font-size: 12px; }
+.entity-detail-section .lesson-move-suggestion-list { gap: 7px; margin: 8px 0 0; padding: 0; list-style: none; }
+.lesson-move-suggestion { display: grid; gap: 6px; border-left: 3px solid #237a43; border-radius: 5px; padding: 8px; background: #f0f8f2; }
+.lesson-move-suggestion-copy { margin: 0; color: #334155; font-size: 11px; line-height: 1.45; }
+.lesson-move-accept { justify-self: start; min-height: 30px; border-color: #8dbb99; color: #185e32; background: #fff; font-size: 11px; }
+.lesson-move-accept:hover { background: #e1f2e5; }
 .entity-detail-section .entity-lesson-list { gap: 9px; padding-left: 0; list-style: none; }
 .entity-detail-calendar-scroll { max-height: min(45vh, 430px); }
 .entity-detail-calendar-grid .grid-corner, .entity-detail-calendar-grid .day-heading { min-height: 30px; padding: 3px; font-size: 10px; }

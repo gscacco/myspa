@@ -601,6 +601,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       renderAll();
     },
     selectLesson,
+    getVisibleLessonIds() { return visibleLessons().map(lesson => lesson.id); },
     get selectedLessonId() { return selectedLessonId; },
     get mode() { return mode; },
     get screen() { return screen; },

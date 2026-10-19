@@ -147,6 +147,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let activeScreen = 'teachers';
   let activeSchoolView = 'teachers';
   let activeDetail = null;
+  let moveSuggestionGeneration = 0;
   let detailNavigationStack = [];
   let navigatingToEntity = false;
   let hasUnexportedChanges = false;
@@ -154,6 +155,15 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let saveGeneration = 0;
   let pendingConfirmation = null;
   let confirmationReturnFocus = null;
+  function readObjectiveWeights() {
+    const undesiredWeight = Number(document.querySelector('#optimization-weight-undesired')?.value);
+    const preferredWeight = Number(document.querySelector('#optimization-weight-preferred')?.value);
+    const weights = { undesiredSlot: undesiredWeight, missedPreferredSlot: preferredWeight };
+    return Object.values(weights).every(value => Number.isInteger(value) && value >= 0 && value <= 1000) ? weights : null;
+  }
+  function qualityPercent(objective, maximum) {
+    return maximum > 0 ? Math.max(0, Math.min(100, (1 - objective / maximum) * 100)) : objective === 0 ? 100 : null;
+  }
   function updateConstraintCoverage() {
     if (!topbarCoverage || !topbarCoverageValue) return;
     const { optimizableLessons } = optimizationScope(current);
@@ -161,17 +171,13 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       topbarCoverage.hidden = true;
       return;
     }
-    const undesiredWeight = Number(document.querySelector('#optimization-weight-undesired')?.value);
-    const preferredWeight = Number(document.querySelector('#optimization-weight-preferred')?.value);
-    const weights = { undesiredSlot: undesiredWeight, missedPreferredSlot: preferredWeight };
-    if (Object.values(weights).some(value => !Number.isInteger(value) || value < 0 || value > 1000)) {
+    const weights = readObjectiveWeights();
+    if (!weights) {
       topbarCoverageValue.textContent = '—';
       topbarCoverage.hidden = false;
       return;
     }
-    const objective = objectiveValue(current, undefined, weights);
-    const maximum = objectiveUpperBound(current, weights);
-    const quality = maximum > 0 ? Math.max(0, Math.min(100, (1 - objective / maximum) * 100)) : objective === 0 ? 100 : null;
+    const quality = qualityPercent(objectiveValue(current, undefined, weights), objectiveUpperBound(current, weights));
     topbarCoverageValue.textContent = quality == null ? '—' : `${percentFormat.format(quality)}%`;
     topbarCoverage.hidden = false;
   }
@@ -225,7 +231,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const saveStateBadge = document.querySelector('.draft-badge');
   for (const input of document.querySelectorAll('#optimization-weight-undesired, #optimization-weight-preferred')) {
     input.addEventListener('input', updateConstraintCoverage);
-    input.addEventListener('change', updateConstraintCoverage);
+    input.addEventListener('change', () => {
+      updateConstraintCoverage();
+      if (activeDetail?.type === 'lessons' && !detailPanel.hidden) openEntityDetail(activeDetail);
+    });
   }
   function markUnsavedChanges() {
     hasUnexportedChanges = true;
@@ -340,11 +349,13 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     editor.selectLesson(lesson.id);
     openEntityDetail({ type: 'lessons', id: lesson.id });
   },
-    onManualPreview: (lessonId, assignedTime, swapWithLessonId) => editor.previewManualMove(lessonId, assignedTime, swapWithLessonId),
+    onManualPreview: (lessonId, assignedTime, swapWithLessonId) => editor.previewManualMove(
+      lessonId, assignedTime, swapWithLessonId, readObjectiveWeights() || undefined,
+    ),
     onManualDrop: (lessonId, assignedTime, swapWithLessonId) => {
       const result = swapWithLessonId
-        ? editor.swapLessons(lessonId, swapWithLessonId)
-        : editor.moveLesson(lessonId, assignedTime);
+        ? editor.swapLessons(lessonId, swapWithLessonId, readObjectiveWeights() || undefined)
+        : editor.moveLesson(lessonId, assignedTime, readObjectiveWeights() || undefined);
       if (!result.valid) editor.setManualStatus(result.reason);
     },
   });
@@ -682,6 +693,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   }
 
   function showEmptyDetail() {
+    moveSuggestionGeneration++;
     activeDetail = null;
     detailTitle.textContent = 'Dettagli';
     detailContent.replaceChildren();
@@ -879,6 +891,119 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     row.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
   }
 
+  function appendLessonMoveSuggestions(lesson, generation) {
+    const section = element(document, 'section', { class: 'entity-detail-section lesson-move-suggestions' });
+    const heading = element(document, 'h3', {}, 'Spostamenti e scambi che migliorano la copertura');
+    const status = element(document, 'p', { class: 'muted', role: 'status', 'aria-live': 'polite' }, 'Calcolo delle destinazioni…');
+    status.dataset.state = 'loading';
+    const list = element(document, 'ul', { class: 'lesson-move-suggestion-list' });
+    section.append(heading, status, list);
+    detailContent.append(section);
+
+    const weights = readObjectiveWeights();
+    if (!weights) {
+      status.dataset.state = 'invalid-weights';
+      status.textContent = 'Imposta pesi validi nel Calcolo per valutare la copertura.';
+      return;
+    }
+    const maximum = objectiveUpperBound(current, weights);
+    const slots = current.calendar.days.flatMap(day => current.calendar.periods.map(period => ({
+      dayIndex: day.index,
+      periodIndex: period.index,
+    })));
+    const proposals = [];
+    const currentSlot = lesson.assignedTime && `${lesson.assignedTime.dayIndex}.${lesson.assignedTime.periodIndex}`;
+    const candidates = slots
+      .filter(slot => `${slot.dayIndex}.${slot.periodIndex}` !== currentSlot)
+      .map(slot => ({ action: 'move', slot }));
+    const visibleLessonIds = views.getVisibleLessonIds?.() || [];
+    const visibleLessons = visibleLessonIds
+      .filter(id => id !== lesson.id)
+      .map(id => current.lessons.find(item => item.id === id))
+      .filter(item => item?.assignedTime)
+      .filter(item => `${item.assignedTime.dayIndex}.${item.assignedTime.periodIndex}` !== currentSlot);
+    for (const target of visibleLessons) {
+      candidates.push({ action: 'swap', slot: target.assignedTime, targetLesson: target });
+    }
+    let cursor = 0;
+    const formatTime = minute => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+    const formatSlot = time => {
+      const day = current.calendar.days.find(item => item.index === time.dayIndex);
+      const period = current.calendar.periods.find(item => item.index === time.periodIndex);
+      return `${day?.name || 'Giorno non specificato'} ${period ? formatTime(period.beginMinute) : 'Ora non specificata'}`;
+    };
+    const processBatch = () => {
+      if (generation !== moveSuggestionGeneration || !section.isConnected
+        || activeDetail?.type !== 'lessons' || activeDetail.id !== lesson.id) return;
+      const end = Math.min(cursor + 3, candidates.length);
+      for (; cursor < end; cursor++) {
+        const candidate = candidates[cursor];
+        const preview = candidate.action === 'swap'
+          ? editor.previewManualMove(lesson.id, null, candidate.targetLesson.id, weights)
+          : editor.previewManualMove(lesson.id, candidate.slot, null, weights);
+        if (!preview.valid || preview.softAfter >= preview.softBefore) continue;
+        const before = qualityPercent(preview.softBefore, maximum);
+        const after = qualityPercent(preview.softAfter, maximum);
+        if (before == null || after == null || after <= before) continue;
+        proposals.push({ ...candidate, before, after, improvement: after - before });
+      }
+      status.textContent = `Valutate ${cursor} di ${candidates.length} destinazioni…`;
+      if (cursor < candidates.length) {
+        document.defaultView.setTimeout(processBatch, 0);
+        return;
+      }
+
+      proposals.sort((left, right) => right.improvement - left.improvement
+        || left.slot.dayIndex - right.slot.dayIndex
+        || left.slot.periodIndex - right.slot.periodIndex
+        || left.action.localeCompare(right.action)
+        || String(left.targetLesson?.id || '').localeCompare(String(right.targetLesson?.id || '')));
+      list.replaceChildren();
+      status.dataset.state = 'ready';
+      if (!proposals.length) {
+        status.textContent = 'Nessuno spostamento o scambio disponibile aumenta la copertura senza introdurre nuovi conflitti hard.';
+        return;
+      }
+      status.textContent = `${proposals.length} ${proposals.length === 1 ? 'proposta' : 'proposte'} disponibili. Accetta una destinazione per applicarla.`;
+      for (const proposal of proposals) {
+        const row = element(document, 'li', { class: 'lesson-move-suggestion' });
+        const copy = element(document, 'p', { class: 'lesson-move-suggestion-copy' });
+        const from = lesson.assignedTime ? formatSlot(lesson.assignedTime) : 'Senza orario';
+        const targetClass = (proposal.targetLesson?.classIds || [])
+          .map(id => current.entities.classes.find(item => item.id === id)?.name)
+          .filter(Boolean).join(', ');
+        const targetLabel = proposal.targetLesson
+          ? `${current.entities.subjects.find(item => item.id === proposal.targetLesson.subjectId)?.name || 'Lezione'}${targetClass ? ` · ${targetClass}` : ''} · ${formatSlot(proposal.slot)}`
+          : formatSlot(proposal.slot);
+        const movement = proposal.action === 'swap' ? `${from} ↔ ${targetLabel}` : `${from} → ${targetLabel}`;
+        copy.textContent = `${movement} · Copertura ${percentFormat.format(proposal.before)}% → ${percentFormat.format(proposal.after)}% (+${percentFormat.format(proposal.improvement)} punti percentuali)`;
+        const accept = element(document, 'button', { type: 'button', class: 'secondary-button lesson-move-accept' }, proposal.action === 'swap' ? 'Accetta e scambia' : 'Accetta e sposta');
+        accept.addEventListener('click', () => {
+          if (activeDetail?.type !== 'lessons' || activeDetail.id !== lesson.id) return;
+          const latestWeights = readObjectiveWeights();
+          const latestMaximum = latestWeights ? objectiveUpperBound(current, latestWeights) : 0;
+          const latest = latestWeights && (proposal.action === 'swap'
+            ? editor.previewManualMove(lesson.id, null, proposal.targetLesson.id, latestWeights)
+            : editor.previewManualMove(lesson.id, proposal.slot, null, latestWeights));
+          const latestBefore = latest?.valid ? qualityPercent(latest.softBefore, latestMaximum) : null;
+          const latestAfter = latest?.valid ? qualityPercent(latest.softAfter, latestMaximum) : null;
+          if (!latest?.valid || latestBefore == null || latestAfter == null || latestAfter <= latestBefore) {
+            status.textContent = 'La proposta è cambiata con l’orario o i pesi attuali. Aggiorno le destinazioni…';
+            openEntityDetail(activeDetail);
+            return;
+          }
+          const result = proposal.action === 'swap'
+            ? editor.swapLessons(lesson.id, proposal.targetLesson.id, latestWeights)
+            : editor.moveLesson(lesson.id, proposal.slot, latestWeights);
+          if (!result.valid) status.textContent = result.reason;
+        });
+        row.append(copy, accept);
+        list.append(row);
+      }
+    };
+    document.defaultView.setTimeout(processBatch, 0);
+  }
+
   function openEntityDetail(detail) {
     const fromGlobalConstraintList = detail.source === 'global-constraints';
     let constraint = detail.type === 'constraint' ? detail.constraint : null;
@@ -905,6 +1030,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       if (!groupIsCurrent) { showEmptyDetail(); return; }
     }
     if (!entity && !constraint) { showEmptyDetail(); return; }
+    const detailGeneration = ++moveSuggestionGeneration;
     activeDetail = detail;
     const nameOf = (name, id) => current.entities[name]?.find(item => item.id === id)?.name || 'Non assegnato';
     const relatedLessons = constraint
@@ -1015,6 +1141,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       const lesson = entity;
       addLessonSection('Lezione', [lesson]);
       addDetailSection('Durata', [`${lesson.durationPeriods} ${lesson.durationPeriods === 1 ? 'ora' : 'ore'}`]);
+      appendLessonMoveSuggestions(lesson, detailGeneration);
       if (!fromGlobalConstraintList) appendContextConstraints(collection, targetId, entity);
     } else {
       if (fromGlobalConstraintList && collection === 'classes') addClassScheduleSection(targetId);

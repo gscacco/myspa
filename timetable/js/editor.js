@@ -5,7 +5,7 @@ import { analyzeSchedule } from './schedule.js';
 import { createProposal, evaluateManualMove, evaluateManualSwap } from './proposals.js';
 import { createTimetableHistory } from './history.js';
 import { getCalculationReadiness } from './validation.js';
-import { objectiveUpperBound } from './optimization-core.js';
+import { objectiveUpperBound, objectiveValue } from './optimization-core.js';
 import { optimizationScope } from './optimization-scope.js';
 
 function node(document, tag, className, text = '') {
@@ -623,23 +623,25 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   });
   constraintUndoButton.addEventListener('click', () => undoButton.click());
 
-  function tryManualEdit(evaluate, description) {
+  function tryManualEdit(evaluate, description, changedLessonId = selectedLessonId, objectiveWeights = undefined) {
     try {
       const result = evaluate(timetable);
+      const softBefore = objectiveWeights ? objectiveValue(timetable, undefined, objectiveWeights) : result.softBefore;
+      const softAfter = objectiveWeights ? objectiveValue(result.timetable, undefined, objectiveWeights) : result.softAfter;
       const next = history.commit(result.timetable);
       timetable = next;
       clearOptions();
       renderUndo();
       updateCalculationControl();
       refreshConstraintControls();
-      const delta = result.softAfter - result.softBefore;
+      const delta = softAfter - softBefore;
       status.textContent = delta > 0
-        ? `${description} accettata. Penalità soft aumentata da ${result.softBefore} a ${result.softAfter} punti (+${delta}).`
+        ? `${description} accettata. Penalità soft aumentata da ${softBefore} a ${softAfter} punti (+${delta}).`
         : delta < 0
-          ? `${description} accettata. Penalità soft ridotta da ${result.softBefore} a ${result.softAfter} punti (${delta}).`
-          : `${description} accettata. Penalità soft invariata (${result.softAfter} punti).`;
-      onApply(next, selectedLessonId, 'manual');
-      return { valid: true, worsensSoft: delta > 0, softBefore: result.softBefore, softAfter: result.softAfter };
+          ? `${description} accettata. Penalità soft ridotta da ${softBefore} a ${softAfter} punti (${delta}).`
+          : `${description} accettata. Penalità soft invariata (${softAfter} punti).`;
+      onApply(next, changedLessonId, 'manual');
+      return { valid: true, worsensSoft: delta > 0, softBefore, softAfter };
     } catch (error) {
       return { valid: false, reason: error.message || 'La modifica viola un vincolo hard.' };
     }
@@ -668,29 +670,31 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
           : 'Puoi cercare un primo orario compatibile per questa lezione.';
       renderUndo();
     },
-    previewManualMove(lessonId, assignedTime, swapWithLessonId = null) {
+    previewManualMove(lessonId, assignedTime, swapWithLessonId = null, objectiveWeights = undefined) {
       try {
         const result = swapWithLessonId
           ? evaluateManualSwap(timetable, lessonId, swapWithLessonId)
           : evaluateManualMove(timetable, lessonId, assignedTime);
+        const softBefore = objectiveWeights ? objectiveValue(timetable, undefined, objectiveWeights) : result.softBefore;
+        const softAfter = objectiveWeights ? objectiveValue(result.timetable, undefined, objectiveWeights) : result.softAfter;
         return {
           valid: true,
           improves: result.improves,
           issuesBefore: result.issuesBefore,
           issuesAfter: result.issuesAfter,
-          softBefore: result.softBefore,
-          softAfter: result.softAfter,
-          worsensSoft: result.softAfter > result.softBefore,
+          softBefore,
+          softAfter,
+          worsensSoft: softAfter > softBefore,
         };
       } catch (error) {
         return { valid: false, reason: error.message || 'La modifica viola un vincolo hard.' };
       }
     },
-    moveLesson(lessonId, assignedTime) {
-      return tryManualEdit(model => evaluateManualMove(model, lessonId, assignedTime), 'Spostamento');
+    moveLesson(lessonId, assignedTime, objectiveWeights = undefined) {
+      return tryManualEdit(model => evaluateManualMove(model, lessonId, assignedTime), 'Spostamento', lessonId, objectiveWeights);
     },
-    swapLessons(firstLessonId, secondLessonId) {
-      return tryManualEdit(model => evaluateManualSwap(model, firstLessonId, secondLessonId), 'Scambio');
+    swapLessons(firstLessonId, secondLessonId, objectiveWeights = undefined) {
+      return tryManualEdit(model => evaluateManualSwap(model, firstLessonId, secondLessonId), 'Scambio', firstLessonId, objectiveWeights);
     },
     setManualStatus(message) { status.textContent = message || 'Modifica non applicata.'; },
     setScreen(screen, detail) {

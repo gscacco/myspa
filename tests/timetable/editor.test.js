@@ -369,6 +369,72 @@ test('drag preview marks moves that resolve warnings in green', async () => {
   dom.window.close();
 });
 
+test('lesson details offer improving moves and apply an accepted destination', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const model = solverFixture();
+  model.entities.teachers[0].constraints.timeframes.undesired = ['0.0'];
+  const app = createTimetableApp({ document, confirm: () => true });
+  const source = new TextEncoder().encode(exportTimetableEDN(model));
+  await app.stageEDNFile({ name: 'lesson-move-suggestions.edn', arrayBuffer: async () => source.buffer });
+  app.applyImport();
+  document.querySelector('[data-screen="schedule"]').click();
+  document.querySelector('#schedule-grid [data-lesson-id="target"]').click();
+
+  const status = document.querySelector('.lesson-move-suggestions [role="status"]');
+  for (let attempt = 0; attempt < 20 && status.dataset.state !== 'ready'; attempt++) {
+    await new Promise(resolve => dom.window.setTimeout(resolve, 5));
+  }
+  assert.equal(status.dataset.state, 'ready');
+  assert.match(status.textContent, /2 proposte disponibili/i);
+  assert.match(document.querySelector('.lesson-move-suggestions').textContent, /Copertura 0% → 100% \(\+100 punti percentuali\)/);
+
+  document.querySelector('.lesson-move-accept').click();
+  assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, 1);
+  assert.equal(document.querySelector('#topbar-constraint-coverage-value').textContent, '100%');
+  dom.window.close();
+});
+
+test('lesson details offer a coverage-improving swap shown as a green drag destination', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const model = solverFixture();
+  model.entities.teachers.push({ id: 'teacher:T2', name: 'Teacher Two', constraints: { timeframes: { unavailable: [], desired: [], undesired: [] } } });
+  model.entities.rooms.push({ id: 'room:R2', name: 'Room 2' });
+  model.entities.teachers[0].constraints.timeframes.undesired = ['0.0'];
+  model.lessons.push({
+    ...structuredClone(model.lessons[0]), id: 'other', sourceIndex: 1,
+    teacherIds: ['teacher:T2'], roomIds: ['room:R2'],
+    assignedTime: { dayIndex: 0, periodIndex: 2, sourceValue: '0.2' },
+  });
+  const app = createTimetableApp({ document, confirm: () => true });
+  const source = new TextEncoder().encode(exportTimetableEDN(model));
+  await app.stageEDNFile({ name: 'lesson-swap-suggestions.edn', arrayBuffer: async () => source.buffer });
+  app.applyImport();
+  document.querySelector('[data-screen="schedule"]').click();
+  document.querySelector('#schedule-grid [data-lesson-id="target"]').click();
+
+  const status = document.querySelector('.lesson-move-suggestions [role="status"]');
+  for (let attempt = 0; attempt < 20 && status.dataset.state !== 'ready'; attempt++) {
+    await new Promise(resolve => dom.window.setTimeout(resolve, 5));
+  }
+  const dragTarget = document.querySelector('#schedule-grid [data-lesson-id="target"]');
+  const dragDestination = document.querySelector('#schedule-grid [data-lesson-id="other"]');
+  const transfer = { data: '', setData(_type, value) { this.data = value; }, getData() { return this.data; } };
+  const drag = new dom.window.Event('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(drag, 'dataTransfer', { value: transfer });
+  dragTarget.dispatchEvent(drag);
+  assert.equal(dragDestination.dataset.dropState, 'valid', 'the drag preview marks the improving swap green');
+  const swapRow = [...document.querySelectorAll('.lesson-move-suggestion')]
+    .find(row => row.textContent.includes('↔'));
+  assert.ok(swapRow, 'the right panel should include the same improving swap available from a lesson card');
+  assert.match(swapRow.textContent, /Copertura 0% → 100%/);
+  swapRow.querySelector('.lesson-move-accept').click();
+  assert.deepEqual(app.timetable.lessons.map(lesson => lesson.assignedTime.periodIndex), [2, 0]);
+  assert.equal(document.querySelector('#topbar-constraint-coverage-value').textContent, '100%');
+  dom.window.close();
+});
+
 test('drag preview allows a valid move when an unrelated pre-existing hard conflict remains', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
