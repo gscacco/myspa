@@ -293,8 +293,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .lesson-group-count { flex: 0 0 auto; color: #64748b; font-size: 10px; white-space: nowrap; }
 .lesson-group-occurrences { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 2px 8px 9px; }
 .lesson-group-constraints { flex: 1 0 100%; margin: 0 0 2px; color: #64748b; font-size: 10px; }
-.lesson-occurrence { border: 1px solid #d7e0e8; border-radius: 4px; padding: 5px 7px; color: #334b5f; background: #f8fafc; font: inherit; font-size: 10px; cursor: pointer; }
-.lesson-occurrence:hover, .lesson-occurrence.is-selected { border-color: #8bb6d3; color: #174c70; background: #eaf4fb; }
+.lesson-occurrence { border: 0; border-radius: 0; padding: 3px 2px; color: #0874e8; background: transparent; font: inherit; font-size: 10px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.lesson-occurrence:hover { color: #075bb2; background: transparent; }
+.lesson-occurrence.is-selected { color: #174c70; background: #eaf4fb; font-weight: 700; }
 .lesson-groups-empty { margin: 8px; }
 .constraint-sheet .school-grid { min-width: 760px; }
 .constraint-sheet .school-grid tr[data-new-row="true"] { box-shadow: inset 3px 0 #7ba5bf; }
