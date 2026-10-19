@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { createTimetableApp } from '../../timetable/js/app.js';
+import { minimalOFD, lessonXML } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
 
@@ -48,40 +49,31 @@ test('blank timetable creation assigns UNKNOWN when an individual lesson has no 
   assert.deepEqual(validateTimetable(timetable).errors, []);
 });
 
-test('the app opens as a new school and adds its first class, teacher, subjects and lesson in the grid', async () => {
+test('the app creates roster data and imports lesson requirements from settings before recalculation', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
-  const app = createTimetableApp({ document });
-  assert.equal(app.activeScreen, 'school');
+  const app = createTimetableApp({ document, DOMParser: dom.window.DOMParser });
+  assert.equal(app.activeScreen, 'teachers');
   assert.equal(document.querySelector('#school-page').hidden, false);
   assert.equal(document.querySelector('#import-card').hidden, true);
-  document.querySelector('[data-screen="calculation"]').click();
-  assert.equal(app.activeScreen, 'calculation');
-  assert.equal(document.querySelector('#recalculate-all').disabled, true, 'the calculation remains reachable but inactive while required data is missing');
+  document.querySelector('[data-screen="schedule"]').click();
+  assert.equal(app.activeScreen, 'schedule');
+  assert.equal(document.querySelector('#recalculate-all').disabled, true, 'recalculation stays inactive while required data is missing');
   assert.match(document.querySelector('#calculation-readiness').textContent, /calcolo disabilitato.*docenti.*classi.*materie.*lezione/i);
-  assert.ok(document.querySelector('[data-readiness-screen="lessons"]'), 'the blocker offers a direct route to the lesson sheet');
-  document.querySelector('[data-screen="teachers"]').click();
-  for (const [type, name] of [['teachers', 'Ada Rossi'], ['classes', '1A'], ['subjects', 'Matematica'], ['rooms', 'Aula 1']]) {
-    const input = document.querySelector(`#school-grid-${type} [data-new-row="true"] input`);
-    input.value = name;
-    input.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  for (const [type, name] of [['teachers', 'T1'], ['classes', 'C1'], ['rooms', 'R1']]) {
+    app.schoolWorkbench.createEntity(type, name);
   }
-  document.querySelector('[data-screen="calculation"]').click();
-  assert.equal(document.querySelector('#recalculate-all').disabled, true);
-  assert.match(document.querySelector('#calculation-readiness').textContent, /definisci almeno una lezione.*materia.*docente.*classe/i);
-  document.querySelector('[data-readiness-screen="lessons"]').click();
-  assert.equal(document.querySelector('[data-school-panel="lessons"]').hidden, false);
-  const lessonRow = document.querySelector('#school-grid-lessons [data-new-row="true"]');
-  const lessonFields = lessonRow.querySelectorAll('input');
-  ['Matematica', 'Ada Rossi', '1A', 'Aula 1'].forEach((value, index) => { lessonFields[index].value = value; });
-  lessonFields[2].dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  app.schoolWorkbench.createEntity('subjects', 'Matematica');
+  document.querySelector('[data-screen="settings"]').click();
+  document.querySelector('[data-lessons-open]').click();
+  const lessonFile = minimalOFD({ lesson: lessonXML() });
+  assert.equal(await app.stageLessonsFile({ name: 'lessons.ofd', arrayBuffer: async () => new TextEncoder().encode(lessonFile).buffer }), true);
+  app.applyLessonsImport();
   assert.equal(app.timetable.lessons.length, 1);
   assert.equal(app.timetable.lessons[0].assignedTime, null);
-  assert.equal(app.timetable.calendar.days.length, 5);
-  document.querySelector('[data-screen="calculation"]').click();
-  assert.equal(app.activeScreen, 'calculation');
-  assert.equal(document.querySelector('#calculation-page').hidden, false);
+  assert.equal(app.timetable.calendar.days.length, 1);
+  document.querySelector('[data-screen="schedule"]').click();
+  assert.equal(app.activeScreen, 'schedule');
   assert.equal(document.querySelector('#recalculate-all').disabled, false);
-  assert.match(document.querySelector('#calculation-readiness').textContent, /requisiti completi.*motore calcola/i);
   dom.window.close();
 });

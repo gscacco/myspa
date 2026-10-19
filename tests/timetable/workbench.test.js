@@ -4,13 +4,14 @@ import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { createSchoolWorkbench } from '../../timetable/js/school-workbench.js';
 import { createTimetableApp } from '../../timetable/js/app.js';
+import { writeEDN } from '../../timetable/js/edn-codec.js';
 import { getCalculationReadiness } from '../../timetable/js/validation.js';
 import { optimizationScope } from '../../timetable/js/optimization-scope.js';
 import { timetableFixture } from './helpers.js';
 
 const htmlPath = new URL('../../timetable/index.html', import.meta.url);
 
-test('the app opens on the school workspace and keeps import secondary', async () => {
+test('the app opens on the requested data workspace with import in settings', async () => {
   const html = await readFile(htmlPath, 'utf8');
   const document = new JSDOM(html).window.document;
   assert.equal(document.querySelector('#school-page')?.hidden, false);
@@ -19,7 +20,9 @@ test('the app opens on the school workspace and keeps import secondary', async (
   assert.ok(document.querySelector('#school-grid-classes'));
   assert.ok(document.querySelector('#school-grid-constraints'));
   assert.ok(document.querySelector('#school-constraint-filter'));
-  assert.ok(document.querySelector('[data-screen="calculation"]'));
+  assert.deepEqual([...document.querySelectorAll('#app-sidebar nav [data-screen]')].map(button => button.dataset.screen), ['schedule', 'teachers', 'classes', 'rooms', 'constraints', 'pdf']);
+  assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
+  assert.equal(document.querySelector('[data-screen="settings"]')?.closest('.sidebar-footer') != null, true);
 });
 
 test('all school tables can be searched without changing their underlying data', async () => {
@@ -39,7 +42,7 @@ test('all school tables can be searched without changing their underlying data',
     ['rooms', 'Room Two', 1],
     ['students', 'Ada Rossi', 0],
     ['lessons', 'Room Two', [2, 3]],
-    ['constraints', 'Obbligatorio', 0],
+    ['constraints', 'Hard', 0],
   ];
   for (const [grid, query, expectedRow] of cases) {
     const filter = dom.window.document.querySelector(`#school-filter-${grid}`) || dom.window.document.querySelector('#school-constraint-filter');
@@ -212,32 +215,101 @@ test('calculation controls expose time, objective and worker limits', async () =
   assert.ok(document.querySelector('#optimization-objective'));
 });
 
-test('the application shell follows the local Chronos mockup without remote runtime assets', async () => {
+test('the application shell has the three stable areas and exact operational navigation', async () => {
   const html = await readFile(htmlPath, 'utf8');
   const css = await readFile(new URL('../../timetable/css/style.css', import.meta.url), 'utf8');
   const document = new JSDOM(html).window.document;
   assert.ok(document.querySelector('aside#app-sidebar nav[aria-label="Navigazione principale"]'));
-  for (const view of ['schedule', 'calculation', 'teachers', 'classes', 'students', 'rooms', 'constraints', 'lessons']) {
+  for (const view of ['schedule', 'teachers', 'classes', 'rooms', 'constraints', 'pdf', 'settings']) {
     assert.ok(document.querySelector(`[data-screen="${view}"]`), `missing ${view} navigation`);
   }
-  assert.match(css, /--primary:\s*#2563eb/i);
-  assert.match(css, /--canvas:\s*#f8fafc/i);
+  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+320px/i);
+  assert.match(css, /\.entity-detail-panel\s*\{[^}]*width:\s*320px/s);
+  assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
   assert.doesNotMatch(html, /(?:src|href)=["']https?:\/\//i);
 });
 
-test('sidebar navigation opens one focused school sheet at a time', async () => {
+test('navigation keeps the details panel and opens the matching central workspace', async () => {
   const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
   const app = createTimetableApp({ document: dom.window.document });
   const { document } = dom.window;
   assert.equal(document.querySelector('[data-school-panel="teachers"]').hidden, false);
   document.querySelector('[data-screen="classes"]').click();
-  assert.equal(app.activeScreen, 'school');
+  assert.equal(app.activeScreen, 'classes');
   assert.equal(document.querySelector('[data-school-panel="teachers"]').hidden, true);
   assert.equal(document.querySelector('[data-school-panel="classes"]').hidden, false);
+  assert.equal(document.querySelectorAll('[data-school-panel="classes"]')[1].hidden, false, 'classes and subjects share the requested page');
   assert.equal(document.querySelector('[data-screen="classes"]').getAttribute('aria-pressed'), 'true');
   document.querySelector('[data-screen="constraints"]').click();
   assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false);
   assert.equal(document.querySelector('[data-school-panel="classes"]').hidden, true);
+  document.querySelector('[data-screen="settings"]').click();
+  assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
+  assert.equal(document.querySelector('#settings-page').hidden, false);
+  dom.window.close();
+});
+
+test('detail panel stays fixed and supports create, edit, and delete for managed entities', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const app = createTimetableApp({ document });
+  const panel = document.querySelector('#entity-detail-panel');
+  const css = await readFile(new URL('../../timetable/css/style.css', import.meta.url), 'utf8');
+  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+320px/i);
+
+  const createAndEdit = (screen, collection, label) => {
+    document.querySelector(`[data-screen="${screen}"]`).click();
+    assert.equal(panel.hidden, false);
+    const create = document.querySelector(`[data-create-entity="${collection}"]`);
+    const name = create.querySelector('input');
+    name.value = `Nuova ${label}`;
+    create.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    const entity = app.timetable.entities[collection].find(item => item.name === `Nuova ${label}`);
+    assert.ok(entity, `${collection} can be created from the details panel`);
+    const edit = document.querySelector('.detail-edit-form');
+    const editName = edit.querySelector('input');
+    editName.value = `${label} modificata`;
+    edit.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    assert.equal(app.timetable.entities[collection].find(item => item.id === entity.id).name, `${label} modificata`);
+    document.querySelector('.detail-edit-form .danger-button').click();
+    assert.equal(app.timetable.entities[collection].some(item => item.id === entity.id), false);
+  };
+
+  createAndEdit('teachers', 'teachers', 'docente');
+  createAndEdit('classes', 'classes', 'classe');
+  createAndEdit('classes', 'subjects', 'materia');
+  createAndEdit('rooms', 'rooms', 'aula');
+  for (const screen of ['schedule', 'teachers', 'classes', 'rooms', 'constraints', 'pdf', 'settings']) {
+    document.querySelector(`[data-screen="${screen}"]`).click();
+    assert.equal(panel.hidden, false, `details remain mounted on ${screen}`);
+  }
+  dom.window.close();
+});
+
+test('contextual and global constraint views edit the same canonical record', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const app = createTimetableApp({ document, confirm: () => true });
+  const edn = writeEDN(timetableFixture());
+  await app.stageEDNFile({ name: 'fixture.edn', arrayBuffer: async () => new TextEncoder().encode(edn).buffer });
+  document.querySelector('#apply-import').click();
+  document.querySelector('#school-grid-teachers tbody tr[data-entity-id="teacher:T1"]').click();
+  const contextual = document.querySelector('.contextual-constraints');
+  assert.ok(contextual);
+  assert.match(contextual.textContent, /Soft · Da evitare/);
+  contextual.querySelector('button').click();
+  contextual.querySelector('[aria-label="Giorno del vincolo"]').value = '1';
+  contextual.querySelector('[aria-label="Ora del vincolo"]').value = '2';
+  contextual.querySelector('button:not(.detail-link)').click();
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, ['1.2']);
+
+  document.querySelector('[data-screen="constraints"]').click();
+  const globalRow = [...document.querySelectorAll('#school-grid-constraints tbody tr')]
+    .find(row => row.textContent.includes('Tuesday') && row.textContent.includes('10:00'));
+  assert.ok(globalRow, 'the global table reflects the contextual edit');
+  globalRow.click();
+  assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
+  assert.match(document.querySelector('#entity-detail-title').textContent, /Vincolo/);
   dom.window.close();
 });
 

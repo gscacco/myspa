@@ -2,7 +2,7 @@ import { findAlternatives } from './solver.js';
 import { optimizeTimetable } from './optimization.js';
 import { updateTimeframeConstraint } from './constraints.js';
 import { analyzeSchedule } from './schedule.js';
-import { createProposal } from './proposals.js';
+import { createProposal, evaluateManualMove, evaluateManualSwap } from './proposals.js';
 import { createTimetableHistory } from './history.js';
 import { getCalculationReadiness } from './validation.js';
 import { objectiveUpperBound } from './optimization-core.js';
@@ -58,6 +58,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const reviewCalculationButton = document.querySelector('#review-recalculation');
   const applyButton = document.querySelector('#apply-proposal');
   const undoButton = document.querySelector('#undo-change');
+  const redoButton = document.querySelector('#redo-change');
   const constraintUndoButton = document.querySelector('#undo-constraint-change');
   const recalculateButton = document.querySelector('#recalculate-all');
   const cancelRecalculationButton = document.querySelector('#cancel-recalculation');
@@ -69,7 +70,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   const addConstraintButton = document.querySelector('#add-constraint');
   const constraintStatus = document.querySelector('#constraint-status');
   const constraintList = document.querySelector('#constraint-list');
-  if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton, constraintUndoButton,
+  if (![panel, searchButton, cancelButton, depthSelect, list, impact, status, applyButton, undoButton, redoButton, constraintUndoButton,
     calculationStatus, iterationOutput, objectiveOutput, objectiveQualityOutput, objectiveQualityBaseOutput, objectiveBreakdownOutput, optimizationStatus, objectivePath, objectiveEmpty, algorithmInput, mixedCutoffWrap, mixedCutoffInput, timeLimitInput, targetInput, workersInput, undesiredWeightInput, preferredWeightInput,
     reviewCalculationButton, recalculateButton, cancelRecalculationButton, constraintFilter, constraintTarget, constraintKind, constraintDay,
     constraintPeriod, addConstraintButton, constraintStatus, constraintList].every(Boolean)) {
@@ -109,9 +110,9 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   }
 
   function renderUndo() {
-    const disabled = !history?.canUndo;
-    undoButton.disabled = disabled;
-    constraintUndoButton.disabled = disabled;
+    undoButton.disabled = !history?.canUndo;
+    redoButton.disabled = !history?.canRedo;
+    constraintUndoButton.disabled = !history?.canUndo;
   }
 
   function updateCalculationControl() {
@@ -146,6 +147,14 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     const [scope, ...idParts] = constraintTarget.value.split('|');
     return { scope, id: idParts.join('|') };
   }
+
+  function constraintTargetValue(scope, id) {
+    const normalized = ({ teachers: 'teacher', classes: 'class', rooms: 'room', lessons: 'lesson' })[scope] || scope;
+    const value = `${normalized}|${id}`;
+    return [...constraintTarget.options].some(option => option.value === value) ? value : '';
+  }
+
+  function scopeForValue(value) { return value.split('|', 1)[0]; }
 
   function constraintFrames(target) {
     if (target.scope === 'lesson') return target.item.timeframes || {};
@@ -579,7 +588,41 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
     status.textContent = 'Modifica annullata; l’orario precedente è stato ripristinato.';
     onApply(restored, lessonId, 'undo');
   });
+  redoButton.addEventListener('click', () => {
+    if (!history?.redo()) return;
+    const restored = history.current;
+    const lessonId = selectedLessonId;
+    timetable = restored;
+    updateCalculationControl();
+    clearOptions();
+    renderUndo();
+    refreshConstraintControls();
+    status.textContent = 'Modifica ripristinata.';
+    onApply(restored, lessonId, 'redo');
+  });
   constraintUndoButton.addEventListener('click', () => undoButton.click());
+
+  function tryManualEdit(evaluate, description) {
+    try {
+      const result = evaluate(timetable);
+      const next = history.commit(result.timetable);
+      timetable = next;
+      clearOptions();
+      renderUndo();
+      updateCalculationControl();
+      refreshConstraintControls();
+      const delta = result.softAfter - result.softBefore;
+      status.textContent = delta > 0
+        ? `${description} accettata. Penalità soft aumentata da ${result.softBefore} a ${result.softAfter} punti (+${delta}).`
+        : delta < 0
+          ? `${description} accettata. Penalità soft ridotta da ${result.softBefore} a ${result.softAfter} punti (${delta}).`
+          : `${description} accettata. Penalità soft invariata (${result.softAfter} punti).`;
+      onApply(next, selectedLessonId, 'manual');
+      return { valid: true, worsensSoft: delta > 0, softBefore: result.softBefore, softAfter: result.softAfter };
+    } catch (error) {
+      return { valid: false, reason: error.message || 'La modifica viola un vincolo hard.' };
+    }
+  }
 
   updateCalculationControl();
   refreshConstraintControls();
@@ -594,6 +637,7 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
       controller = null;
       clearOptions();
       const lesson = currentLesson();
+      panel.hidden = !lesson;
       searchButton.disabled = !lesson;
       refreshConstraintControls();
       status.textContent = !lesson
@@ -602,6 +646,48 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
           ? 'Puoi cercare spostamenti compatibili per questa lezione.'
           : 'Puoi cercare un primo orario compatibile per questa lezione.';
       renderUndo();
+    },
+    previewManualMove(lessonId, assignedTime, swapWithLessonId = null) {
+      try {
+        const result = swapWithLessonId
+          ? evaluateManualSwap(timetable, lessonId, swapWithLessonId)
+          : evaluateManualMove(timetable, lessonId, assignedTime);
+        return { valid: true, worsensSoft: result.softAfter > result.softBefore };
+      } catch (error) {
+        return { valid: false, reason: error.message || 'La modifica viola un vincolo hard.' };
+      }
+    },
+    moveLesson(lessonId, assignedTime) {
+      return tryManualEdit(model => evaluateManualMove(model, lessonId, assignedTime), 'Spostamento');
+    },
+    swapLessons(firstLessonId, secondLessonId) {
+      return tryManualEdit(model => evaluateManualSwap(model, firstLessonId, secondLessonId), 'Scambio');
+    },
+    setManualStatus(message) { status.textContent = message || 'Modifica non applicata.'; },
+    setScreen(screen, detail) {
+      panel.hidden = screen !== 'schedule' || detail?.type !== 'lessons';
+    },
+    showConstraintsFor(scope, id, selected = null) {
+      const target = constraintTargetValue(scope, id);
+      if (!target) return false;
+      constraintFilter.value = '';
+      refreshConstraintControls();
+      constraintTarget.value = target;
+      if (selected) {
+        constraintKind.value = selected.kind;
+        constraintDay.value = String(Number(selected.slot.split('.')[0]));
+        constraintPeriod.value = String(Number(selected.slot.split('.')[1]));
+        editingConstraint = { ...selected, scope: scopeForValue(target), id };
+        addConstraintButton.textContent = 'Salva vincolo';
+      } else {
+        editingConstraint = null;
+        addConstraintButton.textContent = 'Aggiungi vincolo';
+      }
+      refreshConstraintControls();
+      return true;
+    },
+    deleteSelectedConstraint(scope, id, kind, slot) {
+      commitConstraint({ scope, id, kind, action: 'delete', slot });
     },
     setTimetable(next) {
       controller?.abort();

@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 import { createTimetableApp } from '../../timetable/js/app.js';
 import { readEDN, writeEDN } from '../../timetable/js/edn-codec.js';
 import { createEmptySchool } from '../../timetable/js/school-workbench.js';
-import { domParser } from './helpers.js';
+import { domParser, minimalOFD } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
 const samplePath = new URL('../../OR_30_SETT.ofd', import.meta.url);
@@ -106,5 +106,59 @@ test('invalid EDN cannot replace the current project', async () => {
   assert.equal(app.timetable, original);
   assert.equal(document.querySelector('#apply-import').disabled, true);
   assert.match(document.querySelector('#import-report').textContent, /importazione non riuscita/i);
+  dom.window.close();
+});
+
+test('external CSV imports stage each supported category and malformed CSV leaves the school unchanged', async () => {
+  const { app, dom, document } = await mount();
+  document.querySelector('#external-import-format').value = 'csv';
+  document.querySelector('#external-import-format').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.equal(document.querySelector('#external-ofd-panel').hidden, true);
+  assert.equal(document.querySelector('#external-csv-panel').hidden, false);
+  const imports = [
+    ['teachers', 'docenti.csv', 'docente\nProf X'],
+    ['classes', 'classi.csv', 'classe\n2B'],
+    ['subjects', 'materie.csv', 'materia\nScienze'],
+    ['rooms', 'aule.csv', 'aula\nAula Nord'],
+    ['constraints', 'vincoli.csv', 'Ambito,Elemento,Vincolo,Giorno,Ora\nDocente,Prof X,Non disponibile,Lunedì,08:00'],
+  ];
+  for (const [collection, name, source] of imports) {
+    assert.equal(await app.stageExternalCSV(collection, fileFrom(source, name)), true, collection);
+    assert.equal(app.applyExternalCSV(collection), true, collection);
+  }
+  assert.deepEqual(app.timetable.entities.teachers.map(item => item.name), ['Prof X']);
+  assert.deepEqual(app.timetable.entities.classes.map(item => item.name), ['2B']);
+  assert.deepEqual(app.timetable.entities.subjects.map(item => item.name), ['Scienze']);
+  assert.deepEqual(app.timetable.entities.rooms.map(item => item.name), ['Aula Nord']);
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, ['0.0']);
+  const current = app.timetable;
+  assert.equal(await app.stageExternalCSV('classes', fileFrom('classe\n"non chiuso', 'rotto.csv')), false);
+  assert.equal(app.timetable, current);
+  assert.match(document.querySelector('[data-external-csv-status="classes"]').textContent, /rimasta invariata/i);
+  dom.window.close();
+});
+
+test('OFD section selection imports only checked rosters and constraints atomically', async () => {
+  const { app, dom, document } = await mount({ DOMParser: domParser });
+  const source = minimalOFD().replace('<TIMEFRAMES/></TEACHERDATA>', '<TIMEFRAMES><UNAVAIL value="0.0"/></TIMEFRAMES></TEACHERDATA>');
+  const file = fileFrom(source, 'school.ofd');
+  for (const checkbox of document.querySelectorAll('[data-ofd-section]')) checkbox.checked = ['teachers', 'constraints'].includes(checkbox.dataset.ofdSection);
+  const original = app.timetable;
+  assert.equal(await app.stageExternalOFD(file), true);
+  assert.equal(app.timetable, original, 'preview does not change the current school');
+  assert.match(document.querySelector('#external-ofd-status').textContent, /1 teachers.*vincoli/i);
+  assert.equal(app.applyExternalOFD(), true);
+  assert.deepEqual(app.timetable.entities.teachers.map(item => item.name), ['T1']);
+  assert.equal(app.timetable.entities.rooms.length, 0);
+  assert.equal(app.timetable.entities.subjects.length, 0);
+  assert.equal(app.timetable.entities.classes.length, 0);
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, ['0.0']);
+  assert.deepEqual(app.timetable.source.rosterImports[0].sections.sort(), ['constraints', 'teachers']);
+
+  const current = app.timetable;
+  assert.equal(await app.stageExternalOFD(fileFrom('<DOCUMENT>', 'bad.ofd')), false);
+  assert.equal(app.applyExternalOFD(), false);
+  assert.equal(app.timetable, current);
+  assert.match(document.querySelector('#external-ofd-status').textContent, /rimasta invariata/i);
   dom.window.close();
 });

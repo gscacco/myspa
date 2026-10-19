@@ -1,6 +1,9 @@
+import { updateTimeframeConstraint } from './constraints.js';
+
 const ALIASES = Object.freeze({
   teachers: { name: ['docente', 'insegnante', 'teacher'], first: ['nome', 'name'], last: ['cognome', 'surname'] },
   classes: { name: ['nome', 'classe', 'class'] },
+  subjects: { name: ['nome', 'materia', 'subject'] },
   rooms: { name: ['nome', 'aula', 'room'] },
   students: { name: ['studente', 'alunno'], first: ['nome', 'name'], last: ['cognome', 'surname'], class: ['classe', 'class'] },
 });
@@ -94,6 +97,67 @@ export function parseRosterCSV(source, collection, timetable) {
       item.classId = schoolClass.id;
     }
     if (existingNames.has(normalized)) throw new Error(`Il nome “${value}” esiste già nella scuola.`);
+    items.push(item);
+  }
+  return { items, warnings: [] };
+}
+
+const SCOPE_NAMES = Object.freeze({
+  teacher: ['docente', 'insegnante', 'teacher'],
+  class: ['classe', 'class'],
+  room: ['aula', 'room'],
+  lesson: ['lezione', 'lesson'],
+});
+const KIND_NAMES = Object.freeze({
+  unavailable: ['obbligatorio', 'indisponibile', 'non disponibile', 'unavailable', 'hard'],
+  undesired: ['da evitare', 'indesiderata', 'undesired', 'avoid'],
+  desired: ['preferita', 'preferenza', 'desired', 'preferred'],
+});
+
+/** Reads canonical constraint rows with columns Ambito, Elemento, Vincolo, Giorno, Ora. */
+export function parseConstraintCSV(source, timetable) {
+  const { headers, rows } = parseRows(source);
+  const scopeColumn = column(headers, ['ambito', 'tipo elemento', 'scope', 'categoria']);
+  const elementColumn = column(headers, ['elemento', 'nome', 'name']);
+  const kindColumn = column(headers, ['vincolo', 'tipo vincolo', 'kind', 'constraint']);
+  const dayColumn = column(headers, ['giorno', 'day']);
+  const periodColumn = column(headers, ['ora', 'orario', 'periodo', 'time']);
+  if ([scopeColumn, elementColumn, kindColumn, dayColumn, periodColumn].some(index => index < 0)) {
+    throw new Error('Il CSV vincoli deve contenere Ambito, Elemento, Vincolo, Giorno e Ora.');
+  }
+  const items = [];
+  const seen = new Set();
+  for (const [rowIndex, row] of rows.entries()) {
+    if (row.length !== headers.length) throw new Error(`Riga ${rowIndex + 2}: numero di colonne diverso dall’intestazione.`);
+    const normalized = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase();
+    const scopeText = normalized(row[scopeColumn]);
+    const scope = Object.entries(SCOPE_NAMES).find(([, values]) => values.some(value => normalized(value) === scopeText))?.[0];
+    const kindText = normalized(row[kindColumn]);
+    const kind = Object.entries(KIND_NAMES).find(([, values]) => values.some(value => normalized(value) === kindText))?.[0];
+    const elementName = normalized(row[elementColumn]);
+    if (!scope || !kind || !elementName) throw new Error(`Riga ${rowIndex + 2}: ambito, elemento o vincolo non riconosciuto.`);
+    const collection = { teacher: 'teachers', class: 'classes', room: 'rooms' }[scope];
+    const candidates = scope === 'lesson'
+      ? timetable.lessons.filter(lesson => {
+        const subject = timetable.entities.subjects.find(item => item.id === lesson.subjectId)?.name;
+        const schoolClass = (lesson.classIds || []).map(id => timetable.entities.classes.find(item => item.id === id)?.name).filter(Boolean).join(', ');
+        return normalized(`${subject || ''} ${schoolClass}`) === elementName || normalized(subject || '') === elementName;
+      })
+      : (timetable.entities[collection] || []).filter(item => normalized(item.name) === elementName);
+    if (candidates.length !== 1) throw new Error(`Riga ${rowIndex + 2}: elemento “${row[elementColumn]}” ${candidates.length ? 'non è univoco' : 'non esiste'} nell’ambito indicato.`);
+    const dayValue = normalized(row[dayColumn]);
+    const dayIndex = timetable.calendar.days.findIndex((item, index) => normalized(item.name) === dayValue || normalized(item.shortName || '') === dayValue || String(index + 1) === dayValue);
+    const periodValue = normalized(row[periodColumn]);
+    const periodIndex = timetable.calendar.periods.findIndex((item, index) => {
+      const time = `${String(Math.floor(item.beginMinute / 60)).padStart(2, '0')}:${String(item.beginMinute % 60).padStart(2, '0')}`;
+      return normalized(time) === periodValue || String(index + 1) === periodValue;
+    });
+    if (dayIndex < 0 || periodIndex < 0) throw new Error(`Riga ${rowIndex + 2}: giorno o ora non presenti nel calendario.`);
+    const item = { scope, id: candidates[0].id, kind, slot: `${dayIndex}.${periodIndex}` };
+    const signature = `${item.scope}|${item.id}|${item.kind}|${item.slot}`;
+    if (seen.has(signature)) throw new Error(`Riga ${rowIndex + 2}: vincolo duplicato.`);
+    seen.add(signature);
+    updateTimeframeConstraint(timetable, { ...item, action: 'add' });
     items.push(item);
   }
   return { items, warnings: [] };

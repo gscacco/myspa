@@ -1,7 +1,8 @@
 import { TIMETABLE_SCHEMA_VERSION } from './domain.js';
+import { updateTimeframeConstraint } from './constraints.js';
 
 const COLLECTION_LABELS = Object.freeze({ teachers: 'Docente', classes: 'Classe', subjects: 'Materia', rooms: 'Aula', students: 'Studente' });
-const COLLECTION_IMPORTED = Object.freeze({ teachers: 'docenti importati', classes: 'classi importate', rooms: 'aule importate', students: 'studenti importati' });
+const COLLECTION_IMPORTED = Object.freeze({ teachers: 'docenti importati', classes: 'classi importate', subjects: 'materie importate', rooms: 'aule importate', students: 'studenti importati' });
 const COLLECTION_TYPES = Object.freeze({ teachers: 'teacher', classes: 'class', subjects: 'subject', rooms: 'room', students: 'student' });
 const CONSTRAINT_PAGE_SIZE = 80;
 const normalizedName = value => String(value || '').trim().toLocaleLowerCase();
@@ -13,6 +14,7 @@ export function createEmptySchool() {
   return {
     schemaVersion: TIMETABLE_SCHEMA_VERSION,
     name: 'Nuova scuola',
+    description: '',
     source: { format: 'native', version: '1', xml: '', unsupportedStructures: [], lessonImports: [] },
     calendar: {
       unitMinutes: 60,
@@ -532,7 +534,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const day = timetable.calendar.days.find(item => item.index === dayIndex)?.name || '';
       const period = timetable.calendar.periods.find(item => item.index === periodIndex);
       const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
-      const kind = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' }[row.kind] || row.kind;
+      const kind = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' }[row.kind] || row.kind;
       const scope = { teachers: 'Docente', classes: 'Classe', rooms: 'Aula', lessons: 'Lezione' }[row.scope] || row.scope;
       return { values: [`${scope} · ${row.name}`, kind, day, time], search: `${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot} ${day} ${time}` };
     };
@@ -558,6 +560,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     nextConstraints.disabled = constraintPage >= pageCount - 1;
     pageRows.forEach((constraint, index) => {
       const row = element(document, 'tr', { 'data-row': offset + index });
+      row.dataset.kind = constraint.kind;
       const details = constraintDetails(constraint);
       row.dataset.filterValues = JSON.stringify(details.values);
       row.dataset.sortValues = row.dataset.filterValues;
@@ -617,7 +620,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         if (knownNames.has(item.name.trim().toLocaleLowerCase())) { duplicates++; continue; }
         const next = structuredClone(item);
         if (!next.id || knownIds.has(next.id)) next.id = uniqueId(collection, next.name, [...values, ...additions]);
-        if (collection !== 'students') next.constraints ||= { timeframes: { unavailable: [], desired: [], undesired: [] } };
+        if (['teachers', 'classes', 'rooms'].includes(collection)) next.constraints ||= { timeframes: { unavailable: [], desired: [], undesired: [] } };
         additions.push(next); knownNames.add(next.name.trim().toLocaleLowerCase()); knownIds.add(next.id);
       }
       if (additions.length || sourceInfo) {
@@ -632,6 +635,72 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         onChange(timetable);
       }
       return { imported: additions.length, duplicates };
+    },
+    importOFDSections(imported, sections, sourceInfo = null) {
+      const next = structuredClone(timetable);
+      const result = imported?.timetable;
+      if (!result) throw new TypeError('Il file OFD non contiene un orario leggibile.');
+      const selected = new Set(sections || []);
+      if (!selected.size) throw new TypeError('Seleziona almeno una sezione OFD.');
+      const empty = !next.lessons.length && Object.values(next.entities).every(items => !items.length);
+      if (empty) next.calendar = structuredClone(result.calendar);
+      const counts = {};
+      const knownIds = new Set(Object.values(next.entities).flat().map(item => item.id));
+      for (const collection of ['teachers', 'rooms', 'subjects', 'classes']) {
+        if (!selected.has(collection)) { counts[collection] = 0; continue; }
+        const values = next.entities[collection];
+        let added = 0;
+        for (const sourceEntity of result.entities[collection] || []) {
+          const existing = values.find(item => normalizedName(item.name) === normalizedName(sourceEntity.name));
+          if (existing) continue;
+          const entity = structuredClone(sourceEntity);
+          if (!entity.id || knownIds.has(entity.id)) entity.id = uniqueId(collection, entity.name, values);
+          knownIds.add(entity.id);
+          if (['teachers', 'classes', 'rooms'].includes(collection)) {
+            if (!selected.has('constraints')) entity.constraints = { timeframes: { unavailable: [], desired: [], undesired: [] } };
+            else entity.constraints ||= { timeframes: { unavailable: [], desired: [], undesired: [] } };
+          }
+          values.push(entity);
+          added++;
+        }
+        counts[collection] = added;
+      }
+      let constraintsImported = 0, constraintsSkipped = 0;
+      if (selected.has('constraints')) {
+        for (const collection of ['teachers', 'classes', 'rooms']) {
+          const targets = next.entities[collection];
+          const sourceTargets = result.entities[collection] || [];
+          for (const sourceEntity of sourceTargets) {
+            const target = targets.find(item => normalizedName(item.name) === normalizedName(sourceEntity.name));
+            if (!target) { constraintsSkipped += 1; continue; }
+            target.constraints ||= { timeframes: { unavailable: [], desired: [], undesired: [] } };
+            target.constraints.timeframes ||= { unavailable: [], desired: [], undesired: [] };
+            const sourceFrames = sourceEntity.constraints?.timeframes || {};
+            for (const kind of ['unavailable', 'desired', 'undesired']) {
+              target.constraints.timeframes[kind] ||= [];
+              for (const sourceSlot of sourceFrames[kind] || []) {
+                const [dayIndex, periodIndex] = sourceSlot.split('.').map(Number);
+                const sourceDay = result.calendar.days[dayIndex];
+                const sourcePeriod = result.calendar.periods[periodIndex];
+                const targetDay = next.calendar.days.find((day, index) => day.name === sourceDay?.name || day.shortName === sourceDay?.shortName);
+                const targetPeriod = next.calendar.periods.find(period => period.beginMinute === sourcePeriod?.beginMinute && period.endMinute === sourcePeriod?.endMinute);
+                if (!targetDay || !targetPeriod) { constraintsSkipped += 1; continue; }
+                const slot = `${targetDay.index}.${targetPeriod.index}`;
+                if (!target.constraints.timeframes[kind].includes(slot)) target.constraints.timeframes[kind].push(slot);
+                constraintsImported++;
+              }
+            }
+          }
+        }
+      }
+      if (sourceInfo) {
+        next.source.rosterImports ||= [];
+        next.source.rosterImports.push({ ...structuredClone(sourceInfo), sections: [...selected] });
+      }
+      if (JSON.stringify(next) !== JSON.stringify(timetable)) {
+        remember(); timetable = next; render(); commit('Sezioni OFD importate.');
+      }
+      return { counts, constraintsImported, constraintsSkipped };
     },
     importLessons(incoming = [], incomingSubjects = [], sourceInfo = null, calendar = null) {
       const subjects = timetable.entities.subjects;
@@ -687,6 +756,61 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       return { imported: additions.length, subjects: subjectAdditions.length };
     },
     setName(value) { if (value && value !== timetable.name) { remember(); timetable.name = value; commit('Nome scuola aggiornato.'); } },
+    setDescription(value) {
+      const description = String(value || '').trim();
+      if (description !== (timetable.description || '')) { remember(); timetable.description = description; commit('Descrizione scuola aggiornata.'); }
+    },
+    createEntity(collection, name) {
+      const values = timetable.entities[collection];
+      const cleanName = String(name || '').trim();
+      if (!Array.isArray(values) || !['teachers', 'classes', 'subjects', 'rooms'].includes(collection)) throw new TypeError('Tipo di elemento non gestito.');
+      if (!cleanName) throw new TypeError('Inserisci un nome.');
+      if (values.some(item => normalizedName(item.name) === normalizedName(cleanName))) throw new TypeError(`Esiste già “${cleanName}”.`);
+      const entity = { id: uniqueId(collection, cleanName, values), name: cleanName };
+      if (['teachers', 'classes', 'rooms'].includes(collection)) entity.constraints = { timeframes: { unavailable: [], desired: [], undesired: [] } };
+      remember(); values.push(entity); render(); commit(`${COLLECTION_LABELS[collection]} aggiunto.`);
+      onDetail({ type: collection, id: entity.id });
+      return structuredClone(entity);
+    },
+    updateEntity(collection, id, changes) {
+      const entity = timetable.entities[collection]?.find(item => item.id === id);
+      if (!entity) throw new RangeError('Elemento non trovato.');
+      const name = String(changes?.name ?? entity.name).trim();
+      if (!name) throw new TypeError('Il nome non può essere vuoto.');
+      if (timetable.entities[collection].some(item => item.id !== id && normalizedName(item.name) === normalizedName(name))) throw new TypeError(`Esiste già “${name}”.`);
+      if (name === entity.name) return structuredClone(entity);
+      remember(); entity.name = name;
+      if (entity.placeholder === 'unknown' && normalizedName(name) !== 'unknown') delete entity.placeholder;
+      render(); commit(`${COLLECTION_LABELS[collection]} aggiornato.`);
+      return structuredClone(entity);
+    },
+    deleteEntity(collection, id) {
+      const values = timetable.entities[collection];
+      const entity = values?.find(item => item.id === id);
+      if (!entity) return false;
+      const referenced = timetable.lessons.some(lesson => lesson.teacherIds?.includes(id) || lesson.classIds?.includes(id) || lesson.roomIds?.includes(id) || lesson.subjectId === id)
+        || (collection === 'classes' && timetable.entities.students?.some(student => student.classId === id));
+      if (referenced) throw new TypeError('L’elemento è usato da lezioni o studenti e non può essere eliminato.');
+      remember(); values.splice(values.indexOf(entity), 1); render(); commit(`${COLLECTION_LABELS[collection]} rimosso.`);
+      return true;
+    },
+    applyConstraints(constraints, sourceInfo = null) {
+      let next = structuredClone(timetable);
+      for (const item of constraints || []) next = updateTimeframeConstraint(next, { ...item, action: 'add' });
+      if (sourceInfo) {
+        next.source.constraintImports ||= [];
+        next.source.constraintImports.push(structuredClone(sourceInfo));
+      }
+      if (JSON.stringify(next) === JSON.stringify(timetable)) return { imported: 0 };
+      remember(); timetable = next; render(); commit(`${constraints.length} vincoli importati.`);
+      return { imported: constraints.length };
+    },
+    updateConstraint(change) {
+      const next = updateTimeframeConstraint(timetable, change);
+      if (JSON.stringify(next) === JSON.stringify(timetable)) return next;
+      remember(); timetable = next; render(); commit('Vincolo aggiornato.');
+      return structuredClone(timetable);
+    },
     undo() { if (undoButton.disabled) return false; undoButton.click(); return true; },
     render,
     get timetable() { return timetable; },

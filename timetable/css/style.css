@@ -349,6 +349,7 @@ body { min-height: 100vh; color: var(--ink); background: var(--canvas); }
 .sidebar-footer p { display: flex; align-items: center; gap: 7px; margin: 0; padding: 5px 10px; color: #64748b; font-size: 10px; }
 .offline-dot { width: 7px; height: 7px; border-radius: 50%; background: #059669; }
 .app-main { min-width: 0; flex: 1; }
+.topbar-version { display: none; }
 .app-topbar { position: sticky; top: 0; z-index: 4; min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 10px 24px; background: #ffffffed; backdrop-filter: blur(8px); }
 .app-topbar > div { display: flex; align-items: center; gap: 10px; }
 .topbar-label { color: #64748b; font-size: 11px; }
@@ -462,4 +463,100 @@ button:focus-visible, .file-picker:focus-visible { outline: 2px solid #2563eb66;
   .optimization-settings p { grid-column: auto; }
   .optimization-live { grid-template-columns: 1fr 1fr; }
   .optimization-live > div:last-child { grid-column: 1 / -1; }
+}
+
+/* Stable three-area timetable workspace. */
+body { min-width: 1000px; }
+.app-shell { display: flex; min-height: 100vh; }
+.app-sidebar { position: sticky; top: 0; width: 224px; height: 100vh; flex: 0 0 224px; }
+.sidebar-main { padding: 18px 12px; }
+.app-sidebar nav { display: grid; overflow: visible; }
+.app-sidebar nav button { width: 100%; min-width: 0; }
+.sidebar-footer { display: grid; border-top: 1px solid var(--line); }
+.sidebar-footer > button { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 12px; border: 1px solid transparent; border-radius: 7px; padding: 8px 11px; color: #475569; background: transparent; text-align: left; font-size: 12px; font-weight: 600; }
+.sidebar-footer > button > span { width: 19px; color: #8190a5; text-align: center; font-size: 17px; }
+.sidebar-footer > button[aria-pressed="true"] { border-color: #dbeafe; color: #1d4ed8; background: #eff6ff; }
+.app-main { min-width: 0; flex: 1; }
+.workspace, .workspace.has-timetable, .workspace.has-detail-panel { width: 100%; max-width: none; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; margin: 0; padding: 20px; gap: 16px; }
+.school-page, .settings-page, .calculation-page, .timetable-workspace, .issues-page, .structure-page { grid-column: 1; min-width: 0; }
+.entity-detail-panel { position: sticky; top: 78px; grid-column: 2; grid-row: 1; width: 320px; min-height: 210px; max-height: calc(100vh - 94px); overflow: auto; }
+.school-heading { margin-bottom: 14px; }
+.school-rosters { gap: 12px; }
+.sheet-panel { min-width: 0; }
+.sheet-scroll { overflow: auto; }
+.timetable-workspace { margin: 0; padding: 0; }
+.timetable-heading { align-items: center; flex-wrap: wrap; gap: 10px; }
+.timetable-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.timetable-actions > p { flex-basis: 100%; text-align: right; }
+#open-structure, #open-issues, #schedule-status { display: none !important; }
+.calendar-scroll { max-width: 100%; }
+.schedule-panels { display: none !important; }
+.entity-detail-actions:empty { display: none; }
+.detail-create-form, .detail-edit-form { display: grid; gap: 8px; margin-top: 12px; }
+.detail-create-form input, .detail-edit-form input { width: 100%; min-height: 36px; border: 1px solid #cbd5e1; border-radius: 5px; padding: 6px 8px; font: inherit; }
+.detail-edit-form label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+.detail-edit-form .danger-button { justify-self: start; }
+.context-constraint-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.context-constraint-list li { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 5px; border-left: 3px solid #637d90; padding: 5px 7px; background: #f5f8fa; font-size: 11px; }
+.context-constraint-list .constraint-category-undesired { border-left-color: #9a6b17; }
+.context-constraint-list .constraint-category-desired { border-left-color: #4c7f63; }
+tr[data-kind="unavailable"] td:first-child { border-left: 3px solid #637d90; }
+tr[data-kind="undesired"] td:first-child { border-left: 3px solid #9a6b17; }
+tr[data-kind="desired"] td:first-child { border-left: 3px solid #4c7f63; }
+.context-constraint-form { display: grid; gap: 6px; margin-top: 8px; }
+.context-constraint-form select { min-height: 34px; border: 1px solid #cbd5e1; border-radius: 5px; padding: 5px 7px; background: white; font: inherit; font-size: 12px; }
+.constraint-scope-note { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+.editor-panel { border-top: 0; padding-top: 0; }
+.editor-panel h3 { margin: 0; font-size: 14px; }
+.editor-panel #edit-status { padding: 8px; border-radius: 5px; background: #f5f8fa; }
+#school-page [data-roster-open] { display: none; }
+.school-meta { display: grid; gap: 10px; border: 0; }
+.school-meta label { display: grid; gap: 5px; }
+.school-meta input { width: min(100%, 560px); min-height: 38px; padding: 6px 9px; font: inherit; }
+.school-meta #school-edit-status, .school-meta #undo-school-edit { display: none; }
+.external-import-card { display: grid; gap: 12px; padding: 16px; }
+.external-import-card h3 { margin: 0; font-size: 15px; }
+.external-import-card > label { display: grid; gap: 5px; max-width: 380px; }
+.external-import-card select, .external-import-card input[type="file"] { max-width: 100%; }
+.external-ofd-import, .external-csv-import { display: grid; gap: 10px; }
+.external-ofd-import fieldset { display: flex; flex-wrap: wrap; gap: 10px 16px; border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; }
+.external-ofd-import fieldset label { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.external-ofd-import fieldset input { accent-color: var(--blue); }
+.external-ofd-import > p { margin: 0; color: var(--muted); font-size: 12px; }
+.external-csv-import { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.csv-import-item { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 7px; padding: 10px; }
+.csv-import-item label { display: grid; gap: 5px; font-size: 12px; }
+.csv-import-item p { min-height: 1.4em; margin: 0; color: var(--muted); font-size: 11px; }
+.pdf-page { gap: 12px; }
+.pdf-page > label { display: grid; gap: 5px; max-width: 380px; }
+.pdf-page select { min-height: 38px; border: 1px solid #cbd5e1; border-radius: 5px; padding: 6px 9px; background: white; font: inherit; }
+#pdf-print-content { grid-column: 1 / -1; }
+.print-timetable { width: 100%; border-collapse: collapse; }
+.print-timetable th, .print-timetable td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+.print-timetable th { background: #edf2f6; }
+.slot-background { pointer-events: auto; }
+.slot-background[data-drop-state="valid"] { background: #e7f4ea; box-shadow: inset 0 0 0 2px #639a70; }
+.slot-background[data-drop-state="soft"] { background: #fff4d6; box-shadow: inset 0 0 0 2px #bd8a2b; }
+.slot-background[data-drop-state="invalid"] { background: #fae9e7; box-shadow: inset 0 0 0 2px #bb6159; }
+.lesson-card[data-drop-state="valid"] { outline: 2px solid #639a70; }
+.lesson-card[data-drop-state="soft"] { outline: 2px solid #bd8a2b; }
+.lesson-card[data-drop-state="invalid"] { outline: 2px solid #bb6159; }
+.calendar-grid.is-dragging .lesson-card[draggable="true"] { cursor: grabbing; }
+@media (max-width: 1050px) {
+  body { min-width: 1000px; }
+  .app-shell { display: flex; }
+  .app-sidebar { position: sticky; width: 224px; height: 100vh; flex: 0 0 224px; border-right: 1px solid var(--line); border-bottom: 0; }
+  .sidebar-main { display: block; }
+  .sidebar-footer { display: grid; }
+  .workspace, .workspace.has-timetable, .workspace.has-detail-panel { grid-template-columns: minmax(0,1fr) 300px; padding: 16px; }
+  .entity-detail-panel { position: sticky; grid-column: 2; width: 300px; max-height: calc(100vh - 90px); }
+}
+@media print {
+  body { min-width: 0; background: white; }
+  body * { visibility: hidden !important; }
+  #pdf-print-content, #pdf-print-content * { visibility: visible !important; }
+  #pdf-print-content { display: block !important; position: fixed; inset: 0; width: 100%; padding: 12mm; background: white; }
+  #pdf-print-content h1 { margin: 0 0 6px; font-size: 18pt; }
+  #pdf-print-content > p { margin: 0 0 12px; }
+  .print-timetable { font-size: 9pt; }
 }

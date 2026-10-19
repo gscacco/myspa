@@ -24,6 +24,7 @@ export function validateTimetable(timetable) {
     errors.push(diagnostic('unsupported-schema-version', `Expected schema version ${TIMETABLE_SCHEMA_VERSION}.`, 'schemaVersion'));
   }
   if (typeof timetable.name !== 'string' || !timetable.name.trim()) errors.push(diagnostic('invalid-shape', 'Timetable name is required.', 'name'));
+  if (timetable.description != null && typeof timetable.description !== 'string') errors.push(diagnostic('invalid-shape', 'Timetable description must be text.', 'description'));
   if (!timetable.source || typeof timetable.source.xml !== 'string') errors.push(diagnostic('invalid-shape', 'Preserved source XML is required.', 'source.xml'));
 
   const calendar = timetable.calendar;

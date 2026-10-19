@@ -44,7 +44,7 @@ function issueText(item, timetable) {
 }
 
 /** Renders read-only class, teacher, and room schedules and navigable diagnostics. */
-export function createTimetableViews({ document = globalThis.document, onLessonSelect = () => {}, onBeforeLessonNavigate = () => {} } = {}) {
+export function createTimetableViews({ document = globalThis.document, onLessonSelect = () => {}, onBeforeLessonNavigate = () => {}, onManualPreview = () => null, onManualDrop = () => {} } = {}) {
   if (!document) throw new TypeError('A document is required to render timetable views.');
   const workspace = document.querySelector('#timetable-workspace');
   const structurePage = document.querySelector('#structure-page');
@@ -169,6 +169,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
 
   function renderGrid() {
     grid.replaceChildren();
+    grid.classList.remove('is-dragging');
     grid.setAttribute('role', 'region');
     grid.setAttribute('aria-label', `Orario per ${MODE_LABELS[mode].toLowerCase()}: ${activeEntity()?.name || 'nessun elemento'}`);
     const { days, periods } = timetable.calendar;
@@ -202,7 +203,9 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       column.style.gridTemplateRows = `repeat(${periods.length}, minmax(64px, auto))`;
       for (const [periodIndex, period] of periods.entries()) {
         const slot = make(document, 'div', 'slot-background');
-        slot.setAttribute('aria-hidden', 'true');
+        slot.dataset.dayIndex = String(dayIndex);
+        slot.dataset.periodIndex = String(periodIndex);
+        slot.setAttribute('aria-label', `${day.name}, ${formatTime(period.beginMinute)}`);
         slot.style.gridColumn = '1 / -1';
         slot.style.gridRow = String(periodIndex + 1);
         column.append(slot);
@@ -220,6 +223,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
         const hasWarning = related.some(item => item.severity === 'warning');
         const card = make(document, 'button', `lesson-card${hasConflict ? ' has-conflict' : hasWarning ? ' has-warning' : ''}`);
         card.type = 'button';
+        card.draggable = true;
         card.dataset.lessonId = lesson.id;
         card.style.gridColumn = String((laneByLesson.get(lesson.id) || 0) + 1);
         card.style.gridRow = `${lesson.assignedTime.periodIndex + 1} / span ${lesson.durationPeriods}`;
@@ -435,6 +439,53 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
   grid.addEventListener('click', event => {
     const button = event.target.closest('[data-lesson-id]');
     if (button) selectLesson(button.dataset.lessonId);
+  });
+  grid.addEventListener('dragstart', event => {
+    const card = event.target.closest('.lesson-card[data-lesson-id]');
+    if (!card) return;
+    const lessonId = card.dataset.lessonId;
+    event.dataTransfer?.setData('text/plain', lessonId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    grid.classList.add('is-dragging');
+    for (const slot of grid.querySelectorAll('.slot-background')) {
+      const result = onManualPreview(lessonId, {
+        dayIndex: Number(slot.dataset.dayIndex), periodIndex: Number(slot.dataset.periodIndex),
+      });
+      slot.dataset.dropState = result?.valid ? (result.worsensSoft ? 'soft' : 'valid') : 'invalid';
+      slot.title = result?.valid
+        ? result.worsensSoft ? 'Spostamento valido con penalità soft maggiore' : 'Spostamento valido'
+        : result?.reason || 'Vincolo hard non rispettato';
+    }
+    for (const target of grid.querySelectorAll('.lesson-card[data-lesson-id]')) {
+      if (target === card) continue;
+      const result = onManualPreview(lessonId, null, target.dataset.lessonId);
+      target.dataset.dropState = result?.valid ? (result.worsensSoft ? 'soft' : 'valid') : 'invalid';
+      target.title = result?.valid
+        ? result.worsensSoft ? 'Scambio valido con penalità soft maggiore' : 'Scambio valido'
+        : result?.reason || 'Scambio non valido';
+    }
+  });
+  grid.addEventListener('dragover', event => {
+    const target = event.target.closest('.slot-background[data-drop-state], .lesson-card[data-drop-state]');
+    if (!target) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = target.dataset.dropState === 'invalid' ? 'none' : 'move';
+  });
+  grid.addEventListener('drop', event => {
+    const target = event.target.closest('.slot-background[data-drop-state], .lesson-card[data-drop-state]');
+    if (!target) return;
+    event.preventDefault();
+    const lessonId = event.dataTransfer?.getData('text/plain');
+    if (!lessonId) return;
+    if (target.classList.contains('lesson-card')) onManualDrop(lessonId, null, target.dataset.lessonId);
+    else onManualDrop(lessonId, { dayIndex: Number(target.dataset.dayIndex), periodIndex: Number(target.dataset.periodIndex) });
+  });
+  grid.addEventListener('dragend', () => {
+    grid.classList.remove('is-dragging');
+    for (const target of grid.querySelectorAll('[data-drop-state]')) {
+      delete target.dataset.dropState;
+      target.removeAttribute('title');
+    }
   });
   issuesList.addEventListener('click', event => {
     const button = event.target.closest('[data-lesson-id]');

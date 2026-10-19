@@ -142,7 +142,7 @@ test('full timetable recalculation stays a proposal until explicitly confirmed a
   let confirms = 0;
   const editor = createTimetableEditor({ document, getTimetable: () => applied, onApply: next => { applied = next; }, confirm: () => { confirms++; return allow; } });
   assert.equal(document.querySelector('#recalculate-all').disabled, false);
-  assert.ok(document.querySelector('.calculation-heading #recalculate-all'), 'the calculation action has its own phase screen');
+  assert.ok(document.querySelector('.timetable-heading #recalculate-all'), 'the calculation action stays in the timetable workspace');
   assert.equal(document.querySelector('#optimization-weight-undesired').value, '100');
   assert.equal(document.querySelector('#optimization-weight-preferred').value, '25');
   document.querySelector('#recalculate-all').click();
@@ -172,7 +172,7 @@ test('applying a full recalculation opens a populated class timetable and report
   const source = new TextEncoder().encode(exportTimetableEDN(sourceTimetable));
   await app.stageEDNFile({ name: 'synthetic.edn', arrayBuffer: async () => source.buffer });
   app.applyImport();
-  app.showScreen('calculation');
+  app.showScreen('schedule');
 
   document.querySelector('#recalculate-all').click();
   await app.editor.recalculationComplete;
@@ -263,11 +263,8 @@ test('constraint details are managed in the constraints sheet and undo stays on 
   await app.stageEDNFile({ name: 'structure.edn', arrayBuffer: async () => edn.buffer });
   app.applyImport();
   assert.equal(app.timetable.lessons.every(lesson => lesson.assignedTime === null), true);
-  assert.equal(document.querySelector('#school-page').hidden, false, 'structure-only imports open directly in the editable school workspace');
+  assert.equal(document.querySelector('#school-page').hidden, false, 'structure-only imports open the data workspace');
   assert.equal(document.querySelector('#timetable-workspace').hidden, true);
-  document.querySelector('[data-screen="calculation"]').click();
-  assert.equal(document.querySelector('#calculation-page').hidden, false);
-  assert.equal(document.activeElement.id, 'recalculate-all', 'calculation is directly reachable from the sidebar');
   document.querySelector('[data-screen="constraints"]').click();
   assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false);
   assert.equal(document.querySelector('#constraint-target').value, 'teacher|teacher:T1', 'the constraint editor starts on an imported target with an existing timeframe');
@@ -276,12 +273,100 @@ test('constraint details are managed in the constraints sheet and undo stays on 
   document.querySelector('#constraint-period').value = '2';
   document.querySelector('#add-constraint').click();
   assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false, 'saving keeps the constraints sheet open');
-  assert.match(document.querySelector('#school-grid-constraints').textContent, /Teacher One.*Obbligatorio.*Monday.*10:00/i);
+  assert.match(document.querySelector('#school-grid-constraints').textContent, /Teacher One.*Hard.*Monday.*10:00/i);
   assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, ['0.2']);
   document.querySelector('#undo-constraint-change').click();
   assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false, 'undo is available without leaving the constraints sheet');
   assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.unavailable, []);
-  assert.doesNotMatch(document.querySelector('#school-grid-constraints').textContent, /Teacher One.*Obbligatorio.*Monday.*10:00/i);
+  assert.doesNotMatch(document.querySelector('#school-grid-constraints').textContent, /Teacher One.*Hard.*Monday.*10:00/i);
+  dom.window.close();
+});
+
+test('drag feedback accepts soft-worsening moves, rejects hard violations, and supports undo and redo', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const app = createTimetableApp({ document, confirm: () => true });
+  const source = new TextEncoder().encode(exportTimetableEDN(solverFixture()));
+  await app.stageEDNFile({ name: 'manual.edn', arrayBuffer: async () => source.buffer });
+  app.applyImport();
+  document.querySelector('[data-screen="schedule"]').click();
+  document.querySelector('#schedule-grid [data-lesson-id="target"]').click();
+  const card = document.querySelector('#schedule-grid [data-lesson-id="target"]');
+  const transfer = {
+    data: '', effectAllowed: '', dropEffect: '',
+    setData(_type, value) { this.data = value; },
+    getData() { return this.data; },
+  };
+  const drag = new dom.window.Event('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(drag, 'dataTransfer', { value: transfer });
+  card.dispatchEvent(drag);
+  let destination = document.querySelector('#schedule-grid .slot-background[data-day-index="0"][data-period-index="1"]');
+  assert.equal(destination.dataset.dropState, 'soft');
+  const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, 'dataTransfer', { value: transfer });
+  destination.dispatchEvent(drop);
+  assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, 1);
+  assert.match(document.querySelector('#edit-status').textContent, /penalità soft aumentata/i);
+  document.querySelector('#undo-change').click();
+  assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, 0);
+  document.querySelector('#redo-change').click();
+  assert.equal(app.timetable.lessons[0].assignedTime.periodIndex, 1);
+  dom.window.close();
+
+  const invalidDOM = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const invalidApp = createTimetableApp({ document: invalidDOM.window.document, confirm: () => true });
+  const invalidModel = solverFixture();
+  invalidModel.entities.teachers[0].constraints.timeframes.unavailable = ['0.1'];
+  const invalidSource = new TextEncoder().encode(exportTimetableEDN(invalidModel));
+  await invalidApp.stageEDNFile({ name: 'hard.edn', arrayBuffer: async () => invalidSource.buffer });
+  invalidApp.applyImport();
+  invalidDOM.window.document.querySelector('[data-screen="schedule"]').click();
+  const invalidCard = invalidDOM.window.document.querySelector('#schedule-grid [data-lesson-id="target"]');
+  const invalidTransfer = { data: '', setData(_type, value) { this.data = value; }, getData() { return this.data; } };
+  const invalidDrag = new invalidDOM.window.Event('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(invalidDrag, 'dataTransfer', { value: invalidTransfer });
+  invalidCard.dispatchEvent(invalidDrag);
+  const invalidDestination = invalidDOM.window.document.querySelector('#schedule-grid .slot-background[data-day-index="0"][data-period-index="1"]');
+  assert.equal(invalidDestination.dataset.dropState, 'invalid');
+  assert.match(invalidDestination.title, /violazioni hard|non disponibile/i);
+  const invalidDrop = new invalidDOM.window.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(invalidDrop, 'dataTransfer', { value: invalidTransfer });
+  invalidDestination.dispatchEvent(invalidDrop);
+  assert.equal(invalidApp.timetable.lessons[0].assignedTime.periodIndex, 0);
+  assert.match(invalidDOM.window.document.querySelector('#edit-status').textContent, /violazioni hard/i);
+  invalidDOM.window.close();
+});
+
+test('dropping a lesson on another lesson swaps both assignments atomically', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const app = createTimetableApp({ document, confirm: () => true });
+  const model = solverFixture();
+  model.entities.classes.push({ id: 'class:C2', name: 'Class 2' });
+  model.entities.rooms.push({ id: 'room:R2', name: 'Room 2' });
+  model.lessons.push({
+    ...structuredClone(model.lessons[0]), id: 'second', sourceIndex: 1, classIds: ['class:C2'], roomIds: ['room:R2'],
+    assignedTime: { dayIndex: 0, periodIndex: 2, sourceValue: '0.2' },
+  });
+  const source = new TextEncoder().encode(exportTimetableEDN(model));
+  await app.stageEDNFile({ name: 'swap.edn', arrayBuffer: async () => source.buffer });
+  app.applyImport();
+  document.querySelector('[data-screen="schedule"]').click();
+  document.querySelector('[data-view="teacher"]').click();
+  document.querySelector('#schedule-grid [data-lesson-id="target"]').click();
+  const target = document.querySelector('#schedule-grid [data-lesson-id="target"]');
+  const second = document.querySelector('#schedule-grid [data-lesson-id="second"]');
+  const transfer = { data: '', setData(_type, value) { this.data = value; }, getData() { return this.data; } };
+  const drag = new dom.window.Event('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(drag, 'dataTransfer', { value: transfer });
+  target.dispatchEvent(drag);
+  assert.equal(second.dataset.dropState, 'valid');
+  const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, 'dataTransfer', { value: transfer });
+  second.dispatchEvent(drop);
+  assert.deepEqual(app.timetable.lessons.map(lesson => lesson.assignedTime.periodIndex), [2, 0]);
+  document.querySelector('#undo-change').click();
+  assert.deepEqual(app.timetable.lessons.map(lesson => lesson.assignedTime.periodIndex), [0, 2]);
   dom.window.close();
 });
 

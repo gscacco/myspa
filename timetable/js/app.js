@@ -3,10 +3,12 @@ import { importTimetableEDN, exportTimetableEDN, EDNImportError } from './edn-im
 import { createTimetableViews } from './views.js';
 import { createTimetableEditor } from './editor.js';
 import { createEmptySchool, createSchoolWorkbench } from './school-workbench.js';
-import { parseRosterCSV } from './roster-importer.js';
+import { parseConstraintCSV, parseRosterCSV } from './roster-importer.js';
 import { getCalculationReadiness, validateTimetable } from './validation.js';
 import { TIMETABLE_VERSION } from './version.js';
 import { optimizationScope } from './optimization-scope.js';
+import { createTimetablePersistence } from './persistence.js';
+import { printableLessons } from './pdf.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
 const rosterWarningCodes = new Set(['encoding-mismatch', 'period-name-mismatch', 'unsupported-structure', 'unsupported-attribute']);
@@ -38,7 +40,7 @@ function diagnosticText(item) {
 }
 
 /** Owns pending/current import state; only an explicit action replaces current data. */
-export function createTimetableApp({ document = globalThis.document, DOMParser = document?.defaultView?.DOMParser, confirm = document?.defaultView?.confirm?.bind(document.defaultView), importer = source => importOFD(source, { DOMParser }) } = {}) {
+export function createTimetableApp({ document = globalThis.document, DOMParser = document?.defaultView?.DOMParser, confirm = document?.defaultView?.confirm?.bind(document.defaultView), importer = source => importOFD(source, { DOMParser }), indexedDB = document?.defaultView?.indexedDB } = {}) {
   if (!document) throw new TypeError('A document is required to mount the timetable import screen.');
   const report = document.querySelector('#import-report');
   const summary = document.querySelector('#import-summary');
@@ -54,6 +56,16 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const detailBackButton = document.querySelector('#detail-back');
   const appWorkspace = document.querySelector('.workspace');
   const versionOutput = document.querySelector('#app-version');
+  const persistence = createTimetablePersistence(indexedDB);
+  const schoolDescription = document.querySelector('#school-description');
+  const externalOFDInput = document.querySelector('#external-ofd-file');
+  const externalOFDApply = document.querySelector('#apply-external-ofd');
+  const externalOFDStatus = document.querySelector('#external-ofd-status');
+  const pdfType = document.querySelector('#pdf-output-type');
+  const pdfEntityWrap = document.querySelector('#pdf-entity-wrap');
+  const pdfEntitySelect = document.querySelector('#pdf-entity-select');
+  const printButton = document.querySelector('#print-timetable');
+  const pdfPrintContent = document.querySelector('#pdf-print-content');
   if (![report, summary, diagnosticsList, applyButton, cancelButton, currentStatus, importCard, appWorkspace, detailPanel, detailTitle, detailContent, detailActions, detailBackButton].every(Boolean)) {
     throw new Error('Timetable import screen is missing a required accessible control.');
   }
@@ -64,29 +76,37 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let pending = null;
   let pendingRoster = null;
   let pendingLessons = null;
+  let pendingOFD = null;
+  let pendingExternalCSV = new Map();
   let views;
   let editor;
-  let activeScreen = 'school';
+  let activeScreen = 'teachers';
   let activeSchoolView = 'teachers';
   let activeDetail = null;
   let detailNavigationStack = [];
   let navigatingToEntity = false;
   let hasUnexportedChanges = false;
+  let hasEditedDuringLoad = false;
+  let saveGeneration = 0;
   const saveStateBadge = document.querySelector('.draft-badge');
   function markUnsavedChanges() {
     hasUnexportedChanges = true;
+    hasEditedDuringLoad = true;
     currentStatus.textContent = 'Modifiche non esportate';
-    if (saveStateBadge) saveStateBadge.textContent = 'Non esportato';
+    if (saveStateBadge) saveStateBadge.textContent = 'Salvataggio…';
+    const generation = ++saveGeneration;
+    persistence.save(current).then(saved => {
+      if (generation !== saveGeneration) return;
+      if (saveStateBadge) saveStateBadge.textContent = saved ? 'Salvato' : 'Solo in memoria';
+      hasUnexportedChanges = false;
+    }).catch(() => {
+      if (generation === saveGeneration && saveStateBadge) saveStateBadge.textContent = 'Salvataggio non riuscito';
+    });
   }
   function markChangesExported() {
     hasUnexportedChanges = false;
     if (saveStateBadge) saveStateBadge.textContent = 'Salvato';
   }
-  document.defaultView?.addEventListener('beforeunload', event => {
-    if (!hasUnexportedChanges) return;
-    event.preventDefault();
-    event.returnValue = '';
-  });
   const unknownCount = (timetable, collection, lessonField) => {
     const unknownIds = new Set((timetable.entities?.[collection] || []).filter(item => item.placeholder === 'unknown').map(item => item.id));
     return timetable.lessons.filter(lesson => lessonField === 'subjectId'
@@ -121,9 +141,11 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       updateCalculationReadiness();
       document.querySelector('#topbar-school-name').textContent = current.name;
       document.querySelector('#school-name').value = current.name;
+      if (schoolDescription) schoolDescription.value = current.description || '';
       markUnsavedChanges();
       exportButton.disabled = false;
       exportToolsButton.disabled = false;
+      refreshPDFControls();
     },
   });
   editor = createTimetableEditor({
@@ -134,8 +156,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       current = next;
       schoolWorkbench.setTimetable(current);
       markUnsavedChanges();
-      // A full recalculation replaces the assignments across the whole model.
-      // Reset the prior view context before selecting a class for the new schedule.
+      // A full recalculation replaces assignments only after the operator confirms it.
       refreshViews(action !== 'recalculation');
       if (action === 'recalculation') {
         const { optimizableLessons } = optimizationScope(current);
@@ -180,7 +201,15 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     if (!navigate) detailNavigationStack = [];
     editor.selectLesson(lesson.id);
     openEntityDetail({ type: 'lessons', id: lesson.id });
-  } });
+  },
+    onManualPreview: (lessonId, assignedTime, swapWithLessonId) => editor.previewManualMove(lessonId, assignedTime, swapWithLessonId),
+    onManualDrop: (lessonId, assignedTime, swapWithLessonId) => {
+      const result = swapWithLessonId
+        ? editor.swapLessons(lessonId, swapWithLessonId)
+        : editor.moveLesson(lessonId, assignedTime);
+      if (!result.valid) editor.setManualStatus(result.reason);
+    },
+  });
   schoolWorkbench.setTimetable(current);
   editor.setTimetable(current);
   views.render(current, currentDiagnostics);
@@ -279,48 +308,43 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   }
 
   function showScreen(screen) {
-    const schoolViews = ['teachers', 'classes', 'students', 'lessons', 'rooms', 'constraints'];
-    if (schoolViews.includes(screen)) {
-      activeSchoolView = screen;
-      screen = 'school';
-    }
+    const schoolViews = ['teachers', 'classes', 'rooms', 'constraints'];
+    if (!['schedule', ...schoolViews, 'settings', 'pdf'].includes(screen)) screen = 'teachers';
+    if (schoolViews.includes(screen)) activeSchoolView = screen;
     activeScreen = screen;
     if (screen === 'schedule' && views.screen !== 'schedule') views.showSchedule();
-    if (!['school', 'schedule'].includes(screen)) {
-      detailPanel.hidden = true;
-      appWorkspace.classList.remove('has-detail-panel');
-    } else {
-      detailPanel.hidden = false;
-      appWorkspace.classList.add('has-detail-panel');
-      if (!activeDetail) showEmptyDetail();
-    }
-    document.querySelector('#school-page').hidden = screen !== 'school';
+    detailPanel.hidden = false;
+    appWorkspace.classList.add('has-detail-panel');
+    if (!activeDetail) showEmptyDetail();
+    document.querySelector('#school-page').hidden = !schoolViews.includes(screen);
     document.querySelector('#settings-page').hidden = screen !== 'settings';
     importCard.hidden = screen !== 'settings';
-    document.querySelector('#calculation-page').hidden = screen !== 'calculation';
+    document.querySelector('#calculation-page').hidden = true;
     document.querySelector('#timetable-workspace').hidden = screen !== 'schedule';
-    document.querySelector('.current-card').hidden = screen !== 'settings' || !current.lessons.length;
+    document.querySelector('#pdf-page').hidden = screen !== 'pdf';
+    document.querySelector('.current-card').hidden = true;
     document.querySelector('#issues-page').hidden = true;
     document.querySelector('#structure-page').hidden = true;
-    for (const panel of document.querySelectorAll('[data-school-panel]')) panel.hidden = panel.dataset.schoolPanel !== activeSchoolView;
+    for (const panel of document.querySelectorAll('[data-school-panel]')) {
+      panel.hidden = !schoolViews.includes(screen)
+        || !(panel.dataset.schoolPanel === screen || (screen === 'classes' && panel.dataset.schoolPanel === 'classes'));
+    }
     const schoolCopy = {
-      teachers: ['Docenti', 'Elenco dei docenti e delle relative disponibilità.'],
-      classes: ['Classi e materie', 'Gestisci classi, materie e piani di studio.'],
-      students: ['Studenti', 'Elenco degli studenti e della classe associata.'],
-      lessons: ['Lezioni', 'Definisci materia, docenti, classi e durata; il calcolo assegna giorno e ora.'],
-      rooms: ['Aule', 'Gestisci gli spazi disponibili e le relative indisponibilità.'],
-      constraints: ['Vincoli', 'Gestisci le fasce non disponibili e le preferenze temporali.'],
-    }[activeSchoolView] || ['Docenti', 'Elenco dei docenti e delle relative disponibilità.'];
+      teachers: ['Docenti', 'Docenti assegnabili alle lezioni.'],
+      classes: ['Classi e Materie', 'Classi e materie associate alle lezioni.'],
+      rooms: ['Aule', 'Aule associate alle lezioni.'],
+      constraints: ['Vincoli', 'Vincoli temporali condivisi da tutti gli elementi.'],
+    }[screen] || ['Docenti', 'Docenti assegnabili alle lezioni.'];
     document.querySelector('#school-view-label').textContent = schoolCopy[0];
     document.querySelector('#school-heading').textContent = schoolCopy[0];
     document.querySelector('#school-heading-intro').textContent = schoolCopy[1];
     for (const button of document.querySelectorAll('[data-screen]')) {
-      const active = button.dataset.screen === screen || (screen === 'school' && button.dataset.screen === activeSchoolView);
+      const active = button.dataset.screen === screen;
       button.setAttribute('aria-pressed', String(active));
     }
-    document.documentElement.dataset.screen = screen;
-    if (screen === 'calculation') document.querySelector('#recalculate-all').focus();
+    document.documentElement.dataset.activeScreen = screen;
     if (screen === 'schedule') document.querySelector('#timetable-heading').setAttribute('tabindex', '-1');
+    editor.setScreen(screen, activeDetail);
   }
   function refreshViews(preserveContext = false) {
     views.render(current, currentDiagnostics, { preserveContext });
@@ -343,7 +367,11 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     exportToolsButton.disabled = false;
     refreshViews(true);
   });
-  showScreen('school');
+  schoolDescription?.addEventListener('change', event => {
+    schoolWorkbench.setDescription(event.currentTarget.value);
+    event.currentTarget.value = current.description || '';
+  });
+  showScreen('teachers');
   updateCalculationReadiness();
 
   function addDetailSection(title, lines) {
@@ -417,7 +445,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   }
 
   function detailContextLabel() {
-    if (activeScreen === 'school') return ({ teachers: 'Docenti', classes: 'Classi e materie', students: 'Studenti', lessons: 'Lezioni', rooms: 'Aule', constraints: 'Vincoli' })[activeSchoolView];
+    if (activeScreen !== 'schedule') return ({ teachers: 'Docenti', classes: 'Classi e materie', rooms: 'Aule', constraints: 'Vincoli' })[activeScreen];
     return 'Orario';
   }
 
@@ -488,7 +516,123 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     message.textContent = 'Seleziona un elemento nell’elenco per vederne i dettagli.';
     detailContent.append(message);
     detailActions.replaceChildren();
+    const collections = activeScreen === 'classes' ? [['classes', 'Classe'], ['subjects', 'Materia']]
+      : activeScreen === 'teachers' ? [['teachers', 'Docente']]
+        : activeScreen === 'rooms' ? [['rooms', 'Aula']] : [];
+    for (const [collection, label] of collections) {
+      const form = element(document, 'form', { class: 'detail-create-form', 'data-create-entity': collection });
+      const input = element(document, 'input', { type: 'text', required: 'required', 'aria-label': `Nome ${label.toLocaleLowerCase()}`, placeholder: `Nuov${label === 'Aula' ? 'a' : 'o'} ${label.toLocaleLowerCase()}` });
+      const button = element(document, 'button', { type: 'submit', class: 'secondary-button' });
+      button.textContent = `Aggiungi ${label.toLocaleLowerCase()}`;
+      form.append(input, button);
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        try { schoolWorkbench.createEntity(collection, input.value); }
+        catch (error) { message.textContent = error.message; input.focus(); }
+      });
+      detailContent.append(form);
+    }
     updateDetailBackButton();
+  }
+
+  function appendEntityEditor(collection, entity) {
+    if (!['teachers', 'classes', 'subjects', 'rooms'].includes(collection)) return;
+    const form = element(document, 'form', { class: 'detail-edit-form' });
+    const label = element(document, 'label');
+    label.textContent = 'Nome';
+    const input = element(document, 'input', { type: 'text', value: entity.name, required: 'required' });
+    label.append(input);
+    const save = element(document, 'button', { type: 'submit', class: 'secondary-button' });
+    save.textContent = 'Salva';
+    const remove = element(document, 'button', { type: 'button', class: 'secondary-button danger-button' });
+    remove.textContent = 'Elimina';
+    const status = element(document, 'p', { class: 'muted', role: 'status', 'aria-live': 'polite' });
+    form.append(label, save, remove, status);
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      try { schoolWorkbench.updateEntity(collection, entity.id, { name: input.value }); }
+      catch (error) { status.textContent = error.message; }
+    });
+    remove.addEventListener('click', () => {
+      try { schoolWorkbench.deleteEntity(collection, entity.id); }
+      catch (error) { status.textContent = error.message; }
+    });
+    detailContent.append(form);
+  }
+
+  function appendContextConstraints(collection, id, owner, selectedConstraint = null) {
+    const scope = ({ teachers: 'teacher', classes: 'class', rooms: 'room', lessons: 'lesson' })[collection];
+    if (!scope || !owner) return;
+    const frames = collection === 'lessons' ? owner.timeframes || {} : owner.constraints?.timeframes || {};
+    const section = element(document, 'section', { class: 'entity-detail-section contextual-constraints' });
+    const heading = element(document, 'h3'); heading.textContent = 'Vincoli'; section.append(heading);
+    const labels = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' };
+    const formatSlot = slot => {
+      const [dayIndex, periodIndex] = slot.split('.').map(Number);
+      const day = current.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
+      const period = current.calendar.periods[periodIndex];
+      const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : `ora ${periodIndex + 1}`;
+      return `${day} · ${time}`;
+    };
+    const list = element(document, 'ul', { class: 'context-constraint-list' });
+    const editState = { value: selectedConstraint ? { ...selectedConstraint } : null };
+    const kindSelect = element(document, 'select', { 'aria-label': 'Categoria del vincolo' });
+    for (const [value, labelText] of Object.entries(labels)) kindSelect.append(element(document, 'option', { value }, labelText));
+    const daySelect = element(document, 'select', { 'aria-label': 'Giorno del vincolo' });
+    for (const day of current.calendar.days) daySelect.append(element(document, 'option', { value: String(day.index) }, day.name));
+    const periodSelect = element(document, 'select', { 'aria-label': 'Ora del vincolo' });
+    for (const period of current.calendar.periods) periodSelect.append(element(document, 'option', { value: String(period.index) }, `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}`));
+    const save = element(document, 'button', { type: 'button', class: 'secondary-button' });
+    save.textContent = editState.value ? 'Salva vincolo' : 'Aggiungi vincolo';
+    const status = element(document, 'p', { class: 'muted', role: 'status', 'aria-live': 'polite' });
+    const resetForm = () => {
+      editState.value = null;
+      kindSelect.disabled = false;
+      save.textContent = 'Aggiungi vincolo';
+    };
+    if (editState.value) {
+      kindSelect.value = editState.value.kind;
+      daySelect.value = String(Number(editState.value.slot.split('.')[0]));
+      periodSelect.value = String(Number(editState.value.slot.split('.')[1]));
+      kindSelect.disabled = true;
+    }
+    const saveConstraint = () => {
+      const slot = `${daySelect.value}.${periodSelect.value}`;
+      try {
+        if (editState.value && activeDetail?.type === 'constraint') {
+          activeDetail = { type: 'constraint', constraint: { ...activeDetail.constraint, slot } };
+        }
+        schoolWorkbench.updateConstraint({ scope, id, kind: kindSelect.value, action: editState.value ? 'update' : 'add', slot, from: editState.value?.slot });
+        resetForm();
+      } catch (error) { status.textContent = error.message; }
+    };
+    for (const kind of ['unavailable', 'undesired', 'desired']) for (const slot of frames[kind] || []) {
+      const row = element(document, 'li', { class: `constraint-category-${kind}` });
+      const text = element(document, 'span');
+      text.textContent = `${labels[kind]} · ${formatSlot(slot)}`;
+      const edit = element(document, 'button', { type: 'button', class: 'detail-link' }); edit.textContent = 'Modifica';
+      edit.addEventListener('click', () => {
+        editState.value = { kind, slot };
+        kindSelect.value = kind; kindSelect.disabled = true;
+        daySelect.value = String(Number(slot.split('.')[0])); periodSelect.value = String(Number(slot.split('.')[1]));
+        save.textContent = 'Salva vincolo';
+      });
+      const remove = element(document, 'button', { type: 'button', class: 'detail-link' }); remove.textContent = 'Elimina';
+      remove.addEventListener('click', () => {
+        try { schoolWorkbench.updateConstraint({ scope, id, kind, action: 'delete', slot }); }
+        catch (error) { status.textContent = error.message; }
+      });
+      row.append(text, edit, remove); list.append(row);
+    }
+    if (!list.children.length) list.append(element(document, 'li', { class: 'muted' }, 'Nessun vincolo associato.'));
+    const form = element(document, 'div', { class: 'context-constraint-form' });
+    form.append(kindSelect, daySelect, periodSelect, save, status);
+    save.addEventListener('click', saveConstraint);
+    if (!['teacher', 'class'].includes(scope)) {
+      section.append(element(document, 'p', { class: 'constraint-scope-note' }, 'Il solver corrente non verifica i vincoli di questo ambito.'));
+    }
+    section.append(list, form);
+    detailContent.append(section);
   }
 
   function updateDetailBackButton() {
@@ -503,7 +647,13 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   });
 
   function navigateToEntity(collection, id) {
-    const screenByCollection = { teachers: 'teachers', classes: 'classes', subjects: 'classes', students: 'students', rooms: 'rooms', lessons: 'lessons' };
+    const screenByCollection = { teachers: 'teachers', classes: 'classes', subjects: 'classes', students: 'classes', rooms: 'rooms' };
+    if (collection === 'lessons') {
+      detailNavigationStack.push({ label: detailContextLabel() || 'elenco', state: captureDetailContext() });
+      showScreen('schedule');
+      views.selectLesson(id, { navigate: true });
+      return;
+    }
     const screen = screenByCollection[collection];
     if (!screen) return;
     detailNavigationStack.push({ label: detailContextLabel() || 'elenco', state: captureDetailContext() });
@@ -576,9 +726,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     detailContent.replaceChildren(); detailActions.replaceChildren(); detailPanel.hidden = false;
     appWorkspace.classList.add('has-detail-panel');
     updateDetailBackButton();
+    if (!constraint) appendEntityEditor(collection, entity);
 
     if (constraint) {
-      const kindLabels = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' };
+      const kindLabels = { unavailable: 'Hard · Indisponibilità', undesired: 'Soft · Da evitare', desired: 'Soft · Preferita' };
       const [dayIndex, periodIndex] = constraint.slot.split('.').map(Number);
       const dayName = current.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
       const period = current.calendar.periods[periodIndex];
@@ -590,7 +741,9 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
         return sameDay && (constraint.kind === 'unavailable' ? covers : lesson.assignedTime.periodIndex === periodIndex);
       });
       const pending = relatedLessons.some(lesson => !lesson.assignedTime);
-      const outcome = overlaps
+      const outcome = !['teachers', 'classes'].includes(collection)
+        ? 'Questo ambito non è verificato dal solver corrente.'
+        : overlaps
         ? constraint.kind === 'desired' ? 'Soddisfatto: una lezione è assegnata in questa fascia preferita.'
           : constraint.kind === 'undesired' ? 'Non rispettato: una lezione occupa questa fascia da evitare.'
             : 'Non rispettato: una lezione occupa questa fascia indisponibile.'
@@ -598,12 +751,15 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
           : constraint.kind === 'desired' ? 'Non soddisfatto: nessuna lezione è assegnata a questa fascia.'
             : 'Rispettato: nessuna lezione occupa questa fascia.';
       addDetailSection('Esito', [`${kindLabels[constraint.kind] || constraint.kind} · ${dayName}, ${time}`, outcome]);
+      appendContextConstraints(collection, targetId, entity, constraint);
     } else if (collection === 'lessons') {
       const lesson = entity;
       addLessonSection('Lezione', [lesson]);
       addDetailSection('Durata', [`${lesson.durationPeriods} ${lesson.durationPeriods === 1 ? 'ora' : 'ore'}`]);
+      appendContextConstraints(collection, targetId, entity);
     } else {
       addLessonSection('Lezioni in orario', relatedLessons.filter(lesson => lesson.assignedTime), collection, entity?.id || constraint?.id);
+      if (['teachers', 'classes', 'rooms'].includes(collection)) appendContextConstraints(collection, targetId, entity);
     }
 
     if (relevantIssues.length) {
@@ -619,57 +775,12 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       }));
     }
 
-    if (!constraint) {
-      const frames = collection === 'lessons' ? entity.timeframes : entity.constraints?.timeframes;
-      const kindLabels = { unavailable: 'Obbligatorio', undesired: 'Da evitare', desired: 'Preferita' };
-      const frameLines = [];
-      for (const kind of ['unavailable', 'undesired', 'desired']) for (const slot of frames?.[kind] || []) {
-        const [dayIndex, periodIndex] = slot.split('.').map(Number);
-        const assignedRelated = relatedLessons.filter(lesson => lesson.assignedTime);
-        const affected = assignedRelated.some(lesson => {
-          if (lesson.assignedTime.dayIndex !== dayIndex) return false;
-          const startsHere = lesson.assignedTime.periodIndex === periodIndex;
-          const overlaps = periodIndex >= lesson.assignedTime.periodIndex && periodIndex < lesson.assignedTime.periodIndex + lesson.durationPeriods;
-          return kind === 'unavailable' ? overlaps : startsHere;
-        });
-        const day = current.calendar.days[dayIndex]?.name || `Giorno ${dayIndex + 1}`;
-        const period = current.calendar.periods[periodIndex];
-        const time = period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : `ora ${periodIndex + 1}`;
-        const result = kind === 'desired' ? (affected ? 'soddisfatta' : 'non soddisfatta')
-          : affected ? 'non rispettato' : 'rispettato';
-        const pendingCount = relatedLessons.filter(lesson => !lesson.assignedTime).length;
-        frameLines.push(`${kindLabels[kind]} · ${day}, ${time}: ${result}${pendingCount ? ` · ${pendingCount} lezioni senza orario` : ''}`);
-      }
-      addDetailSection('Vincoli assegnati', frameLines);
-      if (!relevantIssues.length && !frameLines.length) addDetailSection('Esito', ['Nessuna violazione rilevata; non ci sono vincoli temporali associati.']);
-    }
 
     const unsupported = collection === 'lessons' ? [] : Object.entries(entity?.constraints || {})
       .filter(([key, value]) => key !== 'timeframes' && value != null && value !== false && value !== '')
       .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)} · conservato, non verificato dal calcolo`);
     if (unsupported.length) addDetailSection('Altri dati conservati', unsupported);
 
-    const scheduleButton = element(document, 'button', { type: 'button', class: 'primary-button' }, 'Apri nell’orario');
-    let mode = ({ teachers: 'teacher', classes: 'class', rooms: 'room' })[collection];
-    let scheduleEntityId = entity?.id;
-    const firstLesson = relatedLessons[0];
-    let lessonId = collection === 'lessons' ? entity?.id : firstLesson?.id;
-    if (collection === 'subjects' && firstLesson) { mode = 'class'; scheduleEntityId = firstLesson.classIds?.[0]; }
-    if (collection === 'students') { mode = 'class'; scheduleEntityId = entity?.classId; }
-    if (constraint && collection === 'lessons') lessonId = constraint.id;
-    else if (constraint && firstLesson) lessonId = firstLesson.id;
-    if (!mode && firstLesson?.classIds?.length) { mode = 'class'; scheduleEntityId = firstLesson.classIds[0]; }
-    scheduleButton.disabled = !mode || !scheduleEntityId;
-    scheduleButton.addEventListener('click', () => {
-      if (!mode || !scheduleEntityId) return;
-      detailNavigationStack.push({ label: detailContextLabel() || 'elenco', state: captureDetailContext() });
-      updateDetailBackButton();
-      showScreen('schedule');
-      navigatingToEntity = true;
-      views.showEntitySchedule(mode, scheduleEntityId, collection === 'lessons' ? lessonId : null);
-      navigatingToEntity = false;
-    });
-    if (collection === 'lessons' || collection === 'teachers' || collection === 'classes' || collection === 'rooms' || collection === 'subjects' || collection === 'students' || constraint) detailActions.append(scheduleButton);
   }
 
   function renderDiagnostics(items) {
@@ -753,6 +864,95 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       const source = new TextDecoder('utf-8', { fatal: true }).decode(await selected.arrayBuffer());
       return importTimetableEDN(source);
     });
+  }
+
+  async function stageExternalOFD(file) {
+    pendingOFD = null;
+    externalOFDApply.disabled = true;
+    externalOFDStatus.textContent = `Controllo di ${file?.name || 'file'}…`;
+    try {
+      if (!/\.ofd$/i.test(file?.name || '')) throw new Error('Seleziona un file OFD.');
+      if (typeof file.arrayBuffer !== 'function') throw new Error('Il browser non può leggere il file selezionato.');
+      const result = await importer(new Uint8Array(await file.arrayBuffer()));
+      const sections = [...document.querySelectorAll('[data-ofd-section]:checked')].map(input => input.dataset.ofdSection);
+      if (!sections.length) throw new Error('Seleziona almeno una sezione da importare.');
+      pendingOFD = { result, sections, filename: file.name || '' };
+      const counts = sections.map(section => section === 'constraints' ? 'vincoli' : `${result.timetable.entities[section]?.length || 0} ${section}`).join(' · ');
+      externalOFDStatus.textContent = `${file.name || 'File OFD'} verificato: ${counts}. Conferma per importare.`;
+      externalOFDApply.disabled = false;
+      return true;
+    } catch (error) {
+      externalOFDStatus.textContent = `Importazione non riuscita: ${error.message} La scuola è rimasta invariata.`;
+      return false;
+    }
+  }
+
+  function applyExternalOFD() {
+    if (!pendingOFD) return false;
+    try {
+      const result = schoolWorkbench.importOFDSections(pendingOFD.result, pendingOFD.sections, {
+        format: 'orario-facile-ofd-sections', filename: pendingOFD.filename,
+        source: pendingOFD.result.timetable.source,
+        diagnostics: pendingOFD.result.diagnostics.map(item => ({ severity: item.severity || 'info', code: item.code || '', message: item.message || '' })),
+      });
+      const imported = Object.values(result.counts).reduce((sum, count) => sum + count, 0);
+      externalOFDStatus.textContent = `${imported} elementi importati · ${result.constraintsImported} vincoli applicati${result.constraintsSkipped ? ` · ${result.constraintsSkipped} fasce non compatibili ignorate` : ''}.`;
+      pendingOFD = null;
+      externalOFDApply.disabled = true;
+      externalOFDInput.value = '';
+      updateCalculationReadiness();
+      refreshViews(true);
+      return true;
+    } catch (error) {
+      externalOFDStatus.textContent = `Importazione non riuscita: ${error.message} La scuola è rimasta invariata.`;
+      return false;
+    }
+  }
+
+  async function stageExternalCSV(collection, file) {
+    const status = document.querySelector(`[data-external-csv-status="${collection}"]`);
+    const apply = document.querySelector(`[data-external-csv-apply="${collection}"]`);
+    if (!status || !apply) return false;
+    pendingExternalCSV.delete(collection);
+    apply.disabled = true;
+    status.textContent = `Controllo di ${file?.name || 'file'}…`;
+    try {
+      if (!/\.csv$/i.test(file?.name || '')) throw new Error('Seleziona un file CSV.');
+      if (typeof file.arrayBuffer !== 'function') throw new Error('Il browser non può leggere il file selezionato.');
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
+      const parsed = collection === 'constraints'
+        ? parseConstraintCSV(source, current)
+        : parseRosterCSV(source, collection, current);
+      const items = parsed.items;
+      const sourceInfo = { format: `csv-${collection}`, filename: file.name || '', content: source };
+      pendingExternalCSV.set(collection, { items, sourceInfo });
+      apply.disabled = !items.length;
+      status.textContent = `${items.length} ${collection === 'constraints' ? 'vincoli' : collection === 'subjects' ? 'materie' : collection} pronti. Conferma per importarli.`;
+      return true;
+    } catch (error) {
+      status.textContent = `Importazione non riuscita: ${error.message} La scuola è rimasta invariata.`;
+      return false;
+    }
+  }
+
+  function applyExternalCSV(collection) {
+    const staged = pendingExternalCSV.get(collection);
+    if (!staged) return false;
+    try {
+      const result = collection === 'constraints'
+        ? schoolWorkbench.applyConstraints(staged.items, staged.sourceInfo)
+        : schoolWorkbench.importEntities(collection, staged.items, staged.sourceInfo);
+      document.querySelector(`[data-external-csv-status="${collection}"]`).textContent = `${result.imported} ${collection === 'constraints' ? 'vincoli' : 'elementi'} importati.`;
+      document.querySelector(`[data-external-csv-apply="${collection}"]`).disabled = true;
+      document.querySelector(`[data-external-csv="${collection}"]`).value = '';
+      pendingExternalCSV.delete(collection);
+      updateCalculationReadiness();
+      refreshViews(true);
+      return true;
+    } catch (error) {
+      document.querySelector(`[data-external-csv-status="${collection}"]`).textContent = `Importazione non riuscita: ${error.message} La scuola è rimasta invariata.`;
+      return false;
+    }
   }
 
   async function stageRosterFile(collection, file) {
@@ -934,7 +1134,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     if (!pending) return false;
     const hasSchoolData = current.lessons.length || Object.values(current.entities).some(items => items.length);
     if (hasSchoolData && typeof confirm === 'function' && !confirm('Sostituire i dati della scuola attualmente aperta?')) return false;
-    current = pending.timetable;
+    current = { ...pending.timetable, description: pending.timetable.description || '' };
     currentDiagnostics = [...pending.diagnostics];
     currentDiagnostics.push(...(current.source.lessonImports || []).flatMap(item => item.diagnostics || [])
       .filter(item => String(item.code || '').startsWith('lesson-')));
@@ -943,6 +1143,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     updateCalculationReadiness();
     refreshViews();
     document.querySelector('#school-name').value = current.name;
+    if (schoolDescription) schoolDescription.value = current.description;
     document.querySelector('#topbar-school-name').textContent = current.name;
     pending = null;
     applyButton.disabled = true;
@@ -951,14 +1152,14 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     const unassigned = current.lessons.filter(lesson => !lesson.assignedTime
       && !lesson.classIds?.some(id => current.entities.classes.find(item => item.id === id)?.placeholder === 'unknown')).length;
     currentStatus.textContent = `Caricato: ${current.name} · ${numberFormat.format(current.lessons.length)} attività · ${numberFormat.format(unassigned)} da assegnare · ${numberFormat.format(excluded)} escluse (classe UNKNOWN)`;
-    markChangesExported();
-    document.querySelector('.current-card').hidden = false;
+    markUnsavedChanges();
     appWorkspace.classList.add('has-timetable');
     exportButton.disabled = false;
     exportToolsButton.disabled = false;
+    refreshPDFControls();
     report.dataset.state = 'ready';
     report.textContent = 'Orario caricato. I dati originali del file sono conservati nel modello.';
-    showScreen(current.lessons.some(lesson => lesson.assignedTime) ? 'schedule' : 'school');
+    showScreen(current.lessons.some(lesson => lesson.assignedTime) ? 'schedule' : 'teachers');
     return true;
   }
 
@@ -975,6 +1176,50 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     return true;
   }
 
+  function refreshPDFControls() {
+    if (!pdfType || !pdfEntitySelect || !pdfEntityWrap) return;
+    const type = pdfType.value;
+    const collection = { teacher: 'teachers', class: 'classes', room: 'rooms' }[type];
+    pdfEntityWrap.hidden = !collection;
+    pdfEntitySelect.replaceChildren();
+    for (const entity of collection ? current.entities[collection] || [] : []) {
+      pdfEntitySelect.append(element(document, 'option', { value: entity.id }, entity.name));
+    }
+    pdfEntitySelect.disabled = Boolean(collection) && !pdfEntitySelect.options.length;
+    if (printButton) printButton.disabled = !current.lessons.length || (Boolean(collection) && !pdfEntitySelect.value);
+  }
+
+  function renderPrintableTimetable() {
+    const rows = printableLessons(current, pdfType.value, pdfEntitySelect.value);
+    pdfPrintContent.replaceChildren();
+    pdfPrintContent.hidden = false;
+    const heading = element(document, 'h1', {}, current.name);
+    const description = current.description ? element(document, 'p', {}, current.description) : null;
+    const table = element(document, 'table', { class: 'print-timetable' });
+    const headers = ['Giorno', 'Ora', 'Classe', 'Materia', 'Docente', 'Aula'];
+    const thead = element(document, 'thead');
+    const headerRow = element(document, 'tr');
+    headers.forEach(label => headerRow.append(element(document, 'th', {}, label)));
+    thead.append(headerRow);
+    const tbody = element(document, 'tbody');
+    for (const row of rows) {
+      const tr = element(document, 'tr');
+      [row.day, row.time, row.className, row.subject, row.teachers, row.rooms].forEach(value => tr.append(element(document, 'td', {}, value)));
+      tbody.append(tr);
+    }
+    table.append(thead, tbody);
+    pdfPrintContent.append(heading);
+    if (description) pdfPrintContent.append(description);
+    pdfPrintContent.append(table);
+    document.defaultView?.print?.();
+  }
+
+  function setExternalImportMode() {
+    const format = document.querySelector('#external-import-format')?.value || 'ofd';
+    document.querySelector('#external-ofd-panel').hidden = format !== 'ofd';
+    document.querySelector('#external-csv-panel').hidden = format !== 'csv';
+  }
+
   const ednInput = document.querySelector('#edn-file');
   const exportButton = document.querySelector('#export-edn-tools');
   const exportToolsButton = exportButton;
@@ -986,6 +1231,27 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   });
   applyButton.addEventListener('click', applyImport);
   cancelButton.addEventListener('click', cancelImport);
+  document.querySelector('#external-import-format').addEventListener('change', setExternalImportMode);
+  setExternalImportMode();
+  externalOFDInput.addEventListener('change', () => {
+    const file = externalOFDInput.files?.[0];
+    if (file) void stageExternalOFD(file).finally(() => { externalOFDInput.value = ''; });
+  });
+  externalOFDApply.addEventListener('click', applyExternalOFD);
+  for (const input of document.querySelectorAll('[data-external-csv]')) {
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (file) void stageExternalCSV(input.dataset.externalCsv, file).finally(() => { input.value = ''; });
+    });
+  }
+  for (const apply of document.querySelectorAll('[data-external-csv-apply]')) {
+    apply.addEventListener('click', () => applyExternalCSV(apply.dataset.externalCsvApply));
+  }
+  pdfType?.addEventListener('change', refreshPDFControls);
+  pdfEntitySelect?.addEventListener('change', refreshPDFControls);
+  printButton?.addEventListener('click', renderPrintableTimetable);
+  document.defaultView?.addEventListener('afterprint', () => { pdfPrintContent.hidden = true; });
+  refreshPDFControls();
   for (const collection of ['teachers', 'classes', 'rooms', 'students']) {
     const input = document.querySelector(`#roster-file-${collection}`);
     const open = document.querySelector(`[data-roster-open="${collection}"]`);
@@ -1023,7 +1289,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     pendingLessons = null; lessonInput.value = ''; lessonApply.disabled = true;
     document.querySelector('[data-lessons-status]').textContent = 'Importazione annullata; la scuola è rimasta invariata.';
   });
-  currentStatus.textContent = 'Nuova scuola pronta · aggiungi classi, docenti e lezioni';
+  currentStatus.textContent = 'Nuova scuola pronta';
   exportButton.addEventListener('click', handleExportEDN);
 
   function handleExportEDN() {
@@ -1053,10 +1319,41 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     return source;
   }
 
+  const ready = persistence.load().then(saved => {
+    if (!saved || hasEditedDuringLoad) return current;
+    const validation = validateTimetable(saved);
+    if (validation.errors.length) {
+      if (saveStateBadge) saveStateBadge.textContent = 'Archivio locale non valido';
+      return current;
+    }
+    current = { ...saved, description: saved.description || '' };
+    current.entities.students ||= [];
+    currentDiagnostics = (current.source.lessonImports || []).flatMap(item => item.diagnostics || []);
+    schoolWorkbench.setTimetable(current);
+    editor.setTimetable(current);
+    views.render(current, currentDiagnostics);
+    document.querySelector('#school-name').value = current.name;
+    if (schoolDescription) schoolDescription.value = current.description;
+    document.querySelector('#topbar-school-name').textContent = current.name;
+    exportButton.disabled = false;
+    showScreen(current.lessons.some(lesson => lesson.assignedTime) ? 'schedule' : 'teachers');
+    updateCalculationReadiness();
+    refreshPDFControls();
+    if (saveStateBadge) saveStateBadge.textContent = 'Salvato';
+    return current;
+  }).catch(() => {
+    if (saveStateBadge) saveStateBadge.textContent = 'Archivio locale non disponibile';
+    return current;
+  });
+
   return {
     stageRosterFile,
     stageLessonsFile,
     stageEDNFile,
+    stageExternalOFD,
+    applyExternalOFD,
+    stageExternalCSV,
+    applyExternalCSV,
     applyImport,
     cancelImport,
     exportEDN,
@@ -1072,5 +1369,6 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     get activeScreen() { return activeScreen; },
     showScreen,
     schoolWorkbench,
+    ready,
   };
 }

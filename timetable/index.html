@@ -18,24 +18,21 @@
         </div>
         <nav aria-label="Navigazione principale">
           <button type="button" data-screen="schedule" aria-pressed="false"><span aria-hidden="true">▦</span> Orario</button>
-          <button type="button" data-screen="calculation" aria-pressed="false"><span aria-hidden="true">⚙</span> Calcolo &amp; Motore</button>
-          <button type="button" data-screen="teachers" aria-pressed="true"><span aria-hidden="true">♙</span> Docenti</button>
-          <button type="button" data-screen="classes" aria-pressed="false"><span aria-hidden="true">♧</span> Classi e piani di studio</button>
-          <button type="button" data-screen="students" aria-pressed="false"><span aria-hidden="true">♙</span> Studenti</button>
-          <button type="button" data-screen="lessons" aria-pressed="false"><span aria-hidden="true">▤</span> Lezioni</button>
+          <button type="button" data-screen="teachers" aria-pressed="false"><span aria-hidden="true">♙</span> Docenti</button>
+          <button type="button" data-screen="classes" aria-pressed="false"><span aria-hidden="true">♧</span> Classi e Materie</button>
           <button type="button" data-screen="rooms" aria-pressed="false"><span aria-hidden="true">⌂</span> Aule</button>
           <button type="button" data-screen="constraints" aria-pressed="false"><span aria-hidden="true">☷</span> Vincoli</button>
-          <button type="button" data-screen="settings" aria-pressed="false"><span aria-hidden="true">⚙</span> Impostazioni scuola</button>
+          <button type="button" data-screen="pdf" aria-pressed="false"><span aria-hidden="true">▤</span> Stampa PDF</button>
         </nav>
       </div>
       <div class="sidebar-footer">
-        <p><span class="offline-dot" aria-hidden="true"></span> Applicazione locale</p>
+        <button type="button" data-screen="settings" aria-pressed="false"><span aria-hidden="true">⚙</span> Impostazioni</button>
       </div>
     </aside>
     <div class="app-main">
       <header class="app-topbar">
         <div><span class="topbar-label">Scuola</span><strong id="topbar-school-name">Nuova scuola</strong><span class="draft-badge">Bozza</span></div>
-        <div class="topbar-meta"><span class="topbar-local">Dati conservati in questa scheda</span><span id="app-version" class="topbar-version" title="Versione dell’applicazione">v1.0.29</span></div>
+        <div class="topbar-meta"><span class="topbar-local">Salvataggio automatico nel browser</span><span id="app-version" class="topbar-version" title="Versione dell’applicazione">v1.0.29</span></div>
       </header>
 
   <main class="workspace">
@@ -50,7 +47,7 @@
         <section class="sheet-panel" data-school-panel="rooms"><div class="sheet-title-row"><h3>Aule <span class="muted">facoltative</span></h3><button type="button" class="secondary-button" data-roster-open="rooms">Importa aule</button></div><p class="panel-description">Spazi assegnabili e soggetti a indisponibilità.</p><div class="sheet-tools"><input id="school-filter-rooms" data-grid-filter="rooms" type="search" aria-label="Cerca aule" placeholder="Cerca aula…"><span data-grid-filter-count="rooms" role="status" aria-live="polite"></span></div><div class="sheet-scroll"><table id="school-grid-rooms" class="school-grid" aria-label="Aule"></table></div><div class="roster-import" data-roster-panel="rooms" hidden><label for="roster-file-rooms">Importa da OFD o CSV<input id="roster-file-rooms" data-roster-file="rooms" type="file" accept=".ofd,.csv"></label><p data-roster-status="rooms" role="status" aria-live="polite">CSV: una colonna nome o aula; gli altri campi vengono conservati.</p><button type="button" class="primary-button" data-roster-apply="rooms" disabled>Importa aule</button><button type="button" class="secondary-button" data-roster-cancel="rooms">Annulla</button></div></section>
       </div>
       <section class="sheet-panel" data-school-panel="students"><div class="sheet-title-row"><h3>Studenti</h3><button type="button" class="secondary-button" data-roster-open="students">Importa studenti</button></div><p class="panel-description">Elenco studenti associato alle classi.</p><div class="sheet-tools"><input id="school-filter-students" data-grid-filter="students" type="search" aria-label="Cerca studenti" placeholder="Cerca studente…"><span data-grid-filter-count="students" role="status" aria-live="polite"></span></div><div class="sheet-scroll"><table id="school-grid-students" class="school-grid" aria-label="Studenti"></table></div><div class="roster-import" data-roster-panel="students" hidden><label for="roster-file-students">Importa da CSV<input id="roster-file-students" data-roster-file="students" type="file" accept=".csv,.ofd"></label><p data-roster-status="students" role="status" aria-live="polite">Per gli studenti usa il CSV con nome e classe; l’OFD campione non contiene un’anagrafica studenti.</p><button type="button" class="primary-button" data-roster-apply="students" disabled>Importa studenti</button><button type="button" class="secondary-button" data-roster-cancel="students">Annulla</button></div></section>
-      <section class="sheet-panel lesson-sheet" data-school-panel="lessons"><div class="sheet-title-row"><h3>Lezioni da pianificare</h3><button type="button" class="secondary-button" data-lessons-open>Importa lezioni OFD</button></div><p class="field-help">Ogni riga definisce una lezione senza assegnare giorno e ora.</p><div class="roster-import" data-lessons-panel hidden><label for="lesson-ofd-file">Seleziona il file OFD<input id="lesson-ofd-file" type="file" accept=".ofd"></label><p data-lessons-status role="status" aria-live="polite">Importa i requisiti delle lezioni; le collocazioni originali del file vengono ignorate dal calcolo.</p><button type="button" class="primary-button" data-lessons-apply disabled>Importa lezioni</button><button type="button" class="secondary-button" data-lessons-cancel>Annulla</button></div><div class="sheet-tools"><input id="school-filter-lessons" data-grid-filter="lessons" type="search" aria-label="Cerca lezioni" placeholder="Cerca lezione…"><span data-grid-filter-count="lessons" role="status" aria-live="polite"></span></div><div class="sheet-scroll"><table id="school-grid-lessons" class="school-grid" aria-label="Lezioni da pianificare"></table></div></section>
+      <section class="sheet-panel lesson-sheet" data-school-panel="lessons"><h3>Lezioni da pianificare</h3><div class="sheet-tools"><input id="school-filter-lessons" data-grid-filter="lessons" type="search" aria-label="Cerca lezioni" placeholder="Cerca lezione…"><span data-grid-filter-count="lessons" role="status" aria-live="polite"></span></div><div class="sheet-scroll"><table id="school-grid-lessons" class="school-grid" aria-label="Lezioni da pianificare"></table></div></section>
       <section class="sheet-panel constraint-sheet" data-school-panel="constraints"><h3>Vincoli e preferenze</h3><p class="field-help">Le indisponibilità sono obbligatorie; le fasce da evitare e quelle preferite influenzano il punteggio. Seleziona una riga per vedere l’esito.</p><div class="sheet-tools"><input id="school-constraint-filter" type="search" aria-label="Cerca vincoli e preferenze" placeholder="Filtra per elemento, fascia o tipo"><span id="school-constraint-count" role="status" aria-live="polite"></span><button id="school-constraint-previous" class="secondary-button" type="button" aria-label="Pagina vincoli precedente">←</button><button id="school-constraint-next" class="secondary-button" type="button" aria-label="Pagina vincoli successiva">→</button></div><div class="sheet-scroll"><table id="school-grid-constraints" class="school-grid" aria-label="Vincoli temporali"></table></div>
         <details id="constraint-editor" class="constraint-editor">
           <summary>Gestisci vincoli temporali</summary>
@@ -76,6 +73,7 @@
       <header class="school-heading"><div><p class="eyebrow">Configurazione</p><h2 id="settings-heading">Impostazioni scuola</h2><p class="intro">Nome, modifiche e scambio del progetto.</p></div></header>
       <div class="school-meta">
         <label for="school-name">Nome scuola<input id="school-name" type="text" value="Nuova scuola"></label>
+        <label for="school-description">Descrizione<input id="school-description" type="text" value=""></label>
         <p id="school-edit-status" role="status" aria-live="polite">Pronta per iniziare da zero. Importa una struttura esistente quando serve.</p>
         <button id="undo-school-edit" class="secondary-button" type="button" disabled>Annulla ultima modifica</button>
       </div>
@@ -106,6 +104,31 @@
         <button id="cancel-import" class="secondary-button" type="button" disabled>Annulla importazione</button>
       </div>
     </section>
+      <section class="import-card external-import-card" aria-labelledby="external-import-heading">
+        <h3 id="external-import-heading">Importa dati esterni</h3>
+        <label for="external-import-format">Formato<select id="external-import-format"><option value="ofd">OFD</option><option value="csv">CSV</option></select></label>
+        <div id="external-ofd-panel" class="external-ofd-import">
+          <label for="external-ofd-file">File OFD<input id="external-ofd-file" type="file" accept=".ofd"></label>
+          <fieldset><legend>Sezioni OFD</legend>
+            <label><input type="checkbox" data-ofd-section="teachers" checked> Docenti</label>
+            <label><input type="checkbox" data-ofd-section="rooms" checked> Aule</label>
+            <label><input type="checkbox" data-ofd-section="subjects" checked> Materie</label>
+            <label><input type="checkbox" data-ofd-section="classes" checked> Classi</label>
+            <label><input type="checkbox" data-ofd-section="constraints" checked> Vincoli</label>
+          </fieldset>
+          <button id="apply-external-ofd" class="primary-button" type="button" disabled>Importa sezioni</button>
+          <p id="external-ofd-status" role="status" aria-live="polite"></p>
+          <button type="button" class="secondary-button" data-lessons-open>Importa requisiti delle lezioni da OFD</button>
+          <div class="roster-import" data-lessons-panel hidden><label for="lesson-ofd-file">File OFD lezioni<input id="lesson-ofd-file" type="file" accept=".ofd"></label><p data-lessons-status role="status" aria-live="polite">Le collocazioni originali vengono ignorate; le assegnazioni si calcolano nell’orario.</p><button type="button" class="primary-button" data-lessons-apply disabled>Importa lezioni</button><button type="button" class="secondary-button" data-lessons-cancel>Annulla</button></div>
+        </div>
+        <div id="external-csv-panel" class="external-csv-import" hidden>
+          <div class="csv-import-item"><label for="external-csv-teachers">Docenti<input id="external-csv-teachers" type="file" accept=".csv" data-external-csv="teachers"></label><button type="button" data-external-csv-apply="teachers" disabled>Importa</button><p data-external-csv-status="teachers" role="status" aria-live="polite"></p></div>
+          <div class="csv-import-item"><label for="external-csv-classes">Classi<input id="external-csv-classes" type="file" accept=".csv" data-external-csv="classes"></label><button type="button" data-external-csv-apply="classes" disabled>Importa</button><p data-external-csv-status="classes" role="status" aria-live="polite"></p></div>
+          <div class="csv-import-item"><label for="external-csv-subjects">Materie<input id="external-csv-subjects" type="file" accept=".csv" data-external-csv="subjects"></label><button type="button" data-external-csv-apply="subjects" disabled>Importa</button><p data-external-csv-status="subjects" role="status" aria-live="polite"></p></div>
+          <div class="csv-import-item"><label for="external-csv-rooms">Aule<input id="external-csv-rooms" type="file" accept=".csv" data-external-csv="rooms"></label><button type="button" data-external-csv-apply="rooms" disabled>Importa</button><p data-external-csv-status="rooms" role="status" aria-live="polite"></p></div>
+          <div class="csv-import-item"><label for="external-csv-constraints">Vincoli<input id="external-csv-constraints" type="file" accept=".csv" data-external-csv="constraints"></label><button type="button" data-external-csv-apply="constraints" disabled>Importa</button><p data-external-csv-status="constraints" role="status" aria-live="polite"></p></div>
+        </div>
+      </section>
       <section class="current-card" aria-labelledby="current-heading" hidden>
         <div class="current-icon" aria-hidden="true">✓</div>
         <div>
@@ -119,7 +142,6 @@
     <section id="calculation-page" class="calculation-page" aria-labelledby="calculation-heading" hidden>
       <header class="calculation-heading">
         <div><p class="eyebrow">Ottimizzazione</p><h2 id="calculation-heading">Calcolo dell’orario</h2><p class="intro">Il motore rispetta i vincoli rigidi supportati e cerca di ridurre le penalità delle preferenze. Il punteggio più basso è migliore; la ricerca non certifica l’ottimo globale.</p></div>
-        <button id="recalculate-all" class="primary-button" type="button" aria-describedby="calculation-readiness" disabled>Avvia calcolo</button>
       </header>
       <div id="calculation-readiness" class="calculation-readiness" role="status" aria-live="polite"><strong>Calcolo disabilitato.</strong><p>Completa docenti, classi, materie e almeno una lezione.</p></div>
       <div class="optimization-live" aria-live="polite">
@@ -128,7 +150,6 @@
       </div>
       <div class="calculation-actions">
         <button id="cancel-recalculation" class="secondary-button" type="button" disabled>Ferma calcolo</button>
-        <button id="review-recalculation" class="primary-button" type="button" hidden>Applica</button>
       </div>
       <p id="recalculation-status" role="status" aria-live="polite">Aggiungi docenti, classi, materie e almeno una lezione nella scheda Scuola per attivare il calcolo.</p>
       <div class="optimization-live optimization-live-detail">
@@ -160,6 +181,10 @@
           <h2 id="timetable-heading">Orario corrente</h2>
         </div>
         <div class="timetable-actions">
+          <button id="recalculate-all" class="primary-button" type="button" aria-describedby="calculation-readiness" disabled>Ricalcola</button>
+          <button id="review-recalculation" class="primary-button" type="button" hidden>Applica ricalcolo</button>
+          <button id="undo-change" class="secondary-button" type="button" disabled>Annulla</button>
+          <button id="redo-change" class="secondary-button" type="button" disabled>Ripeti</button>
           <button id="open-structure" class="secondary-button" type="button" aria-controls="structure-page">Riepilogo e dati</button>
           <button id="open-issues" class="issue-count" type="button" aria-controls="issues-page" data-count="0">Avvisi e conflitti · 0</button>
           <p id="schedule-status" role="status" aria-live="polite"></p>
@@ -177,32 +202,15 @@
       <div class="calendar-scroll" role="region" tabindex="0" aria-label="Griglia orario, scorribile orizzontalmente">
         <div id="schedule-grid" class="calendar-grid" role="region" aria-label="Orario per classe"></div>
       </div>
-      <div class="schedule-panels" hidden>
-        <section class="schedule-panel" aria-labelledby="lesson-details-heading">
-          <h3 id="lesson-details-heading">Dettaglio lezione</h3>
-          <div id="lesson-details" tabindex="-1" aria-live="polite"><p class="muted">Seleziona una lezione per vederne i dettagli.</p></div>
-          <section id="editor-panel" class="editor-panel" aria-labelledby="editor-heading" hidden>
-            <h4 id="editor-heading">Esplora modifiche</h4>
-            <label for="search-depth">Ampiezza della ricerca</label>
-            <select id="search-depth">
-              <option value="immediate">Alternative immediate</option>
-              <option value="local">Coinvolgi poche lezioni</option>
-              <option value="chain">Esplora una catena più lunga</option>
-            </select>
-            <div class="editor-actions">
-              <button id="find-alternatives" class="secondary-button" type="button" disabled>Trova alternative</button>
-              <button id="cancel-search" class="secondary-button" type="button" disabled>Annulla ricerca</button>
-            </div>
-            <p id="edit-status" class="muted" role="status" aria-live="polite">Seleziona una lezione assegnata per esplorare alternative.</p>
-            <div id="proposal-list" class="proposal-list" role="group" aria-label="Alternative verificate"></div>
-            <div id="proposal-impact" class="proposal-impact" aria-live="polite"><p class="muted">Scegli un’alternativa per confrontarne gli effetti.</p></div>
-            <div class="editor-actions">
-              <button id="apply-proposal" class="primary-button" type="button" disabled>Applica modifica</button>
-              <button id="undo-change" class="secondary-button" type="button" disabled>Annulla ultima modifica</button>
-            </div>
-          </section>
-        </section>
-      </div>
+      <div class="schedule-panels" hidden><div id="lesson-details" tabindex="-1" aria-live="polite"></div></div>
+    </section>
+
+    <section id="pdf-page" class="settings-page pdf-page" aria-labelledby="pdf-heading" hidden>
+      <header class="school-heading"><div><h2 id="pdf-heading">Stampa PDF</h2></div></header>
+      <label for="pdf-output-type">Orario<select id="pdf-output-type"><option value="general">Generale</option><option value="teacher">Docente</option><option value="class">Classe</option><option value="room">Aula</option></select></label>
+      <label id="pdf-entity-wrap" for="pdf-entity-select" hidden>Elemento<select id="pdf-entity-select"></select></label>
+      <button id="print-timetable" class="primary-button" type="button" disabled>Stampa</button>
+      <div id="pdf-print-content" hidden></div>
     </section>
 
     <section id="structure-page" class="structure-page" aria-labelledby="structure-heading" hidden>
@@ -217,7 +225,6 @@
         <button type="button" class="secondary-button" data-screen="classes">Classi e materie</button>
         <button type="button" class="secondary-button" data-screen="teachers">Docenti</button>
         <button type="button" class="secondary-button" data-screen="rooms">Aule</button>
-        <button type="button" class="secondary-button" data-screen="lessons">Lezioni</button>
         <button type="button" class="secondary-button" data-screen="constraints">Vincoli</button>
       </nav>
     </section>
@@ -244,6 +251,15 @@
     <div class="entity-detail-heading"><div><button id="detail-back" type="button" class="detail-back" hidden></button><h2 id="entity-detail-title">Dettagli</h2></div></div>
     <div id="entity-detail-content"><p class="muted">Seleziona un elemento per vederne i dettagli.</p></div>
     <div id="entity-detail-actions" class="entity-detail-actions"></div>
+    <section id="editor-panel" class="editor-panel" aria-labelledby="editor-heading" hidden>
+      <h3 id="editor-heading">Modifica lezione</h3>
+      <p id="edit-status" class="muted" role="status" aria-live="polite">Seleziona una lezione per spostarla nella matrice.</p>
+      <div hidden aria-hidden="true">
+        <label for="search-depth">Ampiezza ricerca</label><select id="search-depth"><option value="immediate">Immediate</option><option value="local">Locale</option><option value="chain">Catena</option></select>
+        <button id="find-alternatives" type="button" disabled></button><button id="cancel-search" type="button" disabled></button>
+        <div id="proposal-list"></div><div id="proposal-impact"></div><button id="apply-proposal" type="button" disabled></button>
+      </div>
+    </section>
   </aside>
   </main>
     </div>

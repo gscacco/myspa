@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createProposal, applyProposal, ProposalError } from '../../timetable/js/proposals.js';
+import { createProposal, applyProposal, evaluateManualMove, evaluateManualSwap, ProposalError } from '../../timetable/js/proposals.js';
 import { createTimetableHistory } from '../../timetable/js/history.js';
 import { solverFixture } from './helpers.js';
 
@@ -38,4 +38,50 @@ test('history applies a proposal and undo restores the exact prior EDN domain va
   assert.equal(history.undo(), true);
   assert.deepEqual(history.current, before);
   assert.equal(history.canUndo, false);
+});
+
+test('manual moves accept a valid hard-constraint schedule and report soft penalty changes', () => {
+  const current = solverFixture();
+  const result = evaluateManualMove(current, 'target', { dayIndex: 0, periodIndex: 1 });
+  assert.equal(current.lessons[0].assignedTime.periodIndex, 0);
+  assert.equal(result.timetable.lessons[0].assignedTime.periodIndex, 1);
+  assert.equal(result.softBefore, 0);
+  assert.equal(result.softAfter, 100);
+});
+
+test('manual moves reject the full result when any hard violation remains', () => {
+  const current = solverFixture();
+  current.entities.classes[0].constraints = { timeframes: { unavailable: ['0.2'], desired: [], undesired: [] } };
+  assert.throws(
+    () => evaluateManualMove(current, 'target', { dayIndex: 0, periodIndex: 2 }),
+    error => error instanceof ProposalError && error.code === 'hard-constraint',
+  );
+  assert.equal(current.lessons[0].assignedTime.periodIndex, 0);
+});
+
+test('manual swaps apply as one complete validated operation', () => {
+  const current = solverFixture();
+  current.entities.teachers.push({ id: 'teacher:T2', name: 'Teacher Two', constraints: { timeframes: { unavailable: [], desired: [], undesired: [] } } });
+  current.entities.classes.push({ id: 'class:C2', name: 'Class 2' });
+  current.lessons.push({
+    ...structuredClone(current.lessons[0]), id: 'second', sourceIndex: 1,
+    teacherIds: ['teacher:T2'], classIds: ['class:C2'], assignedTime: { dayIndex: 0, periodIndex: 2, sourceValue: '0.2' },
+  });
+  const result = evaluateManualSwap(current, 'target', 'second');
+  assert.deepEqual(result.timetable.lessons.map(item => item.assignedTime.periodIndex), [2, 0]);
+  assert.deepEqual(current.lessons.map(item => item.assignedTime.periodIndex), [0, 2]);
+  assert.throws(() => evaluateManualSwap(current, 'target', 'target'), ProposalError);
+});
+
+test('history redo restores an edit and a new commit clears the redo branch', () => {
+  const current = solverFixture();
+  const history = createTimetableHistory(current);
+  history.commit(evaluateManualMove(current, 'target', { dayIndex: 0, periodIndex: 2 }).timetable);
+  assert.equal(history.undo(), true);
+  assert.equal(history.canRedo, true);
+  assert.equal(history.redo(), true);
+  assert.equal(history.current.lessons[0].assignedTime.periodIndex, 2);
+  assert.equal(history.undo(), true);
+  history.commit(evaluateManualMove(history.current, 'target', { dayIndex: 0, periodIndex: 1 }).timetable);
+  assert.equal(history.canRedo, false);
 });

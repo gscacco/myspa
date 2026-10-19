@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
-import { parseRosterCSV } from '../../timetable/js/roster-importer.js';
+import { parseConstraintCSV, parseRosterCSV } from '../../timetable/js/roster-importer.js';
 import { importOFD } from '../../timetable/js/ofd-importer.js';
 import { createTimetableApp } from '../../timetable/js/app.js';
-import { minimalOFD, lessonXML } from './helpers.js';
+import { minimalOFD, lessonXML, timetableFixture } from './helpers.js';
 
 const htmlPath = new URL('../../timetable/index.html', import.meta.url);
 const fileFrom = (name, source) => ({ name, arrayBuffer: async () => new TextEncoder().encode(source).buffer });
@@ -22,17 +22,32 @@ test('CSV roster import parses Italian headers, quoted fields, and class referen
   assert.throws(() => parseRosterCSV('nome\n"Ada', 'rooms', timetable), /virgolette|CSV/i);
 });
 
-test('school screens navigate freely; calculation is available but its action waits for complete inputs', async () => {
+test('CSV import supports subjects and resolves constraint rows to canonical owners', () => {
+  const timetable = timetableFixture();
+  assert.deepEqual(parseRosterCSV('materia\nScienze', 'subjects', timetable).items, [{ name: 'Scienze' }]);
+  assert.deepEqual(parseConstraintCSV('Ambito,Elemento,Vincolo,Giorno,Ora\nDocente,Teacher One,Non disponibile,Monday,08:00', timetable).items, [
+    { scope: 'teacher', id: 'teacher:T1', kind: 'unavailable', slot: '0.0' },
+  ]);
+  assert.throws(() => parseConstraintCSV('Ambito,Elemento,Vincolo,Giorno,Ora\nAula,Mancante,Non disponibile,Monday,08:00', timetable), /non esiste/i);
+  assert.throws(() => parseConstraintCSV('Elemento,Vincolo,Giorno,Ora\nTeacher One,Non disponibile,Monday,08:00', timetable), /Ambito/i);
+});
+
+test('the requested navigation exposes settings and keeps recalculation in the timetable', async () => {
   const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
   const app = createTimetableApp({ document });
   assert.equal(document.querySelector('#school-next'), null);
-  assert.equal(document.querySelector('#ofd-file'), null, 'OFD import belongs to a roster sheet');
+  assert.equal(document.querySelector('#ofd-file'), null, 'the old global OFD control is absent');
+  assert.ok(document.querySelector('#external-ofd-file'));
   assert.ok(document.querySelector('#edn-file'));
-  document.querySelector('[data-screen="calculation"]').click();
-  assert.equal(app.activeScreen, 'calculation');
+  document.querySelector('[data-screen="schedule"]').click();
+  assert.equal(app.activeScreen, 'schedule');
   assert.equal(document.querySelector('#recalculate-all').disabled, true);
   assert.match(document.querySelector('#calculation-readiness').textContent, /docenti.*classi.*lezioni/i);
+  document.querySelector('#external-import-format').value = 'csv';
+  document.querySelector('#external-import-format').dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.equal(document.querySelector('#external-ofd-panel').hidden, true);
+  assert.equal(document.querySelector('#external-csv-panel').hidden, false);
   dom.window.close();
 });
 
@@ -99,10 +114,9 @@ test('lessons sheet stages OFD lesson requirements and applies them without sour
   const original = app.timetable;
   const ofd = minimalOFD({ lesson: lessonXML({ time: '0.1' }) });
 
-  document.querySelector('[data-screen="lessons"]').click();
+  document.querySelector('[data-screen="settings"]').click();
   assert.equal(document.querySelector('#ofd-file'), null);
   assert.equal(document.querySelector('#lesson-ofd-file').accept, '.ofd');
-  assert.equal(document.querySelector('[data-school-panel="lessons"]').hidden, false);
   document.querySelector('[data-lessons-open]').click();
   assert.equal(document.querySelector('[data-lessons-panel]').hidden, false);
   assert.equal(await app.stageLessonsFile(fileFrom('school.ofd', ofd)), true);
@@ -189,7 +203,7 @@ test('lesson sheet imports every lesson from the supplied OFD against its import
   school.entities.students = [];
   app.schoolWorkbench.setTimetable(school);
 
-  document.querySelector('[data-screen="lessons"]').click();
+  document.querySelector('[data-screen="settings"]').click();
   const file = fileFrom('OR_30_SETT.ofd', bytes);
   assert.equal(await app.stageLessonsFile(file), true, document.querySelector('[data-lessons-status]').textContent);
   assert.equal(app.timetable.lessons.length, 0);
