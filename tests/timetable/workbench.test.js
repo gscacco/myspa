@@ -357,7 +357,11 @@ test('lessons group equivalent records while preserving occurrences, filters and
 
   const lessonTable = document.querySelector('#school-grid-lessons');
   const toggle = document.querySelector('#school-lesson-view-toggle');
-  assert.equal(lessonTable.hidden, true, 'grouped lessons are the default view');
+  assert.equal(lessonTable.hidden, false, 'the lessons page opens in the flat table view');
+  assert.equal(document.querySelector('#school-lesson-groups').hidden, true);
+  assert.equal(toggle.textContent, 'Vista raggruppata');
+  toggle.click();
+  assert.equal(lessonTable.hidden, true, 'the grouped view remains available through its view toggle');
   assert.equal(document.querySelectorAll('#school-lesson-groups .lesson-group').length, 6, 'equivalent entries combine while different teachers, classes or timeframes remain separate');
   const repeated = [...document.querySelectorAll('#school-lesson-groups .lesson-group')]
     .find(group => group.querySelector('.lesson-group-subject')?.textContent === 'Mathematics'
