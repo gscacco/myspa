@@ -41,16 +41,84 @@ test('the default constraints list groups equivalent records and keeps occurrenc
   assert.equal(avoidNine.querySelector('.constraint-group-select').textContent.trim(), '09:00');
   assert.equal(avoidNine.closest('.constraint-type-group').querySelector('.constraint-type-label').textContent, 'Soft · Da evitare');
   assert.deepEqual([...avoidNine.querySelectorAll('.constraint-weekday')].map(item => item.textContent), ['Lun', 'Mar']);
+  const tuesday = [...avoidNine.querySelectorAll('.constraint-weekday')].find(item => item.textContent === 'Mar');
+  assert.equal(tuesday.tagName, 'BUTTON', 'a specified weekday is an interactive occurrence selector');
+  const monday = [...avoidNine.querySelectorAll('.constraint-weekday')].find(item => item.textContent === 'Lun');
+  assert.ok(monday.classList.contains('constraint-status-unsatisfied'), 'a verified preference conflict is highlighted in yellow');
+  assert.ok(tuesday.classList.contains('constraint-status-satisfied'), 'a verified respected constraint is highlighted in green');
   avoidNine.querySelector('.constraint-group-select').click();
   assert.match(document.querySelector('#entity-detail-title').textContent, /Gruppo/);
   assert.match(document.querySelector('#entity-detail-content').textContent, /2 occorrenze/);
+  assert.doesNotMatch(document.querySelector('#entity-detail-content').textContent, /Giorni:/, 'the selected group does not repeat weekday labels in text');
   avoidNine.querySelector('.constraint-group-expand').click();
   assert.equal(avoidNine.querySelector('.constraint-group-expand').getAttribute('aria-expanded'), 'true');
   const occurrences = avoidNine.querySelectorAll('.constraint-occurrence');
   assert.equal(occurrences.length, 2);
+  tuesday.click();
+  const detailPanel = document.querySelector('#entity-detail-content');
+  assert.match(detailPanel.textContent, /Tuesday, 09:00/, 'clicking a weekday opens its underlying constraint in the details panel');
+  assert.match(detailPanel.textContent, /Vincolo rispettato/);
+  assert.equal(detailPanel.querySelector('.context-constraint-list'), null, 'global constraint details do not repeat the full textual list');
+  assert.ok(detailPanel.querySelector('.contextual-constraints .detail-link'), 'the selected occurrence keeps its edit and delete actions');
+  assert.equal([...detailPanel.querySelectorAll('h3')].some(item => item.textContent === 'Violazioni e avvisi'), false, 'global teacher constraint details report the selected status once');
   occurrences[1].click();
   assert.match(document.querySelector('#entity-detail-title').textContent, /Vincolo/);
   assert.match(document.querySelector('#entity-detail-content').textContent, /Tuesday, 09:00/, 'an expanded occurrence opens its own underlying record');
+  dom.window.close();
+});
+
+test('the details divider can be resized by keyboard with an accessible value', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  createTimetableApp({ document: dom.window.document });
+  const document = dom.window.document;
+  const workspace = document.querySelector('.workspace');
+  const panel = document.querySelector('#entity-detail-panel');
+  const divider = document.querySelector('#detail-resizer');
+  Object.defineProperty(workspace, 'clientWidth', { configurable: true, value: 1000 });
+  panel.getBoundingClientRect = () => ({ width: 320, right: 950, left: 630, top: 0, bottom: 400, height: 400 });
+  assert.equal(divider.getAttribute('role'), 'separator');
+  assert.equal(divider.hidden, false);
+  divider.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+  assert.equal(workspace.style.getPropertyValue('--detail-panel-width'), '344px');
+  assert.equal(divider.getAttribute('aria-valuenow'), '344');
+  Object.defineProperty(workspace, 'clientWidth', { configurable: true, value: 1600 });
+  divider.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+  assert.equal(workspace.style.getPropertyValue('--detail-panel-width'), '960px', 'wide workspaces let the details panel expand far enough for the timetable');
+  assert.equal(divider.getAttribute('aria-valuemax'), '960');
+  dom.window.close();
+});
+
+test('selecting a class from global constraints shows its timetable grid in the details panel', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  dom.window.scrollTo = () => {};
+  const app = createTimetableApp({ document: dom.window.document });
+  const school = timetableFixture();
+  school.entities.classes[0].constraints = { timeframes: { unavailable: ['0.0'], desired: [], undesired: [] } };
+  app.schoolWorkbench.setTimetable(school);
+  syncAppWorkbench(app);
+  const document = dom.window.document;
+  document.querySelector('[data-screen="constraints"]').click();
+  const classOwner = [...document.querySelectorAll('.constraint-element-heading')]
+    .find(button => button.textContent.includes('Class One'));
+  assert.ok(classOwner);
+  classOwner.click();
+  const detail = document.querySelector('#entity-detail-content');
+  const schedule = detail.querySelector('.entity-detail-calendar-grid');
+  assert.ok(schedule, detail.textContent);
+  assert.equal(detail.querySelector('.entity-lesson-list'), null, 'the class schedule is shown as a timetable grid instead of a textual list');
+  assert.equal(schedule.querySelectorAll('.day-heading').length, 2);
+  assert.equal(schedule.querySelectorAll('.lesson-card[data-lesson-id]').length, 2);
+  assert.equal(schedule.style.gridTemplateColumns, '58px repeat(2, minmax(96px, 1fr))', 'the details timetable uses compact day columns');
+  assert.match(schedule.getAttribute('aria-label'), /Class One/);
+  schedule.querySelector('.lesson-card[data-lesson-id]').click();
+  assert.match(document.querySelector('#entity-detail-title').textContent, /Dettaglio lezione/);
+  const back = document.querySelector('#detail-back');
+  assert.equal(back.hidden, false);
+  assert.match(back.textContent, /Orario della classe/);
+  back.click();
+  assert.match(document.querySelector('#entity-detail-title').textContent, /Classe · Class One/);
+  assert.ok(document.querySelector('#entity-detail-content .entity-detail-calendar-grid'), 'back restores the class timetable inside the details panel');
+  assert.equal(document.documentElement.dataset.activeScreen, 'constraints', 'back stays on the constraints page');
   dom.window.close();
 });
 
@@ -89,6 +157,26 @@ test('constraint filters operate on occurrences and sorting deterministically or
   dom.window.close();
 });
 
+test('pending or unsupported constraint outcomes stay neutral in the list', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const app = createTimetableApp({ document: dom.window.document });
+  const school = timetableFixture();
+  school.entities.teachers[1].constraints.timeframes.desired = ['1.0'];
+  school.entities.rooms[0].constraints = { timeframes: { undesired: ['1.0'] } };
+  app.schoolWorkbench.setTimetable(school);
+  syncAppWorkbench(app);
+  const groups = [...dom.window.document.querySelectorAll('.constraint-group')];
+  const pending = groups.find(group => group.classList.contains('constraint-category-desired') && group.textContent.includes('08:00') && group.closest('.constraint-element-group').textContent.includes('Teacher Two'));
+  assert.ok(pending);
+  assert.equal(pending.querySelector('.constraint-weekday').classList.contains('constraint-status-satisfied'), false);
+  assert.equal(pending.querySelector('.constraint-weekday').classList.contains('constraint-status-unsatisfied'), false);
+  const roomGroup = groups.find(group => group.classList.contains('constraint-category-undesired') && group.textContent.includes('08:00') && group.closest('.constraint-element-group').textContent.includes('Room One'));
+  assert.ok(roomGroup);
+  assert.equal(roomGroup.querySelector('.constraint-weekday').classList.contains('constraint-status-satisfied'), false);
+  assert.equal(roomGroup.querySelector('.constraint-weekday').classList.contains('constraint-status-unsatisfied'), false);
+  dom.window.close();
+});
+
 test('group-level edits update each occurrence together and can be undone', async () => {
   const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
   const app = createTimetableApp({ document: dom.window.document });
@@ -124,6 +212,7 @@ test('editing an expanded occurrence changes only that underlying record', async
   group.querySelector('.constraint-group-expand').click();
   group.querySelectorAll('.constraint-occurrence')[1].click();
   const panel = dom.window.document.querySelector('#entity-detail-content');
+  [...panel.querySelectorAll('.contextual-constraints .detail-link')].find(button => button.textContent === 'Modifica').click();
   panel.querySelector('[aria-label="Categoria del vincolo"]').value = 'desired';
   panel.querySelector('[aria-label="Giorno del vincolo"]').value = '0';
   panel.querySelector('[aria-label="Fascia oraria del vincolo"]').value = '2';
@@ -169,4 +258,24 @@ test('global constraint create and delete operations still update the canonical 
   assert.deepEqual(workbench.timetable.entities.teachers[0].constraints.timeframes.unavailable, []);
   document.querySelector('#undo-school-edit').click();
   assert.deepEqual(workbench.timetable.entities.teachers[0].constraints.timeframes.unavailable, ['1.0']);
+});
+
+test('deleting a selected global group removes its records together and can be undone', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const app = createTimetableApp({ document: dom.window.document });
+  const school = timetableFixture();
+  school.entities.teachers[0].constraints.timeframes.undesired = ['0.1', '1.1'];
+  app.schoolWorkbench.setTimetable(school);
+  syncAppWorkbench(app);
+  const group = [...dom.window.document.querySelectorAll('.constraint-group')]
+    .find(item => item.classList.contains('constraint-category-undesired') && item.textContent.includes('09:00'));
+  group.querySelector('.constraint-group-select').click();
+  const panel = dom.window.document.querySelector('#entity-detail-content');
+  assert.equal(panel.querySelector('.context-constraint-list'), null, 'the right panel does not repeat the occurrence list');
+  panel.querySelector('.constraint-group-delete').click();
+  dom.window.document.querySelector('#confirmation-accept').click();
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, []);
+  dom.window.document.querySelector('#undo-school-edit').click();
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, ['0.1', '1.1']);
+  dom.window.close();
 });

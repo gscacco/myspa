@@ -167,27 +167,31 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     return { byDay, laneByLesson: result, maxLanes };
   }
 
-  function renderGrid() {
-    grid.replaceChildren();
-    grid.classList.remove('is-dragging');
-    grid.setAttribute('role', 'region');
-    grid.setAttribute('aria-label', `Orario per ${MODE_LABELS[mode].toLowerCase()}: ${activeEntity()?.name || 'nessun elemento'}`);
+  function renderGrid(targetGrid = grid, { neutral = false, compact = false } = {}) {
+    targetGrid.replaceChildren();
+    targetGrid.classList.remove('is-dragging');
+    targetGrid.setAttribute('role', 'region');
+    targetGrid.setAttribute('aria-label', `Orario per ${MODE_LABELS[mode].toLowerCase()}: ${activeEntity()?.name || 'nessun elemento'}`);
     const { days, periods } = timetable.calendar;
-    grid.style.gridTemplateColumns = `76px repeat(${Math.max(days.length, 1)}, minmax(154px, 1fr))`;
-    grid.style.gridTemplateRows = `36px repeat(${Math.max(periods.length, 1)}, minmax(64px, auto))`;
-    grid.append(make(document, 'div', 'grid-corner', 'Ora'));
+    const timeColumnWidth = compact ? 58 : 76;
+    const dayColumnMinWidth = compact ? 96 : 154;
+    const headerHeight = compact ? 30 : 36;
+    const periodHeight = compact ? 52 : 64;
+    targetGrid.style.gridTemplateColumns = `${timeColumnWidth}px repeat(${Math.max(days.length, 1)}, minmax(${dayColumnMinWidth}px, 1fr))`;
+    targetGrid.style.gridTemplateRows = `${headerHeight}px repeat(${Math.max(periods.length, 1)}, minmax(${periodHeight}px, auto))`;
+    targetGrid.append(make(document, 'div', 'grid-corner', 'Ora'));
     for (const [index, day] of days.entries()) {
       const header = make(document, 'div', 'day-heading', day.name);
       header.style.gridColumn = String(index + 2);
       header.style.gridRow = '1';
-      grid.append(header);
+      targetGrid.append(header);
     }
 
     for (const [index, period] of periods.entries()) {
       const time = make(document, 'div', 'time-heading', `${formatTime(period.beginMinute)}–${formatTime(period.endMinute)}`);
       time.style.gridColumn = '1';
       time.style.gridRow = String(index + 2);
-      grid.append(time);
+      targetGrid.append(time);
     }
 
     const visible = visibleLessons();
@@ -200,7 +204,7 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       column.style.gridColumn = String(dayIndex + 2);
       column.style.gridRow = `2 / span ${periods.length}`;
       column.style.gridTemplateColumns = `repeat(${maxLanes}, minmax(0, 1fr))`;
-      column.style.gridTemplateRows = `repeat(${periods.length}, minmax(64px, auto))`;
+      column.style.gridTemplateRows = `repeat(${periods.length}, minmax(${periodHeight}px, auto))`;
       for (const [periodIndex, period] of periods.entries()) {
         const slot = make(document, 'div', 'slot-background');
         slot.dataset.dayIndex = String(dayIndex);
@@ -221,23 +225,24 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
         const related = conflictsByLesson.get(lesson.id) || [];
         const hasConflict = related.some(item => item.severity === 'error');
         const hasWarning = related.some(item => item.severity === 'warning');
-        const card = make(document, 'button', `lesson-card${hasConflict ? ' has-conflict' : hasWarning ? ' has-warning' : ''}`);
+        const card = make(document, 'button', `lesson-card${!neutral && hasConflict ? ' has-conflict' : !neutral && hasWarning ? ' has-warning' : ''}`);
         card.type = 'button';
-        card.draggable = true;
+        card.draggable = !neutral;
         card.dataset.lessonId = lesson.id;
         card.style.gridColumn = String((laneByLesson.get(lesson.id) || 0) + 1);
         card.style.gridRow = `${lesson.assignedTime.periodIndex + 1} / span ${lesson.durationPeriods}`;
-        card.setAttribute('aria-label', `${subject}, ${timeText}, ${teacherNames}, ${classNames}, ${roomNames}${hasConflict ? ', conflitto' : hasWarning ? ', avviso' : ''}`);
-        card.setAttribute('aria-pressed', selectedLessonId === lesson.id ? 'true' : 'false');
+        const statusLabel = neutral ? '' : hasConflict ? ', conflitto' : hasWarning ? ', avviso' : '';
+        card.setAttribute('aria-label', `${subject}, ${timeText}, ${teacherNames}, ${classNames}, ${roomNames}${statusLabel}`);
+        card.setAttribute('aria-pressed', !neutral && selectedLessonId === lesson.id ? 'true' : 'false');
         card.append(make(document, 'strong', 'lesson-subject', subject));
         card.append(make(document, 'span', 'lesson-people', `${teacherNames} · ${classNames}`));
         card.append(make(document, 'span', 'lesson-room', roomNames));
         card.append(make(document, 'span', 'lesson-time', timeText));
-        if (hasConflict) card.append(make(document, 'span', 'lesson-status', '⚠ Conflitto'));
-        else if (hasWarning) card.append(make(document, 'span', 'lesson-status', '! Avviso'));
+        if (!neutral && hasConflict) card.append(make(document, 'span', 'lesson-status', '⚠ Conflitto'));
+        else if (!neutral && hasWarning) card.append(make(document, 'span', 'lesson-status', '! Avviso'));
         column.append(card);
       }
-      grid.append(column);
+      targetGrid.append(column);
     }
   }
 
@@ -520,6 +525,24 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       selectedLessonId = lessonId && timetable.lessons.some(lesson => lesson.id === lessonId) ? lessonId : null;
       renderAll();
       if (lessonId) onLessonSelect(lessonFor(lessonId));
+      return true;
+    },
+    renderMatrix(nextMode, entityId, targetGrid, { compact = false } = {}) {
+      const config = MODE_CONFIG[nextMode];
+      if (!timetable || !config || !targetGrid || !timetable.entities[config.collection]?.some(entity => entity.id === entityId)) return false;
+      const previousMode = mode;
+      const previousSelection = selectedByMode[nextMode];
+      const previousLessonId = selectedLessonId;
+      try {
+        mode = nextMode;
+        selectedByMode[nextMode] = entityId;
+        selectedLessonId = null;
+        renderGrid(targetGrid, { neutral: true, compact });
+      } finally {
+        mode = previousMode;
+        selectedByMode[nextMode] = previousSelection;
+        selectedLessonId = previousLessonId;
+      }
       return true;
     },
     getNavigationState() {

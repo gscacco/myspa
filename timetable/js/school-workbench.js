@@ -26,6 +26,34 @@ export function createEmptySchool() {
   };
 }
 
+export function evaluateConstraintStatus(timetable, constraint) {
+  if (!['teachers', 'classes'].includes(constraint?.scope)
+    || !['unavailable', 'undesired', 'desired'].includes(constraint?.kind)) return 'unverified';
+  const match = /^(\d+)\.(\d+)$/.exec(String(constraint.slot || ''));
+  if (!match) return 'unverified';
+  const dayIndex = Number(match[1]);
+  const periodIndex = Number(match[2]);
+  if (!timetable.calendar.days.some(day => day.index === dayIndex)
+    || !timetable.calendar.periods.some(period => period.index === periodIndex)) return 'unverified';
+  const owner = timetable.entities[constraint.scope]?.find(item => item.id === constraint.id);
+  if (!owner) return 'unverified';
+  const relatedLessons = timetable.lessons.filter(lesson => constraint.scope === 'teachers'
+    ? lesson.teacherIds?.includes(constraint.id)
+    : lesson.classIds?.includes(constraint.id));
+  const occupied = relatedLessons.some(lesson => {
+    if (!lesson.assignedTime) return false;
+    const sameDay = lesson.assignedTime.dayIndex === dayIndex;
+    const coversPeriod = periodIndex >= lesson.assignedTime.periodIndex
+      && periodIndex < lesson.assignedTime.periodIndex + lesson.durationPeriods;
+    return sameDay && (constraint.kind === 'unavailable'
+      ? coversPeriod
+      : lesson.assignedTime.periodIndex === periodIndex);
+  });
+  if (occupied) return constraint.kind === 'desired' ? 'satisfied' : 'unsatisfied';
+  if (relatedLessons.some(lesson => !lesson.assignedTime)) return 'pending';
+  return constraint.kind === 'desired' ? 'unsatisfied' : 'satisfied';
+}
+
 function element(document, tag, attrs = {}, text = '') {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
@@ -72,11 +100,65 @@ function ensureUnknownEntity(timetable, collection) {
   return unknown;
 }
 
+function appendImportedLessons(timetable, incoming, incomingSubjects, sourceInfo, calendar) {
+  const subjects = timetable.entities.subjects;
+  const knownNames = new Map(subjects.map(item => [normalizedName(item.name), item]));
+  const knownIds = new Set(Object.values(timetable.entities).flat().map(item => item.id));
+  const subjectIds = new Map();
+  const subjectAdditions = [];
+  for (const item of incomingSubjects) {
+    const key = normalizedName(item.name);
+    const existing = knownNames.get(key);
+    if (existing) { subjectIds.set(item.id, existing.id); continue; }
+    const next = structuredClone(item);
+    if (!next.id || knownIds.has(next.id)) next.id = uniqueId('subjects', next.name, [...subjects, ...subjectAdditions]);
+    subjectAdditions.push(next);
+    knownNames.set(key, next);
+    knownIds.add(next.id);
+    subjectIds.set(item.id, next.id);
+  }
+  for (const item of incomingSubjects) {
+    const matched = knownNames.get(normalizedName(item.name));
+    if (matched) subjectIds.set(item.id, matched.id);
+  }
+  const knownLessonIds = new Set(timetable.lessons.map(item => item.id));
+  const sourceId = idPart(sourceInfo?.source?.documentId || sourceInfo?.filename || 'ofd');
+  const additions = incoming.map(item => {
+    const lesson = structuredClone(item);
+    lesson.subjectId = subjectIds.get(item.subjectId) || item.subjectId || null;
+    lesson.classIds = (item.classIds || []).filter(id => timetable.entities.classes.some(schoolClass => schoolClass.id === id));
+    const stem = `lesson:ofd-${sourceId}-${Number.isInteger(item.sourceIndex) ? item.sourceIndex : 'x'}`;
+    let id = stem, suffix = 1;
+    while (knownLessonIds.has(id)) id = `${stem}-${++suffix}`;
+    lesson.id = id;
+    knownLessonIds.add(id);
+    return lesson;
+  });
+  if (additions.length || subjectAdditions.length || sourceInfo) {
+    subjects.push(...subjectAdditions);
+    for (const lesson of additions) {
+      if (!subjects.some(item => item.id === lesson.subjectId)) lesson.subjectId = ensureUnknownEntity(timetable, 'subjects').id;
+      if (!lesson.classIds.length) lesson.classIds = [ensureUnknownEntity(timetable, 'classes').id];
+    }
+    timetable.lessons.push(...additions);
+    adoptImportedCalendar(timetable, calendar, sourceInfo);
+    if (sourceInfo) {
+      timetable.source.lessonImports ||= [];
+      timetable.source.lessonImports.push(structuredClone(sourceInfo));
+    }
+  }
+  return { imported: additions.length, subjects: subjectAdditions.length };
+}
+
 export function createSchoolWorkbench({ document = globalThis.document, onChange = () => {}, onDetail = () => {} } = {}) {
   if (!document) throw new TypeError('A document is required to mount the school workbench.');
   const tables = Object.fromEntries(['teachers', 'classes', 'subjects', 'rooms'].map(key => [key, document.querySelector(`#school-grid-${key}`)]));
   const studentTable = document.querySelector('#school-grid-students');
   const lessonTable = document.querySelector('#school-grid-lessons');
+  const lessonGroups = document.querySelector('#school-lesson-groups');
+  const lessonViewToggle = document.querySelector('#school-lesson-view-toggle');
+  const lessonGroupCount = document.querySelector('#school-lesson-count');
+  const lessonGroupModes = document.querySelector('#school-lesson-group-modes');
   const constraintTable = document.querySelector('#school-grid-constraints');
   const constraintFilter = document.querySelector('#school-constraint-filter');
   const constraintGroups = document.querySelector('#school-constraint-groups');
@@ -93,10 +175,22 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   const undoButton = document.querySelector('#undo-school-edit');
   const status = document.querySelector('#school-edit-status');
   if ([...Object.values(tables), lessonTable, constraintTable, constraintFilter, constraintCount, previousConstraints, nextConstraints, undoButton, status].some(item => !item)) throw new Error('School workbench controls are missing.');
+  const setStatus = (message, state = '') => {
+    status.textContent = message;
+    if (state) status.dataset.state = state;
+    else delete status.dataset.state;
+  };
   let timetable = createEmptySchool();
   let constraintPage = 0;
   let groupedConstraintPage = 0;
   let groupedConstraintView = true;
+  let groupedLessonView = Boolean(lessonGroups && lessonViewToggle);
+  let lessonGroupMode = 'equivalent';
+  const expandedLessonGroups = new Set();
+  const collapsedLessonOwners = new Set();
+  const collapsedLessonSubjects = new Set();
+  let editingEntity = null;
+  let selectedDetailKey = null;
   const undoStack = [];
 
   function remember() {
@@ -112,20 +206,38 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   }
 
   function commit(message) {
-    status.textContent = message;
+    setStatus(message);
     onChange(timetable);
   }
 
-  function bindDetailRow(row, detail) {
+  function bindDetailRow(row, detail, onEdit = null) {
     row.classList.add('selectable-detail-row');
     row.tabIndex = 0;
-    row.setAttribute('aria-label', `Apri i dettagli: ${[...row.cells].map(cell => cell.textContent.trim()).filter(Boolean).join(' · ')}`);
-    row.addEventListener('click', () => onDetail(detail));
-    row.addEventListener('focusin', () => onDetail(detail));
+    const label = [...row.cells].map(cell => cell.querySelector('input, select')?.value || cell.textContent.trim()).filter(Boolean).join(' · ');
+    row.setAttribute('aria-label', `${onEdit ? 'Seleziona per i dettagli; doppio clic per modificare' : 'Apri i dettagli'}: ${label}`);
+    const key = detail.type === 'constraint'
+      ? `constraint:${detail.constraint.scope}:${detail.constraint.id}:${detail.constraint.kind}:${detail.constraint.slot}`
+      : `${detail.type}:${detail.id}`;
+    const selectDetail = () => {
+      selectedDetailKey = key;
+      row.closest('tbody')?.querySelectorAll('.is-selected').forEach(item => {
+        item.classList.remove('is-selected');
+        item.setAttribute('aria-selected', 'false');
+      });
+      row.classList.add('is-selected');
+      row.setAttribute('aria-selected', 'true');
+      onDetail(detail);
+    };
+    if (selectedDetailKey === key) { row.classList.add('is-selected'); row.setAttribute('aria-selected', 'true'); }
+    else row.setAttribute('aria-selected', 'false');
+    row.addEventListener('click', selectDetail);
+    row.addEventListener('focusin', selectDetail);
+    if (onEdit) row.addEventListener('dblclick', onEdit);
     row.addEventListener('keydown', event => {
+      if (event.key === 'F2' && onEdit) { event.preventDefault(); onEdit(); return; }
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-      onDetail(detail);
+      selectDetail();
     });
   }
 
@@ -156,7 +268,22 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         if (gridName === 'constraints') refreshConstraintTable(filter);
         else applyGridFilter(gridName);
       });
-      th.append(sort, filter);
+      const lessonGroupMode = gridName === 'lessons' && columnIndex === 1 ? 'teacher'
+        : gridName === 'lessons' && columnIndex === 2 ? 'class'
+          : gridName === 'lessons' && columnIndex === 3 ? 'room' : null;
+      if (lessonGroupMode) {
+        const groupedLabel = lessonGroupMode === 'teacher' ? 'docente' : lessonGroupMode === 'class' ? 'classe' : 'aula';
+        const groupButton = element(document, 'button', {
+          type: 'button', class: 'grid-group', 'data-lesson-group-mode': lessonGroupMode,
+          'aria-label': `Raggruppa le lezioni per ${groupedLabel}`,
+          title: `Raggruppa per ${groupedLabel}`,
+        }, 'Raggruppa');
+        groupButton.addEventListener('click', event => {
+          event.stopPropagation();
+          setLessonGroupMode(lessonGroupMode);
+        });
+        th.append(sort, groupButton, filter);
+      } else th.append(sort, filter);
       row.append(th);
     });
     head.append(row);
@@ -219,6 +346,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       renderHeaderSortState(gridName);
     }
     if (count) count.textContent = query ? `${matching} di ${total}` : `${total} elementi`;
+    if (gridName === 'lessons') renderLessonGroups();
   }
 
   function renderEntities(collection) {
@@ -234,22 +362,30 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       row.dataset.sortValues = row.dataset.filterValues;
       row.dataset.search = `${entity?.name || ''} ${JSON.stringify(entity || {})} ${usageText} ${fresh ? '' : COLLECTION_LABELS[collection]}`;
       const nameCell = element(document, 'td');
-      const input = element(document, 'input', {
+      const isEditing = !fresh && editingEntity?.collection === collection && editingEntity.id === entity.id;
+      const input = fresh || isEditing ? element(document, 'input', {
         type: 'text', 'data-field': 'name', 'data-row': index, 'data-grid': collection,
         'aria-label': `${COLLECTION_LABELS[collection]} ${index + 1}`,
         placeholder: fresh ? 'Scrivi per aggiungere…' : '', value: entity?.name || '',
-      });
-      nameCell.append(input);
+      }) : null;
+      nameCell.append(input || element(document, 'span', { class: 'entity-name-display' }, entity.name));
       row.append(nameCell);
       const usageCell = element(document, 'td', { class: 'grid-usage' }, usageText);
       row.append(usageCell);
       body.append(row);
-      if (!fresh) bindDetailRow(row, { type: collection, id: entity.id });
+      if (!fresh) bindDetailRow(row, { type: collection, id: entity.id }, () => {
+        editingEntity = { collection, id: entity.id };
+        render();
+        const editor = table.querySelector(`[data-entity-id="${entity.id}"] [data-field="name"]`);
+        editor?.focus();
+        editor?.select();
+      });
+      if (!input) return;
       input.addEventListener('change', () => {
         const value = input.value.trim();
         if (fresh && !value) return;
         if (values.some(item => item.id !== entity?.id && item.name.trim().toLocaleLowerCase() === value.toLocaleLowerCase())) {
-          status.textContent = `Esiste già ${COLLECTION_LABELS[collection].toLocaleLowerCase()} “${value}”.`;
+          setStatus(`Esiste già ${COLLECTION_LABELS[collection].toLocaleLowerCase()} “${value}”.`, 'warning');
           input.value = entity?.name || '';
           return;
         }
@@ -258,10 +394,11 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
             || (collection === 'classes' && timetable.entities.students?.some(student => student.classId === entity.id));
           const constrained = ['unavailable', 'desired', 'undesired'].some(kind => entity.constraints?.timeframes?.[kind]?.length);
           if (referenced || constrained) {
-            status.textContent = `“${entity.name}” è usato da una lezione o ha vincoli: rimuovi prima i riferimenti.`;
+            setStatus(`“${entity.name}” è usato da una lezione o ha vincoli: rimuovi prima i riferimenti.`, 'warning');
             input.value = entity.name;
             return;
           }
+          editingEntity = null;
           remember();
           values.splice(index, 1);
           render();
@@ -278,17 +415,31 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           const newInput = table.querySelector('[data-new-row="true"] input');
           newInput?.focus();
           commit(`${COLLECTION_LABELS[collection]} aggiunto.`);
-        } else if (entity.name !== value) {
-          remember();
-          if (entity.placeholder === 'unknown' && normalizedName(value) !== 'unknown') delete entity.placeholder;
-          entity.name = value;
-          commit(`${COLLECTION_LABELS[collection]} aggiornato.`);
+        } else {
+          editingEntity = null;
+          if (entity.name !== value) {
+            remember();
+            if (entity.placeholder === 'unknown' && normalizedName(value) !== 'unknown') delete entity.placeholder;
+            entity.name = value;
+            commit(`${COLLECTION_LABELS[collection]} aggiornato.`);
+          }
           render();
-          table.querySelector(`[data-row="${index}"] input`)?.focus();
+          table.querySelector(`[data-entity-id="${entity.id}"]`)?.focus();
         }
       });
       input.addEventListener('keydown', event => {
         if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
+        if (event.key === 'Escape' && !fresh) {
+          event.preventDefault();
+          editingEntity = null;
+          render();
+          table.querySelector(`[data-entity-id="${entity.id}"]`)?.focus();
+        }
+      });
+      input.addEventListener('blur', () => {
+        if (fresh || editingEntity?.collection !== collection || editingEntity.id !== entity.id || input.value.trim() !== entity.name) return;
+        editingEntity = null;
+        input.replaceWith(element(document, 'span', { class: 'entity-name-display' }, entity.name));
       });
     };
     values.forEach((entity, index) => addRow(entity, index));
@@ -322,21 +473,21 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const save = () => {
         const value = name.value.trim();
         if (fresh && !value && !select.value) return;
-        if (!value || !select.value) { status.textContent = 'Per registrare uno studente servono nome e classe.'; return; }
+        if (!value || !select.value) { setStatus('Per registrare uno studente servono nome e classe.', 'warning'); return; }
         if (values.some(item => item.id !== student?.id && item.name.trim().toLocaleLowerCase() === value.toLocaleLowerCase())) {
-          status.textContent = `Esiste già lo studente “${value}”.`; name.value = student?.name || ''; return;
+          setStatus(`Esiste già lo studente “${value}”.`, 'warning'); name.value = student?.name || ''; return;
         }
         if (fresh) {
           remember(); values.push({ id: uniqueId('students', value, values), name: value, classId: select.value });
-          render(); status.textContent = 'Studente aggiunto.'; onChange(timetable);
+          render(); setStatus('Studente aggiunto.'); onChange(timetable);
         } else if (student.name !== value || student.classId !== select.value) {
-          remember(); student.name = value; student.classId = select.value; render(); status.textContent = 'Studente aggiornato.'; onChange(timetable);
+          remember(); student.name = value; student.classId = select.value; render(); setStatus('Studente aggiornato.'); onChange(timetable);
         }
       };
       name.addEventListener('change', save); select.addEventListener('change', save);
       row.addEventListener('keydown', event => {
         if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !fresh) {
-          event.preventDefault(); remember(); values.splice(index, 1); render(); status.textContent = 'Studente rimosso.'; onChange(timetable);
+          event.preventDefault(); remember(); values.splice(index, 1); render(); setStatus('Studente rimosso.'); onChange(timetable);
         }
         if (event.key === 'Enter' && event.target === name) { event.preventDefault(); name.blur(); }
       });
@@ -409,7 +560,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         });
         if (state.fresh && inputs.slice(0, 3).every(input => !input.value.trim())) return;
         if (!resolved[1] || inputs.some((input, index) => input.value.trim() && !resolved[index])) {
-          status.textContent = 'Completa materia, docente e classe scegliendo elementi già presenti nelle griglie.';
+          setStatus('Completa materia, docente e classe scegliendo elementi già presenti nelle griglie.', 'warning');
           if (state.lesson) syncRow();
           return;
         }
@@ -478,7 +629,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         }
         if ((event.key === 'Delete' || event.key === 'Backspace') && (event.ctrlKey || event.metaKey) && !state.fresh) {
           if (state.lesson.timeframes?.unavailable?.length || state.lesson.timeframes?.undesired?.length || state.lesson.timeframes?.desired?.length) {
-            status.textContent = 'Rimuovi prima i vincoli collegati a questa lezione.';
+            setStatus('Rimuovi prima i vincoli collegati a questa lezione.', 'warning');
             return;
           }
           event.preventDefault(); remember(); values.splice(state.index, 1); render(); commit('Lezione rimossa.');
@@ -488,6 +639,228 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     values.forEach((lesson, index) => appendLesson({ lesson, index, fresh: false }));
     appendLesson({ lesson: null, index: values.length, fresh: true });
     applyGridFilter('lessons');
+    updateLessonView();
+  }
+
+  function lessonGroupingKey(lesson, omit = null) {
+    const sortedIds = ids => [...(ids || [])].sort((left, right) => sortCollator.compare(String(left), String(right)));
+    const frames = ['unavailable', 'undesired', 'desired'].map(kind => [kind, [...(lesson.timeframes?.[kind] || [])].sort((left, right) => String(left).localeCompare(String(right), 'it', { numeric: true }))]);
+    return JSON.stringify([
+      lesson.subjectId || '', omit === 'teacher' ? [] : sortedIds(lesson.teacherIds), omit === 'class' ? [] : sortedIds(lesson.classIds), omit === 'room' ? [] : sortedIds(lesson.roomIds),
+      lesson.durationPeriods || 1, frames,
+    ]);
+  }
+
+  function setLessonGroupMode(mode, toggle = false) {
+    lessonGroupMode = toggle && lessonGroupMode === mode ? 'equivalent' : mode;
+    groupedLessonView = true;
+    updateLessonView();
+    renderLessonGroups();
+  }
+
+  function lessonFrameSummary(lesson) {
+    const labels = { unavailable: 'Hard', undesired: 'Soft da evitare', desired: 'Soft preferita' };
+    const formatTime = minute => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+    return ['unavailable', 'undesired', 'desired'].flatMap(kind => (lesson.timeframes?.[kind] || []).map(slot => {
+      const match = /^(\d+)\.(\d+)$/.exec(String(slot));
+      if (!match) return `${labels[kind]} · fascia non specificata`;
+      const day = timetable.calendar.days.find(item => item.index === Number(match[1]));
+      const period = timetable.calendar.periods.find(item => item.index === Number(match[2]));
+      return `${labels[kind]} · ${day?.shortName || day?.name || 'Giorno non specificato'} ${period ? formatTime(period.beginMinute) : 'ora non specificata'}`;
+    }));
+  }
+
+  function lessonOccurrenceTime(lesson) {
+    if (!lesson.assignedTime) return 'Orario non assegnato';
+    const day = timetable.calendar.days[lesson.assignedTime.dayIndex]?.name || 'Giorno non specificato';
+    const start = timetable.calendar.periods[lesson.assignedTime.periodIndex];
+    const end = timetable.calendar.periods[lesson.assignedTime.periodIndex + (lesson.durationPeriods || 1) - 1];
+    const format = period => period ? `${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
+    const endTime = end ? `${String(Math.floor(end.endMinute / 60)).padStart(2, '0')}:${String(end.endMinute % 60).padStart(2, '0')}` : '';
+    return `${day} ${format(start)}–${endTime}`;
+  }
+
+  function updateLessonView() {
+    if (!lessonGroups || !lessonViewToggle) return;
+    lessonGroups.hidden = !groupedLessonView;
+    lessonTable.hidden = groupedLessonView;
+    lessonViewToggle.textContent = groupedLessonView ? 'Vista tabellare' : 'Vista raggruppata';
+    lessonViewToggle.setAttribute('aria-pressed', String(groupedLessonView));
+    if (lessonGroupCount) lessonGroupCount.hidden = !groupedLessonView;
+    if (lessonGroupModes) lessonGroupModes.hidden = !groupedLessonView;
+    document.querySelectorAll('[data-lesson-group-mode]').forEach(button => {
+      const active = button.dataset.lessonGroupMode === lessonGroupMode;
+      button.setAttribute('aria-pressed', String(active));
+      button.classList.toggle('is-active', active);
+    });
+  }
+
+  function renderLessonGroups() {
+    if (!lessonGroups) return;
+    lessonGroups.replaceChildren();
+    const rows = [...lessonTable.querySelectorAll('tbody tr[data-lesson-id]:not([data-new-row="true"])')].filter(row => !row.hidden);
+    const grouped = new Map();
+    const lessonIndexes = new Map(timetable.lessons.map((lesson, index) => [lesson.id, index]));
+    const lessonsById = new Map(timetable.lessons.map(lesson => [lesson.id, lesson]));
+    const ownerMode = ['teacher', 'class', 'room'].includes(lessonGroupMode) ? lessonGroupMode : null;
+    const ownerCollection = ownerMode === 'teacher' ? 'teachers' : ownerMode === 'class' ? 'classes' : 'rooms';
+    const ownerIdSet = lesson => [...(ownerMode === 'teacher' ? lesson.teacherIds || [] : ownerMode === 'class' ? lesson.classIds || [] : lesson.roomIds || [])]
+      .sort((left, right) => sortCollator.compare(String(left), String(right)));
+    rows.forEach(row => {
+      const lesson = lessonsById.get(row.dataset.lessonId);
+      if (!lesson || !lessonIndexes.has(lesson.id)) return;
+      const key = lessonGroupingKey(lesson, ownerMode);
+      const lessonOwners = ownerMode ? ownerIdSet(lesson).map(id => [id]) : [[]];
+      if (ownerMode && !lessonOwners.length) lessonOwners.push([]);
+      for (const ownerIds of lessonOwners) {
+        const ownerKey = ownerMode ? JSON.stringify(ownerIds) : '';
+        const mapKey = ownerMode ? `${ownerKey}\u0000${key}` : key;
+        if (!grouped.has(mapKey)) grouped.set(mapKey, { key, stateKey: mapKey, ownerKey, ownerIds, lessonIndexes: [] });
+        grouped.get(mapKey).lessonIndexes.push(lessonIndexes.get(lesson.id));
+      }
+    });
+    const nameFor = (collection, id) => timetable.entities[collection].find(item => item.id === id)?.name || 'Non assegnato';
+    const namesFor = (collection, ids) => (ids || []).map(id => nameFor(collection, id)).join(', ') || 'Non assegnato';
+    const visibleLessonIds = new Set();
+    const owners = new Map();
+    for (const group of grouped.values()) {
+      const ownerKey = ownerMode ? group.ownerKey : '';
+      if (!owners.has(ownerKey)) owners.set(ownerKey, { ownerIds: group.ownerIds, groups: [] });
+      owners.get(ownerKey).groups.push(group);
+    }
+    for (const [ownerKey, owner] of owners) {
+      let ownerContent = null;
+      let subjectGroups = null;
+      if (ownerMode) {
+        const ownerLessonCount = owner.groups.reduce((count, group) => count + group.lessonIndexes.length, 0);
+        const ownerArticle = element(document, 'section', { class: 'lesson-owner' });
+        const ownerStateKey = `${ownerMode}:${ownerKey}`;
+        const ownerExpanded = !collapsedLessonOwners.has(ownerStateKey);
+        const ownerHeader = element(document, 'button', {
+          type: 'button', class: 'lesson-owner-toggle', 'aria-expanded': String(ownerExpanded),
+          'aria-label': `${ownerExpanded ? 'Nascondi' : 'Mostra'} lezioni per ${namesFor(ownerCollection, owner.ownerIds)}`,
+        });
+        const ownerName = ownerMode === 'teacher' ? 'Docente' : ownerMode === 'class' ? 'Classe' : 'Aula';
+        ownerHeader.append(
+          element(document, 'span', { class: 'lesson-owner-name' }, `${ownerName} · ${namesFor(ownerCollection, owner.ownerIds)}`),
+          element(document, 'span', { class: 'lesson-group-count' }, `${ownerLessonCount} ${ownerLessonCount === 1 ? 'lezione' : 'lezioni'}`),
+        );
+        ownerContent = element(document, 'div', { class: 'lesson-owner-groups' });
+        ownerContent.hidden = !ownerExpanded;
+        subjectGroups = new Map();
+        for (const group of owner.groups) {
+          const lesson = timetable.lessons[group.lessonIndexes[0]];
+          const subjectId = lesson?.subjectId || '';
+          if (!subjectGroups.has(subjectId)) subjectGroups.set(subjectId, { subjectId, groups: [] });
+          subjectGroups.get(subjectId).groups.push(group);
+        }
+        for (const [subjectId, subjectGroup] of subjectGroups) {
+          const subjectLessons = subjectGroup.groups.flatMap(group => group.lessonIndexes);
+          const subjectStateKey = `${ownerMode}:${ownerKey}:${subjectId || 'unknown'}`;
+          const subjectExpanded = !collapsedLessonSubjects.has(subjectStateKey);
+          const subjectSection = element(document, 'section', { class: 'lesson-subject-group' });
+          const subjectHeader = element(document, 'button', {
+            type: 'button', class: 'lesson-subject-toggle', 'aria-expanded': String(subjectExpanded),
+            'aria-label': `${subjectExpanded ? 'Nascondi' : 'Mostra'} materia ${nameFor('subjects', subjectId)}`,
+          });
+          subjectHeader.append(
+            element(document, 'span', { class: 'lesson-subject-name' }, `Materia · ${nameFor('subjects', subjectId)}`),
+            element(document, 'span', { class: 'lesson-group-count' }, `${subjectLessons.length} ${subjectLessons.length === 1 ? 'lezione' : 'lezioni'}`),
+          );
+          const subjectContent = element(document, 'div', { class: 'lesson-subject-content' });
+          subjectContent.hidden = !subjectExpanded;
+          subjectHeader.addEventListener('click', () => {
+            const expanded = subjectHeader.getAttribute('aria-expanded') !== 'true';
+            if (expanded) collapsedLessonSubjects.delete(subjectStateKey);
+            else collapsedLessonSubjects.add(subjectStateKey);
+            subjectHeader.setAttribute('aria-expanded', String(expanded));
+            subjectHeader.setAttribute('aria-label', `${expanded ? 'Nascondi' : 'Mostra'} materia ${nameFor('subjects', subjectId)}`);
+            subjectContent.hidden = !expanded;
+          });
+          subjectSection.append(subjectHeader, subjectContent);
+          ownerContent.append(subjectSection);
+          subjectGroup.content = subjectContent;
+        }
+        ownerHeader.addEventListener('click', () => {
+          const expanded = ownerHeader.getAttribute('aria-expanded') !== 'true';
+          if (expanded) collapsedLessonOwners.delete(ownerStateKey);
+          else collapsedLessonOwners.add(ownerStateKey);
+          ownerHeader.setAttribute('aria-expanded', String(expanded));
+          ownerHeader.setAttribute('aria-label', `${expanded ? 'Nascondi' : 'Mostra'} lezioni per ${namesFor(ownerCollection, owner.ownerIds)}`);
+          ownerContent.hidden = !expanded;
+        });
+        ownerArticle.append(ownerHeader, ownerContent);
+        lessonGroups.append(ownerArticle);
+      }
+      for (const group of owner.groups) {
+      const lessons = group.lessonIndexes.map(index => timetable.lessons[index]);
+      lessons.forEach(lesson => visibleLessonIds.add(lesson.id));
+      const first = lessons[0];
+      const subject = nameFor('subjects', first.subjectId);
+      const teacherNames = namesFor('teachers', first.teacherIds);
+      const classNames = namesFor('classes', first.classIds);
+      const roomNames = namesFor('rooms', first.roomIds);
+      const article = element(document, 'article', { class: 'lesson-group' });
+      const expanded = expandedLessonGroups.has(group.stateKey);
+      const header = element(document, 'button', {
+        type: 'button', class: 'lesson-group-toggle', 'aria-expanded': String(expanded),
+        'aria-label': `${expanded ? 'Nascondi' : 'Mostra'} ${lessons.length} lezioni: ${subject}, ${classNames}`,
+      });
+      const summary = element(document, 'span', { class: 'lesson-group-info' });
+      if (!ownerMode) summary.append(element(document, 'strong', { class: 'lesson-group-subject' }, subject));
+      const configParts = [
+        ownerMode === 'teacher' ? null : teacherNames,
+        ownerMode === 'class' ? null : classNames,
+        ownerMode === 'room' ? null : roomNames,
+        `${first.durationPeriods || 1} ${(first.durationPeriods || 1) === 1 ? 'ora' : 'ore'}`,
+      ].filter(Boolean);
+      summary.append(element(document, 'span', { class: 'lesson-group-config' }, configParts.join(' · ')));
+      header.append(summary, element(document, 'span', { class: 'lesson-group-count' }, `${lessons.length} ${lessons.length === 1 ? 'lezione' : 'lezioni'}`));
+      const occurrences = element(document, 'div', { class: 'lesson-group-occurrences' });
+      occurrences.hidden = !expanded;
+      const frameSummary = lessonFrameSummary(first);
+      if (frameSummary.length) occurrences.append(element(document, 'p', { class: 'lesson-group-constraints' }, frameSummary.join(' · ')));
+      for (const index of group.lessonIndexes) {
+        const lesson = timetable.lessons[index];
+        const lessonNumber = Number.isInteger(lesson.sourceIndex) ? lesson.sourceIndex + 1 : index + 1;
+        const occurrence = element(document, 'button', {
+          type: 'button', class: `lesson-occurrence${selectedDetailKey === `lessons:${lesson.id}` ? ' is-selected' : ''}`,
+          'data-lesson-id': lesson.id, 'aria-label': `Apri dettaglio lezione ${lessonNumber}, ${lessonOccurrenceTime(lesson)}`,
+        }, `Lezione ${lessonNumber} · ${lessonOccurrenceTime(lesson)}`);
+        occurrence.addEventListener('click', () => {
+          selectedDetailKey = `lessons:${lesson.id}`;
+          lessonGroups.querySelectorAll('.lesson-occurrence.is-selected').forEach(item => item.classList.remove('is-selected'));
+          occurrence.classList.add('is-selected');
+          lessonTable.querySelectorAll('tbody .is-selected').forEach(item => {
+            item.classList.remove('is-selected');
+            item.setAttribute('aria-selected', 'false');
+          });
+          const row = [...lessonTable.querySelectorAll('tbody tr[data-lesson-id]')].find(item => item.dataset.lessonId === lesson.id);
+          row?.classList.add('is-selected');
+          row?.setAttribute('aria-selected', 'true');
+          onDetail({ type: 'lessons', id: lesson.id });
+        });
+        occurrences.append(occurrence);
+      }
+      header.addEventListener('click', () => {
+        if (expandedLessonGroups.has(group.stateKey)) expandedLessonGroups.delete(group.stateKey);
+        else expandedLessonGroups.add(group.stateKey);
+        const isExpanded = expandedLessonGroups.has(group.stateKey);
+        header.setAttribute('aria-expanded', String(isExpanded));
+        header.setAttribute('aria-label', `${isExpanded ? 'Nascondi' : 'Mostra'} ${lessons.length} lezioni: ${subject}, ${classNames}`);
+        occurrences.hidden = !isExpanded;
+      });
+      article.append(header, occurrences);
+      if (ownerMode) {
+        const subjectId = first.subjectId || '';
+        subjectGroups.get(subjectId)?.content.append(article);
+      } else lessonGroups.append(article);
+      }
+    }
+    if (!grouped.size) lessonGroups.append(element(document, 'p', { class: 'muted lesson-groups-empty' }, 'Nessuna lezione corrisponde alla ricerca.'));
+    const ownerCount = ownerMode ? owners.size : grouped.size;
+    const visibleLessonCount = visibleLessonIds.size;
+    if (lessonGroupCount) lessonGroupCount.textContent = `${ownerCount} ${ownerMode ? (ownerMode === 'teacher' ? 'docenti' : 'aule') : 'gruppi'} · ${visibleLessonCount} ${visibleLessonCount === 1 ? 'lezione' : 'lezioni'}`;
   }
 
   function updateEntityUsage() {
@@ -550,6 +923,8 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const scope = scopeLabels[row.scope] || row.scope;
       return { values: [`${scope} · ${row.name}`, kind, day, time], search: `${row.name} ${row.scope} ${scope} ${row.kind} ${kind} ${row.slot || ''} ${day} ${time}`, dayIndex: dayRecord ? dayIndex : null, periodIndex, period };
     };
+    const constraintStatus = row => evaluateConstraintStatus(timetable, row);
+    const constraintStatusLabel = status => ({ satisfied: 'Rispettato', unsatisfied: 'Non rispettato', pending: 'Da verificare', unverified: 'Esito non verificabile' })[status];
     const columnQueries = columnFilters.constraints.map(normalizedSearch);
     const rows = allRows.filter(row => {
       const details = constraintDetails(row);
@@ -630,7 +1005,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
         const ownerName = element(document, 'strong', {}, `${scopeLabels[owner.scope] || owner.scope} · ${owner.name}`);
         const ownerCount = element(document, 'span', { class: 'constraint-element-count' }, `${owner.groups.reduce((sum, group) => sum + group.records.length, 0)} vincoli`);
         ownerButton.append(ownerName, ownerCount);
-        ownerButton.addEventListener('click', () => onDetail({ type: owner.scope, id: owner.id }));
+        ownerButton.addEventListener('click', () => onDetail({ type: owner.scope, id: owner.id, source: 'global-constraints' }));
         section.append(ownerButton);
         const kinds = [...new Set(owner.groups.map(group => group.kind))];
         for (const kind of kinds) {
@@ -648,7 +1023,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
             const selectGroup = element(document, 'button', { type: 'button', class: 'constraint-group-select', 'aria-label': `Dettaglio ${kindLabels[group.kind] || group.kind}, ${periodLabel}` });
             const time = element(document, 'span', { class: 'constraint-group-time' }, periodLabel);
             selectGroup.append(time);
-            selectGroup.addEventListener('click', () => onDetail({ type: 'constraint-group', group: structuredClone(group) }));
+            selectGroup.addEventListener('click', () => onDetail({ type: 'constraint-group', group: structuredClone(group), source: 'global-constraints' }));
             const expand = element(document, 'button', { type: 'button', class: 'constraint-group-expand', 'aria-expanded': 'false' }, `Occorrenze (${group.records.length})`);
             const occurrences = element(document, 'div', { class: 'constraint-occurrences', hidden: '' });
             expand.addEventListener('click', () => {
@@ -659,11 +1034,19 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
             const days = element(document, 'div', { class: 'constraint-weekdays', 'aria-label': 'Giorni interessati' });
             for (const record of group.records) {
               const detail = constraintDetails(record);
+              const status = constraintStatus(record);
+              const statusLabel = constraintStatusLabel(status);
               const dayText = detail.dayIndex == null ? 'Giorno n.s.' : shortDays[detail.dayIndex] || `G${detail.dayIndex + 1}`;
-              const badge = element(document, 'span', { class: 'constraint-weekday', title: detail.values[2] }, dayText);
+              const badge = element(document, detail.dayIndex == null ? 'span' : 'button', {
+                ...(detail.dayIndex == null ? {} : { type: 'button', 'aria-label': `Apri vincolo ${detail.values[2]}, ${detail.values[3]} · ${statusLabel}` }),
+                class: `constraint-weekday${detail.dayIndex == null ? '' : ` constraint-weekday-button${status === 'satisfied' || status === 'unsatisfied' ? ` constraint-status-${status}` : ''}`}`,
+                title: `${detail.values[2]} · ${statusLabel}`,
+              }, dayText);
+              if (detail.dayIndex != null) badge.addEventListener('click', () => onDetail({ type: 'constraint', constraint: structuredClone(record), source: 'global-constraints' }));
               days.append(badge);
-              const occurrence = element(document, 'button', { type: 'button', class: 'constraint-occurrence', 'aria-label': `Apri vincolo ${detail.values[2]}, ${detail.values[3]}` }, `${detail.values[2]} · ${detail.values[3]}`);
-              occurrence.addEventListener('click', () => onDetail({ type: 'constraint', constraint: structuredClone(record) }));
+              const statusClass = status === 'satisfied' || status === 'unsatisfied' ? ` constraint-status-${status}` : '';
+              const occurrence = element(document, 'button', { type: 'button', class: `constraint-occurrence${statusClass}`, 'aria-label': `Apri vincolo ${detail.values[2]}, ${detail.values[3]} · ${statusLabel}` }, `${detail.values[2]} · ${detail.values[3]} · ${statusLabel}`);
+              occurrence.addEventListener('click', () => onDetail({ type: 'constraint', constraint: structuredClone(record), source: 'global-constraints' }));
               occurrences.append(occurrence);
             }
             heading.append(selectGroup, expand);
@@ -700,6 +1083,13 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
   }
 
   for (const [gridName, filter] of Object.entries(gridFilters)) filter?.addEventListener('input', () => applyGridFilter(gridName));
+  lessonViewToggle?.addEventListener('click', () => {
+    groupedLessonView = !groupedLessonView;
+    updateLessonView();
+  });
+  lessonGroupModes?.querySelectorAll('[data-lesson-group-mode]').forEach(button => {
+    button.addEventListener('click', () => setLessonGroupMode(button.dataset.lessonGroupMode, true));
+  });
   constraintFilter.addEventListener('input', () => { constraintPage = 0; groupedConstraintPage = 0; renderConstraints(); });
   constraintViewToggle?.addEventListener('click', () => { groupedConstraintView = !groupedConstraintView; renderConstraints(); });
   previousConstraints.addEventListener('click', () => {
@@ -725,12 +1115,12 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
     } else timetable = change.timetable;
     undoButton.disabled = !undoStack.length;
     render();
-    status.textContent = 'Ultima modifica annullata.';
+    setStatus('Ultima modifica annullata.');
     onChange(timetable);
   });
 
   return {
-    setTimetable(value) { timetable = value || createEmptySchool(); timetable.entities.students ||= []; undoStack.length = 0; undoButton.disabled = true; render(); },
+    setTimetable(value) { editingEntity = null; selectedDetailKey = null; timetable = value || createEmptySchool(); timetable.entities.students ||= []; undoStack.length = 0; undoButton.disabled = true; render(); },
     importEntities(collection, incoming = [], sourceInfo = null, calendar = null) {
       const values = timetable.entities[collection];
       if (!Array.isArray(values)) throw new TypeError(`Collezione non importabile: ${collection}.`);
@@ -753,7 +1143,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           timetable.source.rosterImports.push(structuredClone(sourceInfo));
         }
         render();
-        status.textContent = `${additions.length} ${COLLECTION_IMPORTED[collection] || 'elementi importati'}${duplicates ? `; ${duplicates} duplicati ignorati` : ''}.`;
+        setStatus(`${additions.length} ${COLLECTION_IMPORTED[collection] || 'elementi importati'}${duplicates ? `; ${duplicates} duplicati ignorati` : ''}.`);
         onChange(timetable);
       }
       return { imported: additions.length, duplicates };
@@ -815,6 +1205,69 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           }
         }
       }
+      let lessonsDiagnostics = [];
+      if (selected.has('lessons')) {
+        const documentId = result.source?.documentId;
+        const filename = sourceInfo?.filename || '';
+        const matchesSource = item => (documentId && item.source?.documentId === documentId) || (filename && item.filename === filename);
+        const alreadyImported = (next.source.lessonImports || []).some(matchesSource)
+          || (next.source.rosterImports || []).some(item => item.sections?.includes('lessons') && matchesSource(item));
+        if (alreadyImported) throw new Error('Le lezioni di questo file OFD risultano già importate.');
+
+        const sourceNames = Object.fromEntries(['teachers', 'classes', 'rooms'].map(collection => [collection,
+          new Map((result.entities[collection] || []).map(item => [item.id, item.name]))]));
+        const missing = { teachers: new Set(), classes: new Set(), rooms: new Set() };
+        const incomingLessons = result.lessons.map(sourceLesson => {
+          const lesson = { ...structuredClone(sourceLesson), assignedTime: null };
+          for (const collection of Object.keys(missing)) {
+            const field = collection === 'teachers' ? 'teacherIds' : collection === 'classes' ? 'classIds' : 'roomIds';
+            lesson[field] = (sourceLesson[field] || []).flatMap(id => {
+              const name = sourceNames[collection].get(id);
+              const target = next.entities[collection].find(item => normalizedName(item.name) === normalizedName(name));
+              if (!target) { if (name) missing[collection].add(name); return []; }
+              return [target.id];
+            });
+          }
+          return lesson;
+        });
+        const missingLabels = Object.entries(missing).filter(([, values]) => values.size)
+          .map(([collection, values]) => `${collection === 'teachers' ? 'docenti' : collection === 'classes' ? 'classi' : 'aule'}: ${[...values].slice(0, 3).join(', ')}`).join('; ');
+        if (missingLabels) throw new Error(`Per importare le lezioni, importa anche le anagrafiche richieste (${missingLabels}).`);
+
+        const adoptCalendar = !next.lessons.length && !next.source?.calendarSourceId;
+        const lessonCalendar = adoptCalendar ? result.calendar : next.calendar;
+        const sameCalendar = result.calendar.days.length === lessonCalendar.days.length
+          && result.calendar.periods.length === lessonCalendar.periods.length
+          && result.calendar.periods.every((period, index) => period.beginMinute === lessonCalendar.periods[index]?.beginMinute && period.endMinute === lessonCalendar.periods[index]?.endMinute);
+        let preservedTimeframes = 0;
+        if (!sameCalendar) for (const lesson of incomingLessons) {
+          const frames = lesson.timeframes;
+          if (Object.values(frames || {}).some(values => values?.length)) {
+            lesson.sourceData = { ...(lesson.sourceData || {}), ofdTimeframes: structuredClone(frames) };
+            lesson.timeframes = { unavailable: [], desired: [], undesired: [] };
+            preservedTimeframes++;
+          }
+        }
+        const unknownClassIds = new Set(next.entities.classes.filter(item => item.placeholder === 'unknown').map(item => item.id));
+        const lessonsWithoutClass = incomingLessons.filter(lesson => !lesson.classIds.length || lesson.classIds.some(id => unknownClassIds.has(id))).length;
+        const sourceSubjectIds = new Set((result.entities.subjects || []).map(item => item.id));
+        const unknownSubjectIds = new Set((result.entities.subjects || []).filter(item => item.placeholder === 'unknown').map(item => item.id));
+        const lessonsWithoutSubject = incomingLessons.filter(lesson => !lesson.subjectId || !sourceSubjectIds.has(lesson.subjectId) || unknownSubjectIds.has(lesson.subjectId)).length;
+        lessonsDiagnostics = [
+          lessonsWithoutClass && { severity: 'warning', code: 'lesson-without-class', message: `${lessonsWithoutClass} attività OFD usano la classe UNKNOWN; saranno escluse dal calcolo e conservate per la gestione separata.` },
+          lessonsWithoutSubject && { severity: 'warning', code: 'lesson-without-subject', message: `${lessonsWithoutSubject} lezioni OFD non hanno una materia; useranno UNKNOWN e il calcolo potrà procedere.` },
+          preservedTimeframes && { severity: 'warning', code: 'lesson-timeframes-preserved', message: `${preservedTimeframes} lezioni hanno vincoli temporali conservati nei dati sorgente perché il calendario è diverso.` },
+        ].filter(Boolean);
+        const lessonSourceInfo = {
+          format: 'orario-facile-ofd-lessons', filename,
+          source: result.source,
+          diagnostics: [...(sourceInfo?.diagnostics || []), ...lessonsDiagnostics],
+        };
+        const lessonCalendarToAdopt = adoptCalendar ? result.calendar : null;
+        const lessonResult = appendImportedLessons(next, incomingLessons, result.entities.subjects || [], lessonSourceInfo, lessonCalendarToAdopt);
+        counts.lessons = lessonResult.imported;
+        counts.subjects = (counts.subjects || 0) + lessonResult.subjects;
+      }
       if (sourceInfo) {
         next.source.rosterImports ||= [];
         next.source.rosterImports.push({ ...structuredClone(sourceInfo), sections: [...selected] });
@@ -822,7 +1275,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       if (JSON.stringify(next) !== JSON.stringify(timetable)) {
         remember(); timetable = next; render(); commit('Sezioni OFD importate.');
       }
-      return { counts, constraintsImported, constraintsSkipped };
+      return { counts, constraintsImported, constraintsSkipped, lessonsDiagnostics };
     },
     importLessons(incoming = [], incomingSubjects = [], sourceInfo = null, calendar = null) {
       const subjects = timetable.entities.subjects;
@@ -872,7 +1325,7 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
           timetable.source.lessonImports.push(structuredClone(sourceInfo));
         }
         render();
-        status.textContent = `${additions.length} lezioni importate${subjectAdditions.length ? ` · ${subjectAdditions.length} materie aggiunte` : ''}.`;
+        setStatus(`${additions.length} lezioni importate${subjectAdditions.length ? ` · ${subjectAdditions.length} materie aggiunte` : ''}.`);
         onChange(timetable);
       }
       return { imported: additions.length, subjects: subjectAdditions.length };
@@ -931,6 +1384,24 @@ export function createSchoolWorkbench({ document = globalThis.document, onChange
       const next = updateTimeframeConstraint(timetable, change);
       if (JSON.stringify(next) === JSON.stringify(timetable)) return next;
       remember(); timetable = next; render(); commit('Vincolo aggiornato.');
+      return structuredClone(timetable);
+    },
+    deleteConstraintGroup(records = []) {
+      if (!records.length) throw new TypeError('Il gruppo non contiene vincoli da eliminare.');
+      const scopes = { teachers: 'teacher', classes: 'class', rooms: 'room', lessons: 'lesson' };
+      let next = structuredClone(timetable);
+      for (const record of records) {
+        const scope = scopes[record.scope];
+        if (!scope) throw new TypeError('Ambito del vincolo non supportato.');
+        const target = record.scope === 'lessons'
+          ? next.lessons.find(item => item.id === record.id)
+          : next.entities[record.scope]?.find(item => item.id === record.id);
+        const frames = record.scope === 'lessons' ? target?.timeframes : target?.constraints?.timeframes;
+        if (!frames?.[record.kind]?.includes(record.slot)) throw new TypeError('Un vincolo del gruppo non è più presente.');
+        next = updateTimeframeConstraint(next, { scope, id: record.id, kind: record.kind, action: 'delete', slot: record.slot });
+      }
+      if (JSON.stringify(next) === JSON.stringify(timetable)) return structuredClone(timetable);
+      remember(); timetable = next; render(); commit('Gruppo di vincoli eliminato.');
       return structuredClone(timetable);
     },
     updateConstraintGroup({ records = [], kind, periodIndex, targetSlots = [] } = {}) {

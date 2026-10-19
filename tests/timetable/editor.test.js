@@ -142,7 +142,7 @@ test('full timetable recalculation stays a proposal until explicitly confirmed a
   let confirms = 0;
   const editor = createTimetableEditor({ document, getTimetable: () => applied, onApply: next => { applied = next; }, confirm: () => { confirms++; return allow; } });
   assert.equal(document.querySelector('#recalculate-all').disabled, false);
-  assert.ok(document.querySelector('.timetable-heading #recalculate-all'), 'the calculation action stays in the timetable workspace');
+  assert.ok(document.querySelector('#calculation-page #recalculate-all'), 'the calculation action stays in the calculation page');
   assert.equal(document.querySelector('#optimization-weight-undesired').value, '100');
   assert.equal(document.querySelector('#optimization-weight-preferred').value, '25');
   document.querySelector('#recalculate-all').click();
@@ -178,6 +178,8 @@ test('applying a full recalculation opens a populated class timetable and report
   await app.editor.recalculationComplete;
   document.querySelector('.proposal-option').click();
   document.querySelector('#review-recalculation').click();
+  document.querySelector('#confirmation-accept').click();
+  await Promise.resolve();
 
   assert.equal(app.activeScreen, 'schedule');
   assert.equal(document.querySelectorAll('#schedule-grid [data-lesson-id]').length, 1);
@@ -367,6 +369,39 @@ test('dropping a lesson on another lesson swaps both assignments atomically', as
   assert.deepEqual(app.timetable.lessons.map(lesson => lesson.assignedTime.periodIndex), [2, 0]);
   document.querySelector('#undo-change').click();
   assert.deepEqual(app.timetable.lessons.map(lesson => lesson.assignedTime.periodIndex), [0, 2]);
+  dom.window.close();
+});
+
+test('the app confirms a full recalculation in its custom dialog instead of a system message box', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const fixture = solverFixture();
+  fixture.lessons[0].assignedTime = null;
+  let systemConfirmCalls = 0;
+  const app = createTimetableApp({ document, confirm: () => { systemConfirmCalls++; return true; } });
+  const bytes = new TextEncoder().encode(exportTimetableEDN(fixture));
+  assert.equal(await app.stageEDNFile({ name: 'school.edn', arrayBuffer: async () => bytes.buffer }), true);
+  assert.equal(app.applyImport(), true);
+  const before = structuredClone(app.timetable);
+
+  document.querySelector('#recalculate-all').click();
+  await app.editor.recalculationComplete;
+  document.querySelector('#review-recalculation').click();
+
+  const overlay = document.querySelector('#confirmation-overlay');
+  assert.equal(overlay.hidden, false);
+  assert.equal(document.querySelector('#confirmation-title').textContent, 'Applicare il ricalcolo?');
+  assert.equal(document.querySelector('#confirmation-accept').textContent, 'Applica orario');
+  assert.deepEqual(app.timetable, before, 'opening the dialog does not apply the proposal');
+  assert.equal(systemConfirmCalls, 0, 'the system confirmation API is not used for optimization');
+
+  document.querySelector('#confirmation-cancel').click();
+  assert.deepEqual(app.timetable, before, 'cancelling keeps the current schedule');
+  document.querySelector('#review-recalculation').click();
+  document.querySelector('#confirmation-accept').click();
+  await Promise.resolve();
+  assert.ok(app.timetable.lessons[0].assignedTime, 'accepting applies the recalculated assignment');
+  assert.equal(overlay.hidden, true);
   dom.window.close();
 });
 

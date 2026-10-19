@@ -64,7 +64,7 @@ One Node 24.21.0/jsdom run on the supplied 877,947-byte sample (1,714 lessons) i
 
 ## Current import workflow
 
-For development, run `npm run dev` from the repository root and open the printed timetable URL, `http://localhost:8080/timetable/`. The static server redirects `/timetable` to `/timetable/`, serves CSS with the correct MIME type, and serves the development favicon. For a standalone file, run `npm run build:timetable` and open `dist/timetable.html`; its markup, CSS, JavaScript, and SVG favicon are embedded, with no runtime network or backend requirement.
+For development, run `npm run dev` from the repository root and open the printed timetable URL, `http://localhost:8080/timetable/`. The static server redirects `/timetable` to `/timetable/`, serves CSS with the correct MIME type, and serves the development favicon. For a standalone file, run `npm run build:timetable` and open `dist/timetable.html`; its markup, CSS, JavaScript, EduSched logo, and SVG favicon are embedded, with no runtime network or backend requirement.
 
 To start from zero, edit the school sheets directly. Add teachers, classes, subjects, optional rooms, students, and lesson requirements using each grid's blank row; the default calendar is Monday–Friday with six 60-minute periods. Repeated weekly lessons are separate rows. Navigate directly to **Calcolo & Motore** at any time; its start button activates only when required data is valid. Review and confirm the proposal before applying it. The secondary **Importa / esporta EDN** action handles whole-project EDN files only.
 

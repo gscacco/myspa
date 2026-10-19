@@ -69,6 +69,16 @@ test('maps a synthetic lesson and its availability to explicit calendar indexes'
   assert.deepEqual(timetable.entities.teachers[0].constraints.timeframes, { unavailable: [], desired: [], undesired: [] });
 });
 
+test('ignores OFD teacher and class constraint fields that the solver does not use', () => {
+  const xml = minimalOFD()
+    .replaceAll('<MIN value="1"/>', '<MIN value="2"/>')
+    .replaceAll('<WEIGHT value="2"/>', '<WEIGHT value="12"/>');
+  const { timetable } = parse(xml);
+
+  assert.deepEqual(timetable.entities.teachers[0].constraints, { timeframes: { unavailable: [], desired: [], undesired: [] } });
+  assert.deepEqual(timetable.entities.classes[0].constraints, { timeframes: { unavailable: [], desired: [], undesired: [] } });
+});
+
 test('fatal malformed XML, missing required data, invalid references, duplicates, and invalid times are rejected', () => {
   const cases = [
     ['<DOCUMENT>', /XML/i],

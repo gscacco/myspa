@@ -225,12 +225,6 @@ function dataByName(parent, config) {
 }
 
 function attachEntityData(entities, dataIndex, config, calendar) {
-  const constraintFields = [
-    ['MIN', 'minimum'], ['MAX', 'maximum'], ['WEIGHT', 'weight'],
-    ['DISTMIN', 'distributionMinimum'], ['DISTMAX', 'distributionMaximum'],
-    ['FORCELEFT', 'forceLeft'], ['FORCERIGHT', 'forceRight'],
-    ['AVOIDAMGAP', 'avoidMorningGap'], ['FREEDAYS', 'freeDays'],
-  ];
   for (const entity of entities) {
     const data = dataIndex.get(entity.name);
     if (!data) continue;
@@ -238,7 +232,7 @@ function attachEntityData(entities, dataIndex, config, calendar) {
       entity.preferences = numericFields(data.element, [['BACKCOLOR', 'backgroundColor'], ['FORECOLOR', 'foregroundColor'], ['WEIGHT', 'weight']], data.path);
       continue;
     }
-    const fields = config.idPrefix === 'room' ? [['NUMBER', 'number']] : constraintFields;
+    const fields = config.idPrefix === 'room' ? [['NUMBER', 'number']] : [];
     const constraints = numericFields(data.element, fields, data.path);
     const directFrames = one(data.element, 'TIMEFRAMES', data.path);
     let timeframeElement = directFrames;

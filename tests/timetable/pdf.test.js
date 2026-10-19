@@ -31,13 +31,17 @@ test('PDF page exposes only relevant selectors and prints the selected timetable
   const type = document.querySelector('#pdf-output-type');
   const entityWrap = document.querySelector('#pdf-entity-wrap');
   assert.equal(entityWrap.hidden, true);
+  assert.equal(document.querySelector('#entity-detail-panel').hidden, true);
+  assert.ok([...type.options].every(option => option.value !== 'general'));
   type.value = 'teacher';
   type.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   assert.equal(entityWrap.hidden, false);
   assert.equal(document.querySelector('#pdf-entity-select').value, 'teacher:T1');
   document.querySelector('#print-timetable').click();
   assert.equal(printCalls, 1);
-  assert.equal(document.querySelectorAll('#pdf-print-content tbody tr').length, 3);
+  assert.equal(document.querySelectorAll('#pdf-print-content .print-calendar-grid .lesson-card').length, 3);
+  assert.ok([...document.querySelectorAll('#pdf-print-content .lesson-card')].every(card => card.className === 'lesson-card'));
+  assert.equal(document.querySelector('#pdf-print-content .lesson-status'), null);
   type.value = 'class';
   type.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
   assert.ok([...document.querySelector('#pdf-entity-select').options].every(option => ['class:C1', 'class:C2'].includes(option.value)));

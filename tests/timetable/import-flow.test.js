@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 import { createTimetableApp } from '../../timetable/js/app.js';
 import { readEDN, writeEDN } from '../../timetable/js/edn-codec.js';
 import { createEmptySchool } from '../../timetable/js/school-workbench.js';
-import { domParser, minimalOFD } from './helpers.js';
+import { domParser, minimalOFD, lessonXML } from './helpers.js';
 
 const indexPath = fileURLToPath(new URL('../../timetable/index.html', import.meta.url));
 const samplePath = new URL('../../OR_30_SETT.ofd', import.meta.url);
@@ -26,7 +26,7 @@ test('OFD is imported from its roster sheet and adds only the selected entity ty
   const { app, dom, document } = await mount();
   assert.equal(document.querySelector('#ofd-file'), null);
   assert.equal(document.querySelector('#edn-file').accept, '.edn');
-  assert.match(document.querySelector('#import-heading').textContent, /progetto EDN/i);
+  assert.equal(document.querySelector('#import-heading').textContent, 'Importa o esporta il progetto');
   const input = document.querySelector('#roster-file-classes');
   assert.equal(input.accept, '.ofd,.csv');
   assert.equal(document.querySelector('#roster-file-rooms').accept, '.ofd,.csv');
@@ -146,7 +146,7 @@ test('OFD section selection imports only checked rosters and constraints atomica
   const original = app.timetable;
   assert.equal(await app.stageExternalOFD(file), true);
   assert.equal(app.timetable, original, 'preview does not change the current school');
-  assert.match(document.querySelector('#external-ofd-status').textContent, /1 teachers.*vincoli/i);
+  assert.match(document.querySelector('#external-ofd-status').textContent, /1 docente.*vincoli/i);
   assert.equal(app.applyExternalOFD(), true);
   assert.deepEqual(app.timetable.entities.teachers.map(item => item.name), ['T1']);
   assert.equal(app.timetable.entities.rooms.length, 0);
@@ -160,5 +160,32 @@ test('OFD section selection imports only checked rosters and constraints atomica
   assert.equal(app.applyExternalOFD(), false);
   assert.equal(app.timetable, current);
   assert.match(document.querySelector('#external-ofd-status').textContent, /rimasta invariata/i);
+  dom.window.close();
+});
+
+test('OFD section import includes lessons when selected and remains atomic when their resources are missing', async () => {
+  const { app, dom, document } = await mount({ DOMParser: domParser });
+  const source = minimalOFD({ lesson: lessonXML() });
+  const file = fileFrom(source, 'school-with-lessons.ofd');
+  const sections = [...document.querySelectorAll('[data-ofd-section]')];
+  for (const checkbox of sections) checkbox.checked = checkbox.dataset.ofdSection === 'lessons';
+  const original = app.timetable;
+  assert.equal(await app.stageExternalOFD(file), false);
+  assert.equal(app.timetable, original);
+  assert.match(document.querySelector('#external-ofd-status').textContent, /seleziona anche le relative anagrafiche/i);
+
+  for (const checkbox of sections) checkbox.checked = true;
+  assert.equal(await app.stageExternalOFD(file), true);
+  assert.match(document.querySelector('#external-ofd-status').textContent, /1 lezione/i);
+  assert.equal(app.timetable.lessons.length, 0, 'staging does not change the current school');
+  assert.equal(app.applyExternalOFD(), true);
+  assert.equal(app.timetable.lessons.length, 1);
+  assert.equal(app.timetable.lessons[0].assignedTime, null, 'source placements are recalculated');
+  assert.ok(app.timetable.entities.teachers.length);
+  assert.ok(app.timetable.entities.classes.length);
+  assert.ok(app.timetable.entities.rooms.length);
+  assert.equal(app.timetable.source.rosterImports[0].sections.includes('lessons'), true);
+  assert.match(app.timetable.source.lessonImports[0].source.xml, /<LESSON>/);
+  assert.equal(await app.stageExternalOFD(file), false, 'the same OFD lesson section cannot be imported twice');
   dom.window.close();
 });

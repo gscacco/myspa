@@ -27,7 +27,8 @@ test('standalone build is a single-file offline document with a bootable timetab
   virtualConsole.on('jsdomError', error => errors.push(error.message));
   const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously', virtualConsole, beforeParse: window => { window.structuredClone = structuredClone; } });
   const { document } = dom.window;
-  assert.equal(document.querySelector('h1').textContent, 'Chronos Engine');
+  assert.equal(document.querySelector('h1 img.brand-logo')?.alt, 'EduSched');
+  assert.match(document.querySelector('h1 img.brand-logo').src, /^data:image\/svg\+xml;base64,/);
   assert.equal(document.querySelector('#ofd-file'), null, 'OFD import is contextual to the selected school roster');
   assert.ok(document.querySelector('#roster-file-classes'));
   assert.ok(document.querySelector('#roster-file-rooms'));

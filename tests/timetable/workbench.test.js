@@ -20,7 +20,7 @@ test('the app opens on the requested data workspace with import in settings', as
   assert.ok(document.querySelector('#school-grid-classes'));
   assert.ok(document.querySelector('#school-grid-constraints'));
   assert.ok(document.querySelector('#school-constraint-filter'));
-  assert.deepEqual([...document.querySelectorAll('#app-sidebar nav [data-screen]')].map(button => button.dataset.screen), ['schedule', 'teachers', 'classes', 'rooms', 'constraints', 'pdf']);
+  assert.deepEqual([...document.querySelectorAll('#app-sidebar nav [data-screen]')].map(button => button.dataset.screen), ['schedule', 'calculation', 'lessons', 'teachers', 'classes', 'rooms', 'constraints', 'pdf']);
   assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
   assert.equal(document.querySelector('[data-screen="settings"]')?.closest('.sidebar-footer') != null, true);
 });
@@ -129,7 +129,9 @@ test('missing lesson class and subject become valid UNKNOWN placeholders for sep
   assert.ok(freshRow.isConnected, 'lesson rows stay stable while the fallback is applied');
   document.querySelector('#undo-school-edit').click();
   assert.equal(school.lessons.length, 6);
-  const unknownClassInput = document.querySelector(`#school-grid-classes [data-row="${school.entities.classes.indexOf(unknownClass)}"] input`);
+  const unknownClassRow = document.querySelector(`#school-grid-classes [data-row="${school.entities.classes.indexOf(unknownClass)}"]`);
+  unknownClassRow.dispatchEvent(new document.defaultView.MouseEvent('dblclick', { bubbles: true }));
+  const unknownClassInput = document.querySelector(`#school-grid-classes [data-entity-id="${unknownClass.id}"] input[data-field="name"]`);
   unknownClassInput.value = '1A';
   unknownClassInput.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
   assert.equal(unknownClass.placeholder, undefined, 'renaming UNKNOWN to a real class restores normal conflict checks');
@@ -166,13 +168,21 @@ test('every table column can filter and sort its own values', async () => {
   dom.window.close();
 });
 
-test('the school grids edit names in place, add by blank row, and undo the latest edit', () => {
+test('the school grids select rows and enter name editing on double click', () => {
   const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
   let updated;
   const workbench = createSchoolWorkbench({ document, onChange: value => { updated = value; } });
   const source = timetableFixture();
   workbench.setTimetable(source);
+  const teacherRow = document.querySelector('[data-grid="teachers"] [data-row="0"]');
+  assert.ok(teacherRow.querySelector('.entity-name-display'));
+  assert.equal(teacherRow.querySelector('[data-field="name"]'), null, 'single click selection does not enter edit mode');
+  teacherRow.click();
+  assert.ok(teacherRow.classList.contains('is-selected'));
+  assert.equal(teacherRow.querySelector('[data-field="name"]'), null);
+  teacherRow.dispatchEvent(new document.defaultView.MouseEvent('dblclick', { bubbles: true }));
   const teacherCell = document.querySelector('[data-grid="teachers"] [data-row="0"] [data-field="name"]');
+  assert.ok(teacherCell, 'double click opens the name editor');
   teacherCell.value = 'Docente aggiornato';
   teacherCell.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
   assert.equal(updated.entities.teachers[0].name, 'Docente aggiornato');
@@ -189,13 +199,14 @@ test('the school grids edit names in place, add by blank row, and undo the lates
 });
 
 test('constraint rows are read-only selectable details with the correct pointer semantics', () => {
-  const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
+  const document = new JSDOM('<main><section id="school-page"><table id="school-grid-teachers"></table><table id="school-grid-classes"></table><table id="school-grid-subjects"></table><table id="school-grid-rooms"></table><table id="school-grid-lessons"></table><div><table id="school-grid-constraints"></table><input id="school-constraint-filter"><span id="school-constraint-count"></span><button id="school-constraint-view-toggle"></button><button id="school-constraint-previous"></button><button id="school-constraint-next"></button></div><button id="undo-school-edit" disabled></button><p id="school-edit-status"></p></section></main>').window.document;
   const details = [];
   const workbench = createSchoolWorkbench({ document, onDetail: detail => details.push(detail) });
   const source = timetableFixture();
   workbench.setTimetable(source);
   const row = [...document.querySelectorAll('#school-grid-constraints tbody tr')]
     .find(item => item.textContent.includes('Teacher One'));
+  document.querySelector('#school-constraint-view-toggle').click();
   assert.ok(row.classList.contains('selectable-detail-row'));
   assert.equal(row.querySelector('input, select, [contenteditable="true"]'), null);
   row.click();
@@ -220,10 +231,11 @@ test('the application shell has the three stable areas and exact operational nav
   const css = await readFile(new URL('../../timetable/css/style.css', import.meta.url), 'utf8');
   const document = new JSDOM(html).window.document;
   assert.ok(document.querySelector('aside#app-sidebar nav[aria-label="Navigazione principale"]'));
-  for (const view of ['schedule', 'teachers', 'classes', 'rooms', 'constraints', 'pdf', 'settings']) {
+  for (const view of ['schedule', 'teachers', 'classes', 'rooms', 'lessons', 'constraints', 'pdf', 'settings']) {
     assert.ok(document.querySelector(`[data-screen="${view}"]`), `missing ${view} navigation`);
   }
-  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+320px/i);
+  assert.match(css, /grid-template-columns:\s*minmax\(320px,\s*1fr\)\s+12px\s+minmax\(250px,\s*var\(--detail-panel-width,\s*320px\)\)/i);
+  assert.equal(document.querySelector('#detail-resizer')?.getAttribute('role'), 'separator');
   assert.match(css, /\.entity-detail-panel\s*\{[^}]*width:\s*320px/s);
   assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
   assert.doesNotMatch(html, /(?:src|href)=["']https?:\/\//i);
@@ -234,6 +246,10 @@ test('navigation keeps the details panel and opens the matching central workspac
   const app = createTimetableApp({ document: dom.window.document });
   const { document } = dom.window;
   assert.equal(document.querySelector('[data-school-panel="teachers"]').hidden, false);
+  document.querySelector('[data-screen="lessons"]').click();
+  assert.equal(app.activeScreen, 'lessons');
+  assert.equal(document.querySelector('[data-school-panel="lessons"]').hidden, false);
+  assert.equal(document.querySelector('[data-school-panel="teachers"]').hidden, true);
   document.querySelector('[data-screen="classes"]').click();
   assert.equal(app.activeScreen, 'classes');
   assert.equal(document.querySelector('[data-school-panel="teachers"]').hidden, true);
@@ -244,34 +260,53 @@ test('navigation keeps the details panel and opens the matching central workspac
   assert.equal(document.querySelector('[data-school-panel="constraints"]').hidden, false);
   assert.equal(document.querySelector('[data-school-panel="classes"]').hidden, true);
   document.querySelector('[data-screen="settings"]').click();
-  assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
+  assert.equal(document.querySelector('#entity-detail-panel').hidden, true);
   assert.equal(document.querySelector('#settings-page').hidden, false);
   dom.window.close();
 });
 
-test('detail panel stays fixed and supports create, edit, and delete for managed entities', async () => {
+test('managed entities are selected in details and edited or deleted from the central grid', async () => {
   const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
+  let popupCount = 0;
+  dom.window.alert = () => { popupCount++; };
   const app = createTimetableApp({ document });
   const panel = document.querySelector('#entity-detail-panel');
   const css = await readFile(new URL('../../timetable/css/style.css', import.meta.url), 'utf8');
-  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+320px/i);
+  assert.match(css, /grid-template-columns:\s*minmax\(320px,\s*1fr\)\s+12px\s+minmax\(250px,\s*var\(--detail-panel-width,\s*320px\)\)/i);
 
   const createAndEdit = (screen, collection, label) => {
     document.querySelector(`[data-screen="${screen}"]`).click();
     assert.equal(panel.hidden, false);
-    const create = document.querySelector(`[data-create-entity="${collection}"]`);
-    const name = create.querySelector('input');
+    assert.equal(document.querySelector('#entity-detail-content [data-create-entity]'), null);
+    const name = document.querySelector(`#school-grid-${collection} [data-new-row="true"] input`);
     name.value = `Nuova ${label}`;
-    create.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    name.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     const entity = app.timetable.entities[collection].find(item => item.name === `Nuova ${label}`);
-    assert.ok(entity, `${collection} can be created from the details panel`);
-    const edit = document.querySelector('.detail-edit-form');
-    const editName = edit.querySelector('input');
+    assert.ok(entity, `${collection} can be created from the central grid`);
+    const duplicateName = document.querySelector(`#school-grid-${collection} [data-new-row="true"] input`);
+    duplicateName.value = entity.name;
+    duplicateName.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    const warning = document.querySelector('#school-edit-status');
+    assert.match(warning.textContent, /Esiste già/);
+    assert.equal(warning.dataset.state, 'warning');
+    assert.equal(warning.hidden, false);
+    assert.equal(popupCount, 0, 'duplicate feedback is inline, without a popup');
+    const rowSelector = `#school-grid-${collection} tbody tr[data-entity-id="${entity.id}"]`;
+    const row = document.querySelector(rowSelector);
+    row.click();
+    assert.equal(document.querySelector('#entity-detail-content .detail-edit-form'), null);
+    assert.equal(document.querySelector('#entity-detail-actions .danger-button'), null, 'entity details do not expose a delete button');
+    assert.equal(row.querySelector('[data-field="name"]'), null, 'selecting the row only opens details');
+    row.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }));
+    const editName = document.querySelector(`${rowSelector} [data-field="name"]`);
     editName.value = `${label} modificata`;
-    edit.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    editName.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     assert.equal(app.timetable.entities[collection].find(item => item.id === entity.id).name, `${label} modificata`);
-    document.querySelector('.detail-edit-form .danger-button').click();
+    document.querySelector(rowSelector).dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true }));
+    const removeName = document.querySelector(`${rowSelector} [data-field="name"]`);
+    removeName.value = '';
+    removeName.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     assert.equal(app.timetable.entities[collection].some(item => item.id === entity.id), false);
   };
 
@@ -279,10 +314,116 @@ test('detail panel stays fixed and supports create, edit, and delete for managed
   createAndEdit('classes', 'classes', 'classe');
   createAndEdit('classes', 'subjects', 'materia');
   createAndEdit('rooms', 'rooms', 'aula');
-  for (const screen of ['schedule', 'teachers', 'classes', 'rooms', 'constraints', 'pdf', 'settings']) {
+  for (const screen of ['schedule', 'calculation', 'lessons', 'teachers', 'classes', 'rooms', 'constraints', 'pdf', 'settings']) {
     document.querySelector(`[data-screen="${screen}"]`).click();
-    assert.equal(panel.hidden, false, `details remain mounted on ${screen}`);
+    assert.equal(panel.hidden, ['calculation', 'pdf', 'settings'].includes(screen), `details visibility matches ${screen}`);
   }
+  dom.window.close();
+});
+
+test('selecting a class shows its assigned and unassigned timetable entries in time order', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const app = createTimetableApp({ document: dom.window.document });
+  const timetable = timetableFixture();
+  timetable.lessons.push({
+    id: 'lesson:class-unassigned', sourceIndex: 5, subjectId: 'subject:HIST', teacherIds: ['teacher:T1'],
+    classIds: ['class:C1'], roomIds: [], durationPeriods: 1, assignedTime: null,
+    timeframes: { unavailable: [], desired: [], undesired: [] },
+  });
+  const edn = writeEDN(timetable);
+  await app.stageEDNFile({ name: 'fixture.edn', arrayBuffer: async () => new TextEncoder().encode(edn).buffer });
+  dom.window.document.querySelector('#apply-import').click();
+  dom.window.document.querySelector('#school-grid-classes tbody tr[data-entity-id="class:C1"]').click();
+  const detail = dom.window.document.querySelector('#entity-detail-content');
+  const schedule = [...detail.querySelectorAll('.entity-detail-section')].find(section => section.querySelector('h3')?.textContent === 'Orario della classe');
+  assert.ok(schedule, detail.textContent);
+  assert.match(schedule.textContent, /Monday 08:00–10:00/);
+  assert.match(schedule.textContent, /Monday 09:00–10:00/);
+  assert.match(schedule.textContent, /Senza orario/);
+  dom.window.close();
+});
+
+test('lessons group equivalent records while preserving occurrences, filters and the flat table', async () => {
+  const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
+  const document = dom.window.document;
+  let selectedDetail = null;
+  const workbench = createSchoolWorkbench({ document, onDetail: detail => { selectedDetail = detail; } });
+  const timetable = timetableFixture();
+  timetable.lessons.push(
+    { ...structuredClone(timetable.lessons[0]), id: 'lesson:repeat', sourceIndex: 5, assignedTime: { dayIndex: 1, periodIndex: 0, sourceValue: '1.0' } },
+    { ...structuredClone(timetable.lessons[0]), id: 'lesson:constrained-repeat', sourceIndex: 6, timeframes: { unavailable: ['0.2'], desired: [], undesired: [] } },
+  );
+  workbench.setTimetable(timetable);
+
+  const lessonTable = document.querySelector('#school-grid-lessons');
+  const toggle = document.querySelector('#school-lesson-view-toggle');
+  assert.equal(lessonTable.hidden, true, 'grouped lessons are the default view');
+  assert.equal(document.querySelectorAll('#school-lesson-groups .lesson-group').length, 6, 'equivalent entries combine while different teachers, classes or timeframes remain separate');
+  const repeated = [...document.querySelectorAll('#school-lesson-groups .lesson-group')]
+    .find(group => group.querySelector('.lesson-group-subject')?.textContent === 'Mathematics'
+      && group.querySelector('.lesson-group-config')?.textContent.includes('Teacher One')
+      && group.querySelector('.lesson-group-config')?.textContent.includes('Class One')
+      && group.querySelector('.lesson-group-count')?.textContent === '2 lezioni');
+  assert.ok(repeated);
+  repeated.querySelector('.lesson-group-toggle').click();
+  const occurrences = repeated.querySelectorAll('.lesson-occurrence');
+  assert.equal(occurrences.length, 2, 'different assigned times stay available as individual occurrences');
+  assert.match(repeated.textContent, /Monday 08:00–10:00/);
+  assert.match(repeated.textContent, /Tuesday 08:00–10:00/);
+  occurrences[1].click();
+  assert.equal(selectedDetail?.type, 'lessons');
+  assert.equal(selectedDetail?.id, 'lesson:repeat');
+
+  document.querySelector('#school-lesson-group-modes [data-lesson-group-mode="teacher"]').click();
+  const teacherOwners = [...document.querySelectorAll('#school-lesson-groups .lesson-owner')];
+  assert.equal(teacherOwners.length, 2, 'teacher grouping creates one owner group per teacher');
+  assert.ok(teacherOwners.some(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Teacher One')));
+  assert.ok(teacherOwners.some(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Teacher Two')));
+  const teacherOne = teacherOwners.find(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Teacher One'));
+  assert.equal(teacherOne.querySelectorAll('.lesson-subject-group').length, 2, 'each teacher has a second grouping level by subject');
+  const subjectToggle = teacherOne.querySelector('.lesson-subject-toggle');
+  subjectToggle.click();
+  assert.equal(subjectToggle.nextElementSibling.hidden, true, 'subject subgroups can be collapsed');
+  subjectToggle.click();
+  assert.equal(document.querySelectorAll('#school-lesson-groups .lesson-occurrence').length, 7, 'grouping preserves every underlying lesson occurrence');
+
+  document.querySelector('#school-lesson-group-modes [data-lesson-group-mode="class"]').click();
+  const classOwners = [...document.querySelectorAll('#school-lesson-groups .lesson-owner')];
+  assert.equal(classOwners.length, 2, 'class grouping creates one owner group per class');
+  assert.ok(classOwners.some(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Class One')));
+  assert.ok(classOwners.some(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Class Two')));
+  assert.equal(document.querySelectorAll('#school-lesson-groups .lesson-occurrence').length, 7, 'class grouping preserves every underlying lesson occurrence');
+
+  document.querySelector('#school-lesson-group-modes [data-lesson-group-mode="room"]').click();
+  const roomOwners = [...document.querySelectorAll('#school-lesson-groups .lesson-owner')];
+  assert.equal(roomOwners.length, 3, 'room grouping includes named rooms and the unassigned room set');
+  assert.ok(roomOwners.some(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Room One')));
+  assert.ok(roomOwners.some(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Non assegnato')));
+  assert.ok(roomOwners.find(owner => owner.querySelector('.lesson-owner-name')?.textContent.includes('Room One')).querySelectorAll('.lesson-subject-group').length > 1, 'room grouping also nests its lessons by subject');
+
+  toggle.click();
+  const classGroupButton = lessonTable.querySelector('thead [data-lesson-group-mode="class"]');
+  assert.ok(classGroupButton, 'the Class column header exposes its grouping action');
+  classGroupButton.click();
+  assert.equal(document.querySelectorAll('#school-lesson-groups .lesson-owner').length, 2, 'the class column action explicitly applies its grouping');
+  document.querySelector('#school-lesson-group-modes [data-lesson-group-mode="class"]').click();
+  toggle.click();
+  const roomGroupButton = lessonTable.querySelector('thead [data-lesson-group-mode="room"]');
+  assert.ok(roomGroupButton, 'the Room column header exposes its grouping action');
+  roomGroupButton.click();
+  assert.equal(document.querySelectorAll('#school-lesson-groups .lesson-owner').length, 3, 'the column action explicitly applies its selected grouping');
+  document.querySelector('#school-lesson-group-modes [data-lesson-group-mode="room"]').click();
+  assert.equal(document.querySelectorAll('#school-lesson-groups .lesson-owner').length, 0, 'the active column action returns to equivalent grouping');
+
+  const filter = document.querySelector('#school-filter-lessons');
+  filter.value = 'Teacher Two';
+  filter.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.ok([...document.querySelectorAll('#school-lesson-groups .lesson-group')]
+    .every(group => group.querySelector('.lesson-group-config')?.textContent.includes('Teacher Two')), 'search filters the underlying lesson records before grouping');
+  toggle.click();
+  assert.equal(lessonTable.hidden, false, 'the analytical table remains available');
+  assert.equal(lessonTable.querySelectorAll('[data-grid-sort="lessons"]').length, 5);
+  assert.equal(document.querySelector('#school-lesson-groups').hidden, true);
   dom.window.close();
 });
 
@@ -297,19 +438,38 @@ test('contextual and global constraint views edit the same canonical record', as
   const contextual = document.querySelector('.contextual-constraints');
   assert.ok(contextual);
   assert.match(contextual.textContent, /Soft · Da evitare/);
+  assert.equal(contextual.querySelector('.context-constraint-form').hidden, true, 'the detail pane does not expose a form for adding constraints');
+  assert.equal([...contextual.querySelectorAll('button')].some(button => button.textContent === 'Aggiungi vincolo'), false);
+  const originalUndesired = [...app.timetable.entities.teachers[0].constraints.timeframes.undesired];
   contextual.querySelector('button').click();
+  assert.equal(contextual.querySelector('.context-constraint-form').hidden, false, 'editing an existing constraint opens its form');
   contextual.querySelector('[aria-label="Giorno del vincolo"]').value = '1';
-  contextual.querySelector('[aria-label="Ora del vincolo"]').value = '2';
+  contextual.querySelector('[aria-label="Fascia oraria del vincolo"]').value = '2';
   contextual.querySelector('button:not(.detail-link)').click();
+  assert.equal(document.querySelector('#confirmation-overlay').hidden, false);
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, originalUndesired, 'a modification waits for confirmation');
+  document.querySelector('#confirmation-accept').click();
   assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, ['1.2']);
 
   document.querySelector('[data-screen="constraints"]').click();
-  const globalRow = [...document.querySelectorAll('#school-grid-constraints tbody tr')]
-    .find(row => row.textContent.includes('Tuesday') && row.textContent.includes('10:00'));
-  assert.ok(globalRow, 'the global table reflects the contextual edit');
-  globalRow.click();
+  const globalGroup = [...document.querySelectorAll('.constraint-group')]
+    .find(group => group.classList.contains('constraint-category-undesired') && group.textContent.includes('10:00'));
+  assert.ok(globalGroup, 'the grouped global list reflects the contextual edit');
+  globalGroup.querySelector('.constraint-group-select').click();
+  globalGroup.querySelector('.constraint-group-expand').click();
+  globalGroup.querySelector('.constraint-occurrence').click();
   assert.equal(document.querySelector('#entity-detail-panel').hidden, false);
   assert.match(document.querySelector('#entity-detail-title').textContent, /Vincolo/);
+  const remove = [...document.querySelectorAll('.contextual-constraints .detail-link')].find(button => button.textContent === 'Elimina');
+  assert.ok(remove);
+  remove.click();
+  assert.equal(document.querySelector('#confirmation-overlay').hidden, false);
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, ['1.2'], 'deletion waits for confirmation');
+  document.querySelector('#confirmation-cancel').click();
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, ['1.2'], 'cancelling leaves the constraint intact');
+  document.querySelector('.contextual-constraints .detail-link:last-child').click();
+  document.querySelector('#confirmation-accept').click();
+  assert.deepEqual(app.timetable.entities.teachers[0].constraints.timeframes.undesired, []);
   dom.window.close();
 });
 

@@ -537,33 +537,54 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
   });
   function applySelectedProposal() {
     if (!selectedOption || !history) return;
-    if (selectedOption.fullRecalculation || selectedOption.proposal.changes.length > 1) {
-      const affected = selectedOption.proposal.changes.length;
-      const message = selectedOption.fullRecalculation
-        ? `Sostituire tutte le assegnazioni con il ricalcolo per ${affected} lezioni?`
+    const option = selectedOption;
+    const applyOption = () => {
+      try {
+        const fullRecalculation = option.fullRecalculation;
+        const next = history.apply(option.proposal);
+        const lessonId = selectedLessonId;
+        status.textContent = fullRecalculation ? 'Orario applicato e visualizzato.' : 'Modifica applicata. Consulta l’orario aggiornato.';
+        calculationStatus.textContent = status.textContent;
+        reviewCalculationButton.hidden = true;
+        clearOptions();
+        renderUndo();
+        timetable = next;
+        updateCalculationControl();
+        refreshConstraintControls();
+        onApply(next, lessonId, fullRecalculation ? 'recalculation' : 'apply');
+      } catch (error) {
+        status.textContent = error.message || 'La proposta non è più applicabile. Cerca nuove alternative.';
+        clearOptions();
+      }
+    };
+    if (option.fullRecalculation || option.proposal.changes.length > 1) {
+      const affected = option.proposal.changes.length;
+      const message = option.fullRecalculation
+        ? `Sostituire tutte le assegnazioni con il ricalcolo per ${affected} ${affected === 1 ? 'lezione' : 'lezioni'}?`
         : `Applicare la modifica coordinata a ${affected} lezioni?`;
-      if (typeof confirm !== 'function' || !confirm(message)) {
+      if (typeof confirm !== 'function') {
+        status.textContent = 'Proposta non applicata.';
+        return;
+      }
+      const confirmation = confirm(message);
+      if (confirmation && typeof confirmation.then === 'function') {
+        status.textContent = 'In attesa di conferma…';
+        return confirmation.then(accepted => {
+          if (!accepted || selectedOption !== option) {
+            status.textContent = 'Proposta non applicata.';
+            return;
+          }
+          applyOption();
+        }, error => {
+          status.textContent = error?.message || 'Proposta non applicata.';
+        });
+      }
+      if (!confirmation) {
         status.textContent = 'Proposta non applicata.';
         return;
       }
     }
-    try {
-      const fullRecalculation = selectedOption.fullRecalculation;
-      const next = history.apply(selectedOption.proposal);
-      const lessonId = selectedLessonId;
-      status.textContent = fullRecalculation ? 'Orario applicato e visualizzato.' : 'Modifica applicata. Consulta l’orario aggiornato.';
-      calculationStatus.textContent = status.textContent;
-      reviewCalculationButton.hidden = true;
-      clearOptions();
-      renderUndo();
-      timetable = next;
-      updateCalculationControl();
-      refreshConstraintControls();
-      onApply(next, lessonId, fullRecalculation ? 'recalculation' : 'apply');
-    } catch (error) {
-      status.textContent = error.message || 'La proposta non è più applicabile. Cerca nuove alternative.';
-      clearOptions();
-    }
+    applyOption();
   }
   applyButton.addEventListener('click', applySelectedProposal);
 
