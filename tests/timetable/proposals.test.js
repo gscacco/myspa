@@ -49,7 +49,7 @@ test('manual moves accept a valid hard-constraint schedule and report soft penal
   assert.equal(result.softAfter, 100);
 });
 
-test('manual moves reject the full result when any hard violation remains', () => {
+test('manual moves reject newly introduced hard violations on the moved lesson', () => {
   const current = solverFixture();
   current.entities.classes[0].constraints = { timeframes: { unavailable: ['0.2'], desired: [], undesired: [] } };
   assert.throws(
@@ -57,6 +57,26 @@ test('manual moves reject the full result when any hard violation remains', () =
     error => error instanceof ProposalError && error.code === 'hard-constraint',
   );
   assert.equal(current.lessons[0].assignedTime.periodIndex, 0);
+});
+
+test('manual moves remain available when unrelated pre-existing hard violations exist', () => {
+  const current = solverFixture();
+  current.entities.teachers.push({
+    id: 'teacher:T2', name: 'Teacher Two',
+    constraints: { timeframes: { unavailable: ['0.2'], desired: [], undesired: [] } },
+  });
+  current.entities.classes.push({ id: 'class:C2', name: 'Class 2' });
+  current.entities.rooms.push({ id: 'room:R2', name: 'Room 2' });
+  current.lessons.push({
+    ...structuredClone(current.lessons[0]), id: 'unrelated', sourceIndex: 1,
+    teacherIds: ['teacher:T2'], classIds: ['class:C2'], roomIds: ['room:R2'],
+    assignedTime: { dayIndex: 0, periodIndex: 2, sourceValue: '0.2' },
+    timeframes: { unavailable: [], desired: [], undesired: [] },
+  });
+
+  const result = evaluateManualMove(current, 'target', { dayIndex: 0, periodIndex: 1 });
+  assert.equal(result.timetable.lessons[0].assignedTime.periodIndex, 1);
+  assert.equal(result.hardIssues.length, 1, 'the unrelated pre-existing violation remains visible');
 });
 
 test('manual swaps apply as one complete validated operation', () => {

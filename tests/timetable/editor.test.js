@@ -339,6 +339,69 @@ test('drag feedback accepts soft-worsening moves, rejects hard violations, and s
   invalidDOM.window.close();
 });
 
+test('drag preview marks moves that resolve warnings in green', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const model = solverFixture();
+  model.entities.teachers[0].constraints.timeframes.undesired = ['0.0'];
+  const app = createTimetableApp({ document, confirm: () => true });
+  const source = new TextEncoder().encode(exportTimetableEDN(model));
+  await app.stageEDNFile({ name: 'warning-repair.edn', arrayBuffer: async () => source.buffer });
+  app.applyImport();
+  document.querySelector('[data-screen="schedule"]').click();
+  const coverage = document.querySelector('#topbar-constraint-coverage');
+  assert.equal(coverage.hidden, false);
+  assert.equal(document.querySelector('#topbar-constraint-coverage-value').textContent, '0%');
+
+  const card = document.querySelector('#schedule-grid [data-lesson-id="target"]');
+  const transfer = { data: '', setData(_type, value) { this.data = value; }, getData() { return this.data; } };
+  const drag = new dom.window.Event('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(drag, 'dataTransfer', { value: transfer });
+  card.dispatchEvent(drag);
+
+  const destination = document.querySelector('#schedule-grid .slot-background[data-day-index="0"][data-period-index="1"]');
+  assert.equal(destination.dataset.dropState, 'valid');
+  assert.match(destination.title, /riduce di 1.*avvisi/i);
+  const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, 'dataTransfer', { value: transfer });
+  destination.dispatchEvent(drop);
+  assert.equal(document.querySelector('#topbar-constraint-coverage-value').textContent, '100%');
+  dom.window.close();
+});
+
+test('drag preview allows a valid move when an unrelated pre-existing hard conflict remains', async () => {
+  const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
+  const { document } = dom.window;
+  const model = solverFixture();
+  model.entities.teachers.push({
+    id: 'teacher:T2', name: 'Teacher Two',
+    constraints: { timeframes: { unavailable: ['0.2'], desired: [], undesired: [] } },
+  });
+  model.entities.classes.push({ id: 'class:C2', name: 'Class 2' });
+  model.entities.rooms.push({ id: 'room:R2', name: 'Room 2' });
+  model.lessons.push({
+    ...structuredClone(model.lessons[0]), id: 'unrelated', sourceIndex: 1,
+    teacherIds: ['teacher:T2'], classIds: ['class:C2'], roomIds: ['room:R2'],
+    assignedTime: { dayIndex: 0, periodIndex: 2, sourceValue: '0.2' },
+    timeframes: { unavailable: [], desired: [], undesired: [] },
+  });
+  const app = createTimetableApp({ document, confirm: () => true });
+  const source = new TextEncoder().encode(exportTimetableEDN(model));
+  await app.stageEDNFile({ name: 'pre-existing-conflict.edn', arrayBuffer: async () => source.buffer });
+  app.applyImport();
+  document.querySelector('[data-screen="schedule"]').click();
+
+  const card = document.querySelector('#schedule-grid [data-lesson-id="target"]');
+  const transfer = { data: '', setData(_type, value) { this.data = value; }, getData() { return this.data; } };
+  const drag = new dom.window.Event('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(drag, 'dataTransfer', { value: transfer });
+  card.dispatchEvent(drag);
+
+  const destination = document.querySelector('#schedule-grid .slot-background[data-day-index="0"][data-period-index="1"]');
+  assert.equal(destination.dataset.dropState, 'soft', 'the unrelated hard conflict must not make this destination look forbidden');
+  dom.window.close();
+});
+
 test('dropping a lesson on another lesson swaps both assignments atomically', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
@@ -362,7 +425,7 @@ test('dropping a lesson on another lesson swaps both assignments atomically', as
   const drag = new dom.window.Event('dragstart', { bubbles: true, cancelable: true });
   Object.defineProperty(drag, 'dataTransfer', { value: transfer });
   target.dispatchEvent(drag);
-  assert.equal(second.dataset.dropState, 'valid');
+  assert.equal(second.dataset.dropState, 'soft');
   const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true });
   Object.defineProperty(drop, 'dataTransfer', { value: transfer });
   second.dispatchEvent(drop);

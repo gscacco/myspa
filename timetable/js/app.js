@@ -8,8 +8,10 @@ import { getCalculationReadiness, validateTimetable } from './validation.js';
 import { TIMETABLE_VERSION } from './version.js';
 import { optimizationScope } from './optimization-scope.js';
 import { createTimetablePersistence } from './persistence.js';
+import { objectiveValue, objectiveUpperBound } from './optimization-core.js';
 
 const numberFormat = new Intl.NumberFormat('it-IT');
+const percentFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
 const rosterWarningCodes = new Set(['encoding-mismatch', 'period-name-mismatch', 'unsupported-structure', 'unsupported-attribute']);
 
 function element(document, tag, attributes = {}, text = '') {
@@ -49,6 +51,8 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   const applyButton = document.querySelector('#apply-import');
   const cancelButton = document.querySelector('#cancel-import');
   const currentStatus = document.querySelector('#current-status');
+  const topbarCoverage = document.querySelector('#topbar-constraint-coverage');
+  const topbarCoverageValue = document.querySelector('#topbar-constraint-coverage-value');
   const importCard = document.querySelector('#import-card');
   const detailPanel = document.querySelector('#entity-detail-panel');
   const detailTitle = document.querySelector('#entity-detail-title');
@@ -150,6 +154,27 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   let saveGeneration = 0;
   let pendingConfirmation = null;
   let confirmationReturnFocus = null;
+  function updateConstraintCoverage() {
+    if (!topbarCoverage || !topbarCoverageValue) return;
+    const { optimizableLessons } = optimizationScope(current);
+    if (!optimizableLessons.length) {
+      topbarCoverage.hidden = true;
+      return;
+    }
+    const undesiredWeight = Number(document.querySelector('#optimization-weight-undesired')?.value);
+    const preferredWeight = Number(document.querySelector('#optimization-weight-preferred')?.value);
+    const weights = { undesiredSlot: undesiredWeight, missedPreferredSlot: preferredWeight };
+    if (Object.values(weights).some(value => !Number.isInteger(value) || value < 0 || value > 1000)) {
+      topbarCoverageValue.textContent = '—';
+      topbarCoverage.hidden = false;
+      return;
+    }
+    const objective = objectiveValue(current, undefined, weights);
+    const maximum = objectiveUpperBound(current, weights);
+    const quality = maximum > 0 ? Math.max(0, Math.min(100, (1 - objective / maximum) * 100)) : objective === 0 ? 100 : null;
+    topbarCoverageValue.textContent = quality == null ? '—' : `${percentFormat.format(quality)}%`;
+    topbarCoverage.hidden = false;
+  }
   function closeConfirmation(accepted) {
     if (confirmationOverlay.hidden) return;
     const action = pendingConfirmation;
@@ -198,6 +223,10 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     }
   });
   const saveStateBadge = document.querySelector('.draft-badge');
+  for (const input of document.querySelectorAll('#optimization-weight-undesired, #optimization-weight-preferred')) {
+    input.addEventListener('input', updateConstraintCoverage);
+    input.addEventListener('change', updateConstraintCoverage);
+  }
   function markUnsavedChanges() {
     hasUnexportedChanges = true;
     hasEditedDuringLoad = true;
@@ -461,6 +490,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
   }
   function refreshViews(preserveContext = false) {
     views.render(current, currentDiagnostics, { preserveContext });
+    updateConstraintCoverage();
     if (activeScreen !== 'schedule') document.querySelector('#timetable-workspace').hidden = true;
   }
   for (const button of document.querySelectorAll('[data-screen]')) button.addEventListener('click', () => {
@@ -1662,6 +1692,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
     schoolWorkbench.setTimetable(current);
     editor.setTimetable(current);
     views.render(current, currentDiagnostics);
+    updateConstraintCoverage();
     document.querySelector('#school-name').value = current.name;
     if (schoolDescription) schoolDescription.value = current.description;
     document.querySelector('#topbar-school-name').textContent = current.name;

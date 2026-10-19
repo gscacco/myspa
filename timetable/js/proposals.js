@@ -48,9 +48,36 @@ export function applyProposal(timetable, proposal) {
   return updated;
 }
 
+function hardIssueKey(item) {
+  return JSON.stringify([
+    item.code,
+    item.resourceType || '',
+    item.resourceId || '',
+    item.dayIndex ?? null,
+    item.periodIndex ?? null,
+    [...(item.lessonIds || [])].sort(),
+  ]);
+}
+
+function newlyIntroducedHardIssues(before, after) {
+  const existingCounts = new Map();
+  for (const item of before.filter(issue => issue.severity === 'error')) {
+    const key = hardIssueKey(item);
+    existingCounts.set(key, (existingCounts.get(key) || 0) + 1);
+  }
+  const afterCounts = new Map();
+  return after.filter(item => {
+    if (item.severity !== 'error') return false;
+    const key = hardIssueKey(item);
+    const count = (afterCounts.get(key) || 0) + 1;
+    afterCounts.set(key, count);
+    return count > (existingCounts.get(key) || 0);
+  });
+}
+
 /**
- * Validates a complete manual edit against the same structural, hard-constraint,
- * and soft-objective model used by the optimizer.
+ * Validates a complete manual edit against the structural and constraint model.
+ * Existing hard issues do not block an unrelated edit; newly introduced ones do.
  */
 export function evaluateManualEdit(timetable, changes) {
   if (!Array.isArray(changes) || !changes.length) {
@@ -79,22 +106,33 @@ export function evaluateManualEdit(timetable, changes) {
   if (structural.length) {
     throw new ProposalError('invalid-edit', 'La modifica non rispetta la struttura del modello timetable.');
   }
-  const hardIssues = analyzeSchedule(optimizationScope(updated).timetable).issues
-    .filter(item => item.severity === 'error');
-  if (hardIssues.length) {
-    const first = hardIssues[0];
+  const beforeIssues = analyzeSchedule(optimizationScope(timetable).timetable).issues;
+  const afterIssues = analyzeSchedule(optimizationScope(updated).timetable).issues;
+  const newHardIssues = newlyIntroducedHardIssues(beforeIssues, afterIssues);
+  if (newHardIssues.length) {
+    const first = newHardIssues[0];
     const resource = first.resourceName ? ` (${first.resourceName})` : '';
     const day = timetable.calendar.days[first.dayIndex]?.name;
     const period = timetable.calendar.periods[first.periodIndex];
     const time = day && period ? `: ${day}, ${String(Math.floor(period.beginMinute / 60)).padStart(2, '0')}:${String(period.beginMinute % 60).padStart(2, '0')}` : '';
-    throw new ProposalError('hard-constraint', `La modifica lascia ${hardIssues.length} violazioni hard${resource}${time}.`);
+    throw new ProposalError('hard-constraint', `La modifica introduce ${newHardIssues.length} nuove violazioni hard${resource}${time}.`);
   }
+  const affectedIssues = issues => issues.filter(item => item.severity !== 'info'
+    && item.lessonIds?.some(id => changed.has(id))).length;
+  const softBefore = objectiveValue(timetable);
+  const softAfter = objectiveValue(updated);
+  const issuesBefore = affectedIssues(beforeIssues);
+  const issuesAfter = affectedIssues(afterIssues);
   return {
     timetable: updated,
     changedLessonIds: [...changed],
-    softBefore: objectiveValue(timetable),
-    softAfter: objectiveValue(updated),
-    hardIssues,
+    softBefore,
+    softAfter,
+    issuesBefore,
+    issuesAfter,
+    improves: issuesAfter < issuesBefore
+      || (issuesAfter === issuesBefore && softAfter < softBefore),
+    hardIssues: afterIssues.filter(item => item.severity === 'error'),
   };
 }
 

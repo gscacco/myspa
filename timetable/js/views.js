@@ -110,6 +110,31 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
     selectedByMode[mode] = selected?.[field]?.find(id => items.some(entity => entity.id === id)) || items[0]?.id || '';
   }
 
+  function dropPreviewState(result) {
+    if (!result?.valid) return 'invalid';
+    return result.improves ? 'valid' : 'soft';
+  }
+
+  function dropPreviewTitle(result, action) {
+    if (!result?.valid) return result?.reason || 'Spostamento non consentito';
+    const verb = action === 'swap' ? 'Scambio' : 'Spostamento';
+    if (result.issuesAfter < result.issuesBefore) {
+      const count = result.issuesBefore - result.issuesAfter;
+      return `${verb} possibile: riduce di ${count} gli avvisi o i conflitti della lezione${result.worsensSoft ? ', ma aumenta la penalità soft' : ''}`;
+    }
+    if (result.issuesAfter === result.issuesBefore && result.softAfter < result.softBefore) {
+      return `${verb} possibile: migliora le preferenze soft`;
+    }
+    if (result.issuesAfter > result.issuesBefore) {
+      const count = result.issuesAfter - result.issuesBefore;
+      return `${verb} possibile, ma aggiunge ${count} avvisi o conflitti${result.worsensSoft ? ' e aumenta la penalità soft' : ''}`;
+    }
+    if (result.worsensSoft) {
+      return `${verb} possibile, ma non riduce avvisi o conflitti e aumenta la penalità soft`;
+    }
+    return `${verb} possibile, ma non riduce avvisi o conflitti`;
+  }
+
   function renderEntitySelect() {
     entityLabel.textContent = MODE_LABELS[mode];
     entitySelect.setAttribute('aria-label', `Seleziona ${MODE_LABELS[mode].toLowerCase()}`);
@@ -456,18 +481,14 @@ export function createTimetableViews({ document = globalThis.document, onLessonS
       const result = onManualPreview(lessonId, {
         dayIndex: Number(slot.dataset.dayIndex), periodIndex: Number(slot.dataset.periodIndex),
       });
-      slot.dataset.dropState = result?.valid ? (result.worsensSoft ? 'soft' : 'valid') : 'invalid';
-      slot.title = result?.valid
-        ? result.worsensSoft ? 'Spostamento valido con penalità soft maggiore' : 'Spostamento valido'
-        : result?.reason || 'Vincolo hard non rispettato';
+      slot.dataset.dropState = dropPreviewState(result);
+      slot.title = dropPreviewTitle(result, 'move');
     }
     for (const target of grid.querySelectorAll('.lesson-card[data-lesson-id]')) {
       if (target === card) continue;
       const result = onManualPreview(lessonId, null, target.dataset.lessonId);
-      target.dataset.dropState = result?.valid ? (result.worsensSoft ? 'soft' : 'valid') : 'invalid';
-      target.title = result?.valid
-        ? result.worsensSoft ? 'Scambio valido con penalità soft maggiore' : 'Scambio valido'
-        : result?.reason || 'Scambio non valido';
+      target.dataset.dropState = dropPreviewState(result);
+      target.title = dropPreviewTitle(result, 'swap');
     }
   });
   grid.addEventListener('dragover', event => {

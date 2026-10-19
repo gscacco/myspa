@@ -421,6 +421,9 @@ body { min-height: 100vh; color: var(--ink); background: var(--canvas); }
 .app-topbar > div { display: flex; align-items: center; gap: 10px; }
 .topbar-label { color: #64748b; font-size: 11px; }
 .app-topbar strong { font-size: 13px; }
+.topbar-coverage { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; border: 1px solid #bfdbfe; border-radius: 999px; padding: 4px 9px; color: #334155; background: #eff6ff; font-size: 11px; font-weight: 650; }
+.topbar-coverage[hidden] { display: none; }
+.topbar-coverage strong { color: #1d4ed8; font-size: 13px; font-variant-numeric: tabular-nums; }
 .draft-badge { border: 1px solid #bbf7d0; border-radius: 999px; padding: 3px 9px; color: #047857; background: #ecfdf5; font-size: 10px; font-weight: 700; }
 .topbar-local { color: #64748b; font-size: 11px; }
 .topbar-meta { display: flex; align-items: center; gap: 12px; }
@@ -535,6 +538,7 @@ button:focus-visible, .file-picker:focus-visible { outline: 2px solid #2563eb66;
   .sidebar-cta span { display: none; }
   .topbar-local { display: none; }
   .app-topbar { padding-inline: 12px; }
+  .app-topbar > div:first-child { flex-wrap: wrap; row-gap: 6px; }
   .school-heading, .calculation-heading { align-items: flex-start; }
   .school-heading h2, .calculation-heading h2 { font-size: 23px; }
   .school-heading .primary-button { align-self: stretch; }
@@ -630,13 +634,14 @@ tr[data-kind="desired"] td:first-child { border-left: 3px solid var(--soft-prefe
 #pdf-print-content { grid-column: 1 / -1; }
 .print-calendar-grid { width: max-content; min-width: 100%; border: 1px solid #cbd5e1; }
 .slot-background { pointer-events: auto; }
-.slot-background[data-drop-state="valid"] { background: #e7f4ea; box-shadow: inset 0 0 0 2px #639a70; }
-.slot-background[data-drop-state="soft"] { background: #fff4d6; box-shadow: inset 0 0 0 2px #bd8a2b; }
-.slot-background[data-drop-state="invalid"] { background: #fae9e7; box-shadow: inset 0 0 0 2px #bb6159; }
-.lesson-card[data-drop-state="valid"] { outline: 2px solid #639a70; }
-.lesson-card[data-drop-state="soft"] { outline: 2px solid #bd8a2b; }
-.lesson-card[data-drop-state="invalid"] { outline: 2px solid #bb6159; }
+.slot-background[data-drop-state="valid"] { background: #e1f2e5; box-shadow: inset 0 0 0 5px #237a43; outline: 3px solid #185e32; outline-offset: -6px; }
+.slot-background[data-drop-state="soft"] { background: #fff0c2; box-shadow: inset 0 0 0 5px #ad6100; outline: 3px dashed #8f4e00; outline-offset: -6px; }
+.slot-background[data-drop-state="invalid"] { background: #e8edf2; box-shadow: inset 0 0 0 5px #718096; outline: 3px dotted #536579; outline-offset: -6px; opacity: .68; cursor: not-allowed; }
+.lesson-card[data-drop-state="valid"] { border-color: #237a43; outline: 5px solid #185e32; outline-offset: -3px; }
+.lesson-card[data-drop-state="soft"] { border-color: #ad6100; outline: 5px dashed #8f4e00; outline-offset: -3px; }
+.lesson-card[data-drop-state="invalid"] { border-color: #718096; outline: 5px dotted #536579; outline-offset: -3px; opacity: .5; filter: grayscale(.8); cursor: not-allowed; }
 .calendar-grid.is-dragging .lesson-card[draggable="true"] { cursor: grabbing; }
+.calendar-grid.is-dragging .lesson-card[data-drop-state="invalid"] { cursor: not-allowed; }
 html[data-active-screen="teachers"] .entity-detail-panel,
 html[data-active-screen="classes"] .entity-detail-panel,
 html[data-active-screen="rooms"] .entity-detail-panel,

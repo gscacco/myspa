@@ -673,7 +673,15 @@ export function createTimetableEditor({ document = globalThis.document, getTimet
         const result = swapWithLessonId
           ? evaluateManualSwap(timetable, lessonId, swapWithLessonId)
           : evaluateManualMove(timetable, lessonId, assignedTime);
-        return { valid: true, worsensSoft: result.softAfter > result.softBefore };
+        return {
+          valid: true,
+          improves: result.improves,
+          issuesBefore: result.issuesBefore,
+          issuesAfter: result.issuesAfter,
+          softBefore: result.softBefore,
+          softAfter: result.softAfter,
+          worsensSoft: result.softAfter > result.softBefore,
+        };
       } catch (error) {
         return { valid: false, reason: error.message || 'La modifica viola un vincolo hard.' };
       }
