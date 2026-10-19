@@ -134,7 +134,9 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
       current = next;
       schoolWorkbench.setTimetable(current);
       markUnsavedChanges();
-      refreshViews(true);
+      // A full recalculation replaces the assignments across the whole model.
+      // Reset the prior view context before selecting a class for the new schedule.
+      refreshViews(action !== 'recalculation');
       if (action === 'recalculation') {
         const { optimizableLessons } = optimizationScope(current);
         const realClasses = new Map(current.entities.classes
@@ -149,9 +151,12 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
         }
         const classId = [...classLessonCounts].sort((left, right) => right[1] - left[1])[0]?.[0];
         if (classId) views.showEntitySchedule('class', classId);
+        else views.showSchedule();
         detailNavigationStack = [];
         activeDetail = null;
         showScreen('schedule');
+        // Keep the view and the visible screen in sync after leaving calculation.
+        views.showSchedule();
         if (!detailPanel.hidden) showEmptyDetail();
         const assignedCount = optimizableLessons.filter(lesson => lesson.assignedTime).length;
         const visibleCount = document.querySelectorAll('#schedule-grid [data-lesson-id]').length;
@@ -161,6 +166,7 @@ export function createTimetableApp({ document = globalThis.document, DOMParser =
           : `Orario applicato: ${numberFormat.format(assignedCount)} di ${numberFormat.format(optimizableLessons.length)} lezioni assegnate, ma nessuna è visibile nella tabella.`;
         document.querySelector('#recalculation-status').textContent = feedback;
         document.querySelector('#edit-status').textContent = feedback;
+        document.querySelector('#schedule-status').textContent = feedback;
       }
       if (activeDetail && !detailPanel.hidden) openEntityDetail(activeDetail);
     },
