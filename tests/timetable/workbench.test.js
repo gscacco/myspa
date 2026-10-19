@@ -235,6 +235,7 @@ test('the application shell has the three stable areas and exact operational nav
     assert.ok(document.querySelector(`[data-screen="${view}"]`), `missing ${view} navigation`);
   }
   assert.match(css, /grid-template-columns:\s*minmax\(320px,\s*1fr\)\s+12px\s+minmax\(250px,\s*var\(--detail-panel-width,\s*320px\)\)/i);
+  assert.match(css, /html\[data-active-screen="lessons"\] \.entity-detail-panel,[\s\S]*?margin-top:\s*96px/i, 'lesson details align with the main table below the page heading');
   assert.equal(document.querySelector('#detail-resizer')?.getAttribute('role'), 'separator');
   assert.match(css, /\.entity-detail-panel\s*\{[^}]*width:\s*320px/s);
   assert.equal(document.querySelector('#entity-detail-panel').hidden, false);

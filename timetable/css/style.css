@@ -643,6 +643,7 @@ tr[data-kind="desired"] td:first-child { border-left: 3px solid #4c7f63; }
 html[data-active-screen="teachers"] .entity-detail-panel,
 html[data-active-screen="classes"] .entity-detail-panel,
 html[data-active-screen="rooms"] .entity-detail-panel,
+html[data-active-screen="lessons"] .entity-detail-panel,
 html[data-active-screen="constraints"] .entity-detail-panel { margin-top: 96px; }
 @media (max-width: 1050px) {
   body { min-width: 1000px; }
@@ -657,6 +658,7 @@ html[data-active-screen="constraints"] .entity-detail-panel { margin-top: 96px; 
   html[data-active-screen="teachers"] .entity-detail-panel,
   html[data-active-screen="classes"] .entity-detail-panel,
   html[data-active-screen="rooms"] .entity-detail-panel,
+  html[data-active-screen="lessons"] .entity-detail-panel,
   html[data-active-screen="constraints"] .entity-detail-panel { margin-top: 98px; }
 }
 @media print {
