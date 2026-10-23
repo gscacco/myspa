@@ -1,5 +1,6 @@
 import { keyword } from '../../shared/js/edn-codec.js';
 import { addItem, emptyKnowledgeBase, updateItem, validateKnowledgeBase } from './model.js';
+import { renderMarkdown, sectionSourceOffset } from './render.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
 
@@ -9,6 +10,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   const history = [snapshot(base)];
   let position = 0;
   const cards = new Map();
+  const dependencies = new Map();
   const workspace = document.querySelector('#workspace');
   const search = document.querySelector('#loom-search');
   const results = document.querySelector('#search-results');
@@ -25,8 +27,20 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const item = itemFor(id);
     card.querySelector('h2').textContent = item.title;
     card.querySelector('[data-action="close"]').setAttribute('aria-label', `Close ${item.title}`);
-    const source = document.createElement('pre'); source.textContent = item.body;
-    card.querySelector('.item-content').replaceChildren(source);
+    const reads = new Set();
+    const rendered = renderMarkdown(item.body, {
+      document, items: base.items, dependencies: reads,
+      onNavigate: (targetId) => openItem(targetId),
+      onEditSource: (targetId, section) => {
+        if (!openItem(targetId)) return;
+        editItem(targetId);
+        const textarea = cards.get(targetId).querySelector('[name="body"]');
+        const offset = sectionSourceOffset(itemFor(targetId).body, section);
+        if (offset !== null) { textarea.focus(); textarea.setSelectionRange(offset, offset); }
+      },
+    });
+    dependencies.set(id, reads);
+    card.querySelector('.item-content').replaceChildren(rendered);
   }
 
   function editItem(id) {
@@ -54,7 +68,11 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     try {
       const tags = form.elements.tags.value.trim().split(/\s+/).filter(Boolean).map(name => keyword(name.replace(/^:/, '')));
       base = updateItem(base, id, { title: form.elements.title.value, tags, body: form.elements.body.value });
-      dirty = true; showItem(id); refreshSearch(); report();
+      dirty = true; showItem(id);
+      for (const [cardId, reads] of dependencies) {
+        if (cardId !== id && reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId);
+      }
+      refreshSearch(); report();
     } catch (error) { report(error.message); }
   }
 
@@ -82,7 +100,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   function sync() {
     const ids = base.workspace['open-ids'];
-    for (const [id, card] of cards) if (!ids.includes(id)) { card.remove(); cards.delete(id); }
+    for (const [id, card] of cards) if (!ids.includes(id)) { card.remove(); cards.delete(id); dependencies.delete(id); }
     workspace.querySelector('.workspace-empty')?.remove();
     for (const [index, id] of ids.entries()) {
       const card = cards.get(id) || createCard(id);
