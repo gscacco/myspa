@@ -1,5 +1,3 @@
-import { emptyKnowledgeBase } from './model.js';
+import { createLoomApp } from './app.js';
 
-const base = emptyKnowledgeBase();
-document.querySelector('#loom-status').textContent = `${base.items.length} items`;
-document.querySelector('#loom-app').dataset.ready = 'true';
+createLoomApp({ document, window });

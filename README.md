@@ -293,7 +293,7 @@ The individual commands are `npm run test:unit`, `npm run test:integration`, `np
 
 ## Loom foundation (in progress)
 
-`npm run build:loom` generates `dist/loom.html` using the same standalone build environment. The current artifact boots an empty workspace and embeds Scittle. The versioned item model and strict EDN codec are implemented in source modules. Item authoring, navigation, and EDN file import/export are not yet available in the UI.
+`npm run build:loom` generates `dist/loom.html` using the same standalone build environment. The current artifact starts with an empty workspace and embeds Scittle. You can create items, edit their title, tags, and Markdown source, search items, keep multiple cards open, and use workspace back/forward history. Markdown is still shown as source; links, transclusion, snippets, and EDN file import/export are not yet available in the UI.
 
 `npm run test:loom` runs the current Loom model and standalone artifact tests. The complete `npm test` command includes them.
 

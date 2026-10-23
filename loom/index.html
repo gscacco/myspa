@@ -9,12 +9,20 @@
 <body>
   <main id="loom-app">
     <header class="app-header">
-      <h1>Loom</h1>
+      <div class="brand"><h1>Loom</h1><p>Follow ideas, keep your place.</p></div>
+      <nav class="toolbar" aria-label="Workspace actions">
+        <button id="history-back" type="button" aria-label="Back" disabled>←</button>
+        <button id="history-forward" type="button" aria-label="Forward" disabled>→</button>
+        <button id="new-item" type="button">New item</button>
+      </nav>
       <span id="loom-status" role="status" aria-live="polite"></span>
     </header>
-    <section class="empty-workspace" aria-label="Workspace">
-      <h2>Your workspace is empty</h2>
-    </section>
+    <div class="search-area">
+      <label for="loom-search">Search items</label>
+      <input id="loom-search" type="search" autocomplete="off" placeholder="Title, tag, or text">
+      <div id="search-results" role="region" aria-label="Search results"></div>
+    </div>
+    <section id="workspace" class="workspace" aria-label="Open items"></section>
   </main>
   <script src="../node_modules/scittle/dist/scittle.js"></script>
   <script type="module" src="js/main.js"></script>

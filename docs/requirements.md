@@ -1,6 +1,6 @@
 # Loom requirements
 
-**Status:** Approved. No Loom implementation exists yet.
+**Status:** Approved requirements. Implementation is in progress; see traceability for delivered cases.
 
 This document defines the initial Loom scope. `LOOM-001` through `LOOM-028` are stable requirement identifiers. A change to a requirement's meaning requires review before implementation; identifiers must not be reused. Planned tests and their links to these requirements are in [requirements-traceability.md](requirements-traceability.md). The proposed technical contracts are in [loom-design.md](loom-design.md).
 

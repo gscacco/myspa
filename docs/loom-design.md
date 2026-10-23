@@ -1,6 +1,6 @@
 # Loom design decisions
 
-**Status:** Approved design. These contracts describe planned behavior, not implemented behavior.
+**Status:** Approved design. Implementation is in progress; see traceability for delivered behavior.
 
 There is no existing ADR format in this repository. This document records the decisions that would otherwise need several ADRs. Revisions that materially change the contracts below require approval before implementation.
 
