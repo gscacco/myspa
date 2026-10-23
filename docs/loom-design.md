@@ -64,6 +64,8 @@ Allowed attributes are `class`, `title`, `aria-*`, and non-reserved `data-*`; an
 
 The result contract is: nil renders nothing; strings, numbers, booleans, and keywords render as text; a recognized Hiccup vector renders as a node; a sequence of Hiccup nodes renders as a fragment; other EDN data renders in a readable `<pre>`. `loom.core/data` explicitly forces EDN display for a data vector that could otherwise look like Hiccup. The renderer receives the original SCI value or a typed representation, not a blind `clj->js` conversion that loses keyword/data distinctions. Rendering imposes finite node and depth budgets to avoid runaway output.
 
+The implemented bridge serializes normalized SCI results as EDN and reads them with the shared strict codec. It converts finite sequential results to vectors while preserving keywords, maps, and scalar types. A sequential result over 1000 values reports an error instead of truncating silently. This conversion is presentation-specific; it does not turn returned strings into HTML.
+
 ## Executable snippets, API, and trust
 
 Only a fenced Markdown block whose complete info string is `cljs loom` is executable. A plain `cljs` fence, other fenced code, and inline code are examples. A snippet may contain ordinary ClojureScript forms; the last form's value is rendered at that fence. Standard ClojureScript functions, `let`, `fn`, threading, and collection composition remain available through Scittle/SCI. Snippets run in one session-scoped `loom.user` namespace requiring `loom.core`; definitions can be shared in that session but are not stored as generated output. Loom supplies:

@@ -146,11 +146,15 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
       case 'code': {
         if (token.lang === 'cljs loom' && !ctx.transcluded) {
           node = ctx.document.createElement('div'); node.className = 'loom-snippet';
-          const run = ctx.document.createElement('button'); run.type = 'button'; run.textContent = 'Run trusted code';
+          const run = ctx.document.createElement('button'); run.type = 'button'; run.textContent = 'Run trusted code'; run.dataset.action = 'run-snippet';
+          const ordinal = ctx.snippetCounter ? ctx.snippetCounter.value++ : 0;
+          const edit = ctx.document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit code';
+          edit.dataset.action = 'edit-snippet';
           const code = ctx.document.createElement('pre'); code.textContent = token.text;
           const output = ctx.document.createElement('div'); output.className = 'snippet-output';
           run.addEventListener('click', () => ctx.onRun?.({ source: token.text, output, run }));
-          node.append(run, code, output);
+          edit.addEventListener('click', () => ctx.onEditSnippet?.({ ordinal, source: token.text, node }));
+          node.append(run, edit, code, output);
         } else {
           node = ctx.document.createElement('pre'); const code = ctx.document.createElement('code');
           code.textContent = token.text; node.append(code);
@@ -177,7 +181,7 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
 
 export function renderMarkdown(source, ctx) {
   const tokens = marked.lexer(source, { gfm: true });
-  return blocks(tokens, ctx);
+  return blocks(tokens, { snippetCounter: { value: 0 }, ...ctx });
 }
 
 function renderHiccupNode(value, ctx, state, depth) {

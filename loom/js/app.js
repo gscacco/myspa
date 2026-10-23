@@ -1,6 +1,9 @@
 import { keyword } from '../../shared/js/edn-codec.js';
 import { addItem, emptyKnowledgeBase, updateItem, validateKnowledgeBase } from './model.js';
-import { renderMarkdown, sectionSourceOffset } from './render.js';
+import { renderMarkdown, renderResult, sectionSourceOffset } from './render.js';
+import { createSnippetRuntime } from './runtime.js';
+import { applySnippetEdit, findSnippetSpan } from './snippet-source.js';
+import { attachStructuralEditor } from './structural-editor.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
 
@@ -11,6 +14,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   let position = 0;
   const cards = new Map();
   const dependencies = new Map();
+  const editingPreviews = new Map();
+  const activeSnippets = new Map();
+  let snippetRuntime = null;
   const workspace = document.querySelector('#workspace');
   const search = document.querySelector('#loom-search');
   const results = document.querySelector('#search-results');
@@ -21,12 +27,57 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   function report(message = '') { status.textContent = message || `${base.items.length} items${dirty ? ' · Unsaved changes' : ''}`; }
   function itemFor(id) { return base.items.find(item => item.id === id); }
 
-  function showItem(id) {
+  function runtime() {
+    if (!snippetRuntime) {
+      const scittle = window.scittle || globalThis.scittle;
+      snippetRuntime = createSnippetRuntime({ getItems: () => base.items, scittle, host: window.scittle ? window : globalThis });
+    }
+    return snippetRuntime;
+  }
+
+  function disposeSnippets(id) {
+    for (const [output, subscription] of activeSnippets) if (subscription.itemId === id) activeSnippets.delete(output);
+  }
+
+  function runSnippet(itemId, { source, output, run }) {
+    try {
+      const { value, dependencies: reads } = runtime().run(source);
+      const rendered = renderResult(value, { document, items: base.items, onNavigate: targetId => openItem(targetId) });
+      output.replaceChildren(rendered);
+      activeSnippets.set(output, { itemId, source, dependencies: reads, run });
+      run.textContent = 'Run again';
+    } catch (error) {
+      activeSnippets.delete(output);
+      const message = document.createElement('span'); message.className = 'render-error';
+      message.setAttribute('role', 'alert'); message.textContent = `Snippet error: ${error.message}`;
+      output.replaceChildren(message);
+    }
+  }
+
+  function notifyItemChange(before, after) {
+    const id = after?.id || before?.id;
+    const oldTags = before?.tags.map(tag => tag.name) || [];
+    const newTags = after?.tags.map(tag => tag.name) || [];
+    const summaryChanged = !before || !after || before.title !== after.title || JSON.stringify(oldTags) !== JSON.stringify(newTags);
+    for (const [output, subscription] of [...activeSnippets]) {
+      const reads = subscription.dependencies;
+      const affected = reads.has(`item:${id}`) || (summaryChanged && (reads.has('index')
+        || [...reads].some(read => read.startsWith('tag:') && (oldTags.includes(read.slice(4)) || newTags.includes(read.slice(4))))));
+      if (affected && output.isConnected) runSnippet(subscription.itemId, { source: subscription.source, output, run: subscription.run });
+    }
+  }
+
+  function showItem(id, { preserveSnippets = false } = {}) {
     const card = cards.get(id);
     if (!card) return;
     const item = itemFor(id);
     card.querySelector('h2').textContent = item.title;
     card.querySelector('[data-action="close"]').setAttribute('aria-label', `Close ${item.title}`);
+    const content = card.querySelector('.item-content');
+    if (preserveSnippets && editingPreviews.has(id)) content.replaceChildren(editingPreviews.get(id));
+    editingPreviews.delete(id);
+    const oldSnippets = preserveSnippets ? [...content.querySelectorAll('.loom-snippet')] : [];
+    if (!preserveSnippets) disposeSnippets(id);
     const reads = new Set();
     const rendered = renderMarkdown(item.body, {
       document, items: base.items, dependencies: reads,
@@ -38,13 +89,25 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
         const offset = sectionSourceOffset(itemFor(targetId).body, section);
         if (offset !== null) { textarea.focus(); textarea.setSelectionRange(offset, offset); }
       },
+      onRun: snippet => runSnippet(id, snippet),
+      onEditSnippet: snippet => editSnippet(id, snippet),
     });
+    if (preserveSnippets) {
+      const nextSnippets = [...rendered.querySelectorAll('.loom-snippet')];
+      for (const [index, next] of nextSnippets.entries()) {
+        const old = oldSnippets[index];
+        if (old && old.querySelector('pre')?.textContent === next.querySelector('pre')?.textContent) next.replaceWith(old);
+      }
+    }
     dependencies.set(id, reads);
-    card.querySelector('.item-content').replaceChildren(rendered);
+    content.replaceChildren(rendered);
   }
 
   function editItem(id) {
     const item = itemFor(id), card = cards.get(id);
+    const content = card.querySelector('.item-content');
+    const preview = document.createDocumentFragment(); preview.append(...content.childNodes);
+    editingPreviews.set(id, preview);
     const form = document.createElement('form'); form.className = 'item-form';
     for (const [name, label, tag, value] of [
       ['title', 'Title', 'input', item.title],
@@ -59,20 +122,58 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
       const button = document.createElement('button'); button.type = 'button';
       button.dataset.action = action; button.textContent = label; form.append(button);
     }
-    card.querySelector('.item-content').replaceChildren(form);
+    content.replaceChildren(form);
     form.querySelector('[name="title"]').focus();
+  }
+
+  function cancelEdit(id) {
+    const preview = editingPreviews.get(id);
+    if (preview) { cards.get(id).querySelector('.item-content').replaceChildren(preview); editingPreviews.delete(id); }
+    else showItem(id);
+  }
+
+  function commitItemChanges(id, changes) {
+    const before = itemFor(id);
+    base = updateItem(base, id, changes);
+    dirty = true; showItem(id, { preserveSnippets: before.body === itemFor(id).body });
+    for (const [cardId, reads] of dependencies) {
+      if (cardId !== id && reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
+    }
+    notifyItemChange(before, itemFor(id));
+    refreshSearch(); report();
+  }
+
+  function editSnippet(id, { ordinal, node }) {
+    if (node.querySelector('.snippet-editor')) return;
+    const originalBody = itemFor(id).body;
+    const span = findSnippetSpan(originalBody, ordinal);
+    if (!span) { report('Unable to locate the snippet in Markdown source'); return; }
+    const editor = document.createElement('div'); editor.className = 'snippet-editor';
+    const label = document.createElement('label'); label.textContent = 'ClojureScript source';
+    const textarea = document.createElement('textarea'); textarea.value = span.source;
+    label.append(textarea);
+    const feedback = document.createElement('p'); feedback.setAttribute('role', 'alert');
+    const apply = document.createElement('button'); apply.type = 'button'; apply.dataset.action = 'apply-snippet'; apply.textContent = 'Apply code';
+    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.dataset.action = 'cancel-snippet'; cancel.textContent = 'Cancel';
+    editor.append(label, apply, cancel, feedback);
+    const preview = node.querySelector('pre'); preview.hidden = true;
+    node.append(editor);
+    const detach = attachStructuralEditor(textarea, { onStatus: message => { feedback.textContent = message; } });
+    cancel.addEventListener('click', () => { detach(); editor.remove(); preview.hidden = false; });
+    apply.addEventListener('click', () => {
+      try {
+        const body = applySnippetEdit(originalBody, itemFor(id).body, span, textarea.value);
+        detach(); commitItemChanges(id, { body });
+      } catch (error) { feedback.textContent = error.message; }
+    });
+    textarea.focus();
   }
 
   function applyItem(id) {
     const form = cards.get(id).querySelector('.item-form');
     try {
       const tags = form.elements.tags.value.trim().split(/\s+/).filter(Boolean).map(name => keyword(name.replace(/^:/, '')));
-      base = updateItem(base, id, { title: form.elements.title.value, tags, body: form.elements.body.value });
-      dirty = true; showItem(id);
-      for (const [cardId, reads] of dependencies) {
-        if (cardId !== id && reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId);
-      }
-      refreshSearch(); report();
+      commitItemChanges(id, { title: form.elements.title.value, tags, body: form.elements.body.value });
     } catch (error) { report(error.message); }
   }
 
@@ -91,7 +192,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
       if (action === 'close') closeItem(id);
       else if (action === 'edit') editItem(id);
       else if (action === 'apply') applyItem(id);
-      else if (action === 'cancel') showItem(id);
+      else if (action === 'cancel') cancelEdit(id);
       else if (!action) focusItem(id);
     });
     cards.set(id, card); showItem(id);
@@ -100,7 +201,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   function sync() {
     const ids = base.workspace['open-ids'];
-    for (const [id, card] of cards) if (!ids.includes(id)) { card.remove(); cards.delete(id); dependencies.delete(id); }
+    for (const [id, card] of cards) if (!ids.includes(id)) { card.remove(); cards.delete(id); dependencies.delete(id); editingPreviews.delete(id); disposeSnippets(id); }
     workspace.querySelector('.workspace-empty')?.remove();
     for (const [index, id] of ids.entries()) {
       const card = cards.get(id) || createCard(id);
@@ -158,6 +259,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   document.querySelector('#new-item').addEventListener('click', () => {
     base = addItem(base, { title: 'Untitled item' }); dirty = true;
+    notifyItemChange(null, base.items.at(-1));
     const id = base.items.at(-1).id; openItem(id); editItem(id);
   });
   backButton.addEventListener('click', () => travel(-1));
