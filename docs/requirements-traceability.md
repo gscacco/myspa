@@ -1,6 +1,6 @@
 # Loom requirements traceability and test design
 
-**Status:** Approved test design. Every `LT-*` automated test and `LM-*` manual/review check below is planned; none is claimed to exist or pass. The stable requirement statements are in [requirements.md](requirements.md). The expected behavior is detailed in [loom-design.md](loom-design.md).
+**Status:** Approved test design; foundation in progress. Unimplemented test cases remain planned. The stable requirement statements are in [requirements.md](requirements.md). The expected behavior is detailed in [loom-design.md](loom-design.md).
 
 The test titles below are acceptance assertions, not implementation descriptions. In Phase C, each approved feature starts by adding its named tests and observing the expected failure before changing implementation. Update this table with actual test paths and results as features land. Do not weaken a requirement to match an implementation.
 
@@ -8,7 +8,7 @@ The test titles below are acceptance assertions, not implementation descriptions
 | --- | --- |
 | LOOM-001 | `LT-001` — `tests/loom/standalone.test.js`: build `dist/loom.html`, boot it with a `file://` JSDOM URL, find inline assets and Scittle, and find no required external runtime URL. `LT-001R` — existing `tests/e2e/dist.test.js` and `tests/timetable/standalone.test.js` still pass. |
 | LOOM-002 | `LT-002` — `tests/loom/model.test.js`: create, rename, reorder, and delete items; assert immutable UUID identity, unique IDs, duplicate-title support, and timestamp updates. |
-| LOOM-003 | `LT-003` — `tests/loom/edn.test.js`: round-trip the versioned schema and keywords; reject malformed/trailing EDN, unsupported versions, unknown fields, duplicate IDs, and invalid workspace references. `LT-003I` — `tests/loom/persistence.test.js`: failed/cancelled import leaves current edits intact and export/import restores saved items and workspace. |
+| LOOM-003 | `LT-003` — `tests/loom/model.test.js` (implemented): round-trip the versioned schema and keywords; reject malformed/trailing EDN, unsupported versions, unknown fields, duplicate IDs, and invalid workspace references. `LT-003I` — `tests/loom/persistence.test.js` (planned): failed/cancelled import leaves current edits intact and export/import restores saved items and workspace. |
 | LOOM-004 | `LT-004` — `tests/loom/workspace.test.js`: open and focus three cards, follow a link, then close one; assert the other cards, source scroll position, and edit draft remain. |
 | LOOM-005 | `LT-005` — `tests/loom/navigation.test.js`: Markdown and Hiccup `loom:` links open the ID target despite duplicate or changed titles; missing targets show local diagnostics. |
 | LOOM-006 | `LT-006` — `tests/loom/search.test.js`: title, tag, and body queries return the right items; opening a result retains cards; empty/no-result states and keyboard activation work. |
@@ -44,6 +44,12 @@ The test titles below are acceptance assertions, not implementation descriptions
 
 ## Planned execution gates
 
-Targeted test commands will be `node --import ./tools/load-scittle.js --test tests/loom/<feature>.test.js` where SCI is needed, and `node --test tests/loom/<feature>.test.js` otherwise. The repository's existing full gate is `npm run check`; Timetable's separate artifact gates are `npm run build:timetable` and `npm run test:e2e:timetable`. Loom will gain `npm run build:loom` and a named Loom test script only when their implementation exists. These are planned commands, not Phase B results.
+Targeted test commands are `node --import ./tools/load-scittle.js --test tests/loom/<feature>.test.js` where SCI is needed, and `node --test tests/loom/<feature>.test.js` otherwise. The full gate is `npm run check`; separate artifact gates are `npm run build:timetable`, `npm run test:e2e:timetable`, and `npm run build:loom`. `npm run test:loom` runs implemented Loom tests. `npm run test:timetable` includes synthetic OFD cases but excludes the ten tests requiring the external `OR_30_SETT.ofd` fixture. Run those explicitly with `npm run test:integration:ofd` when the fixture is present. Further feature tests and manual gates remain planned.
 
-Before each implementation commit or merge, inspect `git status`, review the relevant diff, and record the actual targeted and full-gate results. No Loom test listed here has been run because no Loom test has yet been written.
+Before each implementation commit or merge, inspect `git status`, review the relevant diff, and record the actual targeted and full-gate results.
+
+## Foundation evidence and remaining work
+
+`LT-001`, part of `LT-002`, and the data validation portion of `LT-003` have been implemented. `node --test tests/loom/model.test.js` passed 6/6, and `node --test tests/loom/standalone.test.js` passed 1/1 after both first failed because their implementation modules were absent. The rest of each requirement and all other Loom cases remain planned.
+
+The first `npm run check` attempt reached Timetable and failed only the ten tests needing the absent, untracked `OR_30_SETT.ofd` fixture; the other 139 Timetable tests passed. After moving those ten tests into the explicit `npm run test:integration:ofd` selection, `npm run check` passed: Foglio unit 142/142, Foglio integration 56/56, Timetable 139/139, Loom 7/7, Foglio artifact checks 18/18, and Foglio built-artifact tests 6/6. `npm run test:e2e:timetable` passed 1/1. `npm run build:timetable` and `npm run build:loom` passed independently. The external OFD integration command was not run because its fixture is absent.

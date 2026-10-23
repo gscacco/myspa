@@ -289,7 +289,13 @@ Run the complete test suite and verify the generated standalone artifact with:
 npm run check
 ```
 
-The individual commands are `npm run test:unit`, `npm run test:integration`, and `npm run test:e2e`.
+The individual commands are `npm run test:unit`, `npm run test:integration`, `npm run test:timetable`, `npm run test:loom`, and `npm run test:e2e`. Timetable tests that require the external `OR_30_SETT.ofd` file are excluded from the normal suite; run them with `npm run test:integration:ofd` when that file is available at the repository root. Synthetic OFD tests remain in `npm run test:timetable`.
+
+## Loom foundation (in progress)
+
+`npm run build:loom` generates `dist/loom.html` using the same standalone build environment. The current artifact boots an empty workspace and embeds Scittle. The versioned item model and strict EDN codec are implemented in source modules. Item authoring, navigation, and EDN file import/export are not yet available in the UI.
+
+`npm run test:loom` runs the current Loom model and standalone artifact tests. The complete `npm test` command includes them.
 
 ## Source layout
 
