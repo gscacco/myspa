@@ -83,7 +83,7 @@ test('teacher CSV uses the teacher sheet and retains columns outside the known f
   dom.window.close();
 });
 
-test('OFD roster import extracts only classes or rooms and never replaces unrelated school data', async () => {
+test('OFD roster import extracts only classes or rooms and never replaces unrelated school data (external OFD fixture)', async () => {
   const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
   const app = createTimetableApp({ document, DOMParser: dom.window.DOMParser });
@@ -191,7 +191,7 @@ test('lesson OFD import does not apply source times when its calendar differs', 
   dom.window.close();
 });
 
-test('lesson sheet imports every lesson from the supplied OFD against its imported school structure', async () => {
+test('lesson sheet imports every lesson from the supplied OFD against its imported school structure (external OFD fixture)', async () => {
   const dom = new JSDOM(await readFile(htmlPath, 'utf8'), { url: 'http://localhost/' });
   const { document } = dom.window;
   const bytes = await readFile(new URL('../../OR_30_SETT.ofd', import.meta.url));

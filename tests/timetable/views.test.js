@@ -96,7 +96,7 @@ test('issue navigation selects an unassigned lesson and retains its detail even 
   dom.window.close();
 });
 
-test('real supplied timetable renders its six-day grid and navigates to a lesson in teacher view', async () => {
+test('real supplied timetable renders its six-day grid and navigates to a lesson in teacher view (external OFD fixture)', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const { timetable, diagnostics } = importOFD(await readFile(samplePath), { DOMParser: domParser });
   const views = createTimetableViews({ document: dom.window.document });
@@ -116,7 +116,7 @@ test('real supplied timetable renders its six-day grid and navigates to a lesson
   dom.window.close();
 });
 
-test('OFD roster and constraints are available in their school sheets without placement hints', async () => {
+test('OFD roster and constraints are available in their school sheets without placement hints (external OFD fixture)', async () => {
   const dom = new JSDOM(await readFile(indexPath, 'utf8'), { url: 'http://localhost/' });
   const imported = importOFD(await readFile(samplePath), { DOMParser: domParser });
   const structureOnly = withoutOFDAssignments(imported);

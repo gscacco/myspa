@@ -29,7 +29,7 @@ test('OFD import can omit every placement while retaining requirements and const
   assert.ok(timetable.lessons.some(lesson => lesson.assignedTime), 'source model is not mutated');
 });
 
-test('the supplied OFD retains constraints and bounds a search without using source placements', async () => {
+test('the supplied OFD retains constraints and bounds a search without using source placements (external OFD fixture)', async () => {
   const source = await readFile(samplePath);
   const result = withoutOFDAssignments(importOFD(source, { DOMParser: domParser }));
   assert.equal(result.summary.lessons, 1714);
@@ -47,7 +47,7 @@ test('the supplied OFD retains constraints and bounds a search without using sou
   if (recalculated.status === 'solved') assert.equal(recalculated.assignments.size, optimizationScope(result.timetable).optimizableLessons.length);
 });
 
-test('optimization bounds a real-school search and never returns a partial proposal', async () => {
+test('optimization bounds a real-school search and never returns a partial proposal (external OFD fixture)', async () => {
   const source = await readFile(samplePath);
   const timetable = withoutOFDAssignments(importOFD(source, { DOMParser: domParser })).timetable;
   const optimizable = optimizationScope(timetable).optimizableLessons;

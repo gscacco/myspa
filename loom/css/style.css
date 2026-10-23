@@ -1,0 +1,10 @@
+:root{font-family:system-ui,sans-serif;color:#233042;background:#f4f1ec}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh}
+.app-header{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;padding:1.5rem 2rem;border-bottom:1px solid #d8d6d1;background:#fff}
+h1,h2{margin:0}
+h1{font-size:1.5rem;letter-spacing:-.03em}
+#loom-status{color:#526173;font-size:.875rem}
+.empty-workspace{max-width:44rem;margin:4rem auto;padding:2rem;border:1px solid #d8d6d1;border-radius:1rem;background:#fff}
+.empty-workspace h2{font-size:1.125rem;font-weight:600}
+@media(max-width:600px){.app-header{padding:1rem}.empty-workspace{margin:1.5rem 1rem}}
