@@ -39,6 +39,19 @@ test('item reads track the item ID and data wrappers preserve Hiccup-shaped data
   dom.window.close();
 });
 
+test('snippet Hiccup preserves safe style maps and key metadata through the runtime pipeline', () => {
+  const runtime = createSnippetRuntime({ getItems: () => [], scittle: globalThis.scittle });
+  const { value } = runtime.run('[:div {:key "row-1" :style {:color "red" :font-size "18px"}} "Styled"]');
+  const dom = new JSDOM('<main></main>');
+  dom.window.document.querySelector('main').append(renderResult(value, { document: dom.window.document }));
+  const node = dom.window.document.querySelector('div');
+  assert.equal(node.textContent, 'Styled');
+  assert.equal(node.style.color, 'red');
+  assert.equal(node.style.fontSize, '18px');
+  assert.equal(node.hasAttribute('key'), false);
+  dom.window.close();
+});
+
 test('oversized generated collections fail explicitly instead of being truncated', () => {
   const runtime = createSnippetRuntime({ getItems: () => [], scittle: globalThis.scittle });
   assert.throws(() => runtime.run('(range 1001)'), /limit/i);

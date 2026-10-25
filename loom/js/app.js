@@ -1,6 +1,6 @@
 import { keyword } from '../../shared/js/edn-codec.js';
 import { addItem, deleteItem, emptyKnowledgeBase, parseKnowledgeBase, updateItem, validateKnowledgeBase, writeKnowledgeBase } from './model.js';
-import { renderMarkdown, renderResult, sectionSourceOffset } from './render.js';
+import { renderMarkdown, renderResult } from './render.js';
 import { createSnippetRuntime } from './runtime.js';
 import { applySnippetEdit, findSnippetSpan } from './snippet-source.js';
 import { attachStructuralEditor } from './structural-editor.js';
@@ -8,6 +8,7 @@ import { createEDNFileIO } from './files.js';
 import { readLocalKnowledgeBase, writeLocalKnowledgeBase } from './local-store.js';
 import { searchItems } from './item-search.js';
 import { attachLinkCompletion } from './link-completion.js';
+import { attachTagCompletion } from './tag-completion.js';
 import { MARKDOWN_FORMATS, applyMarkdownFormat } from './markdown-toolbar.js';
 import { highlightClojure } from './syntax-highlight.js';
 
@@ -180,15 +181,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const rendered = renderMarkdown(item.body, {
       document, items: base.items, dependencies: reads,
       onNavigate: (targetId) => openItem(targetId),
-      onEditSource: (targetId, section) => {
-        if (!openItem(targetId)) return;
-        editItem(targetId);
-        const textarea = cards.get(targetId).querySelector('[name="body"]');
-        const offset = sectionSourceOffset(itemFor(targetId).body, section);
-        if (offset !== null) { textarea.focus(); textarea.setSelectionRange(offset, offset); }
-      },
       onEditSnippet: snippet => editSnippet(id, snippet),
-      onViewSnippet: snippet => viewSnippet(snippet),
     });
     dependencies.set(id, reads);
     content.replaceChildren(rendered);
@@ -246,6 +239,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     bodyField.append(bodyLabel, createFormatToolbar(textarea), textarea); form.append(bodyField);
     form.addEventListener('submit', event => { event.preventDefault(); applyItem(id); });
     attachLinkCompletion(form.elements.body, { getItems: () => base.items });
+    attachTagCompletion(form.elements.tags, {
+      getTags: () => base.items.flatMap(item => item.tags.map(tag => tag.name)),
+    });
     content.replaceChildren(form);
     setActions(card, id, true);
     form.querySelector('[name="title"]').focus();
@@ -266,8 +262,8 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   function setSnippetMode(node, mode) {
     const editing = mode === 'edit';
-    node.querySelector('[data-action="view-snippet"]')?.setAttribute('aria-pressed', String(!editing));
-    node.querySelector('[data-action="edit-snippet"]')?.setAttribute('aria-pressed', String(editing));
+    const actions = node.querySelector('.snippet-actions');
+    if (actions) actions.hidden = editing;
     const output = node.querySelector('.snippet-output');
     if (output) output.hidden = editing;
   }
@@ -276,15 +272,6 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const open = snippetEditors.get(node);
     if (!open) return;
     open.detach(); open.editor.remove(); snippetEditors.delete(node); setSnippetMode(node, 'view');
-  }
-
-  function viewSnippet({ node }) {
-    const open = snippetEditors.get(node);
-    if (!open) { setSnippetMode(node, 'view'); return; }
-    const { textarea } = open;
-    if (textarea.value !== textarea.dataset.original
-      && !window.confirm('Discard the unapplied code changes and view the saved result?')) return;
-    closeSnippetEditor(node);
   }
 
   function highlightedEditor(textarea) {

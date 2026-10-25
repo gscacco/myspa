@@ -33,13 +33,13 @@ function type(textarea, dom, value, caret = value.length) {
 test('typing [[ opens a contextual search popup and keyboard selection inserts a stable ID', async () => {
   const { dom, card, textarea } = await mount();
   type(textarea, dom, 'Before [[', 9);
-  let popup = card.querySelector('[role="listbox"]');
+  let popup = card.querySelector('.link-completion');
   assert.ok(popup);
   assert.equal(popup.hidden, false);
   assert.match(popup.textContent, /Type to search items/);
 
   type(textarea, dom, 'Before [[alp', 12);
-  popup = card.querySelector('[role="listbox"]');
+  popup = card.querySelector('.link-completion');
   assert.match(popup.textContent, /Alpha target/);
   assert.equal(popup.querySelectorAll('[role="option"]').length, 1);
   textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
@@ -58,7 +58,7 @@ test('Escape dismisses link completion without changing the source', async () =>
   textarea.dispatchEvent(escape);
   assert.equal(escape.defaultPrevented, true);
   assert.equal(textarea.value, 'Keep [[bet');
-  assert.equal(textarea.ownerDocument.querySelector('[role="listbox"]').hidden, true);
+  assert.equal(textarea.ownerDocument.querySelector('.link-completion').hidden, true);
   dom.window.close();
 });
 
@@ -76,9 +76,9 @@ test('mouse selection replaces only the trigger and preserves surrounding text',
 test('link completion reuses title/tag grouping and ignores escaped triggers', async () => {
   const { dom, card, textarea } = await mount();
   type(textarea, dom, 'Escaped \\[[', 12);
-  assert.equal(card.querySelector('[role="listbox"]')?.hidden, true);
+  assert.equal(card.querySelector('.link-completion')?.hidden, true);
   type(textarea, dom, 'Tag [[clojure', 13);
-  const popup = card.querySelector('[role="listbox"]');
+  const popup = card.querySelector('.link-completion');
   assert.equal(popup.querySelector('[data-search-group="titles-tags"]')?.textContent.includes(':clojure'), true);
   assert.equal(popup.querySelectorAll('[data-item-id]').length, 1);
   dom.window.close();

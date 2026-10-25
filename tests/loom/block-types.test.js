@@ -30,18 +30,40 @@ test('only clojurescript and the legacy marker create executable blocks', () => 
   assert.equal(snippets[0].querySelector('pre').hidden, true);
   assert.equal(snippets[1].querySelector('pre').hidden, true);
   assert.equal(dom.window.document.querySelectorAll('[data-action="edit-snippet"]').length, 2);
-  assert.equal(dom.window.document.querySelectorAll('[data-action="view-snippet"]').length, 2);
+  assert.equal(dom.window.document.querySelectorAll('[data-action="view-snippet"]').length, 0);
   assert.equal(dom.window.document.querySelectorAll('[data-action="run-snippet"]').length, 0);
   const actions = snippets[0].querySelector('.snippet-actions');
-  assert.deepEqual([...actions.querySelectorAll('button')].map(button => button.dataset.action), ['view-snippet', 'edit-snippet']);
+  assert.deepEqual([...actions.querySelectorAll('button')].map(button => button.dataset.action), ['edit-snippet']);
   for (const button of actions.querySelectorAll('button')) {
     assert.ok(button.querySelector('svg'));
     assert.equal(button.textContent, '');
     assert.ok(button.title);
     assert.ok(button.getAttribute('aria-label'));
   }
-  assert.deepEqual([...actions.querySelectorAll('button')].map(button => button.title), ['View result', 'Edit code']);
+  assert.deepEqual([...actions.querySelectorAll('button')].map(button => button.title), ['Edit code']);
   assert.equal([...dom.window.document.querySelectorAll('pre code')].length, 2);
+  dom.window.close();
+});
+
+test('the subtle snippet edit action shares its top row with the result', async () => {
+  const css = await readFile(new URL('../../loom/css/style.css', import.meta.url), 'utf8');
+  const dom = new JSDOM('<!doctype html><main></main>');
+  const style = dom.window.document.createElement('style'); style.textContent = css;
+  dom.window.document.head.append(style);
+  const ctx = { document: dom.window.document, items: [] };
+  dom.window.document.querySelector('main').append(renderMarkdown(fence('clojurescript', '(+ 1 2)'), ctx));
+  const snippet = dom.window.document.querySelector('.loom-snippet');
+  const actions = snippet.querySelector('.snippet-actions');
+  const output = snippet.querySelector('.snippet-output');
+  const edit = actions.querySelector('[data-action="edit-snippet"]');
+
+  assert.equal(dom.window.getComputedStyle(snippet).display, 'grid');
+  assert.equal(dom.window.getComputedStyle(actions).position, 'static');
+  assert.equal(dom.window.getComputedStyle(output).marginTop, '0px');
+  assert.equal(dom.window.getComputedStyle(edit).opacity, '0.5');
+  assert.match(css, /\.snippet-actions \.icon-button:hover[^{]*\{[^}]*opacity:1/);
+  assert.match(css, /\.snippet-actions \.icon-button:focus-visible[^{]*\{[^}]*opacity:1/);
+  assert.match(css, /\.snippet-actions\[hidden\]\{display:none\}/);
   dom.window.close();
 });
 

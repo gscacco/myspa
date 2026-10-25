@@ -107,7 +107,7 @@ test('structural snippet editing changes only its code and retains other cards',
   dom.window.close();
 });
 
-test('snippet view and editor icons toggle modes without silently discarding drafts', async () => {
+test('the single snippet edit icon opens the editor and returns after apply or cancel', async () => {
   const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
   const dom = new JSDOM(html, { url: 'http://localhost/' });
   const base = addItem(emptyKnowledgeBase(), { title: 'Code', body: '~~~clojurescript\n(+ 40 2)\n~~~' }, { id: A, now: NOW });
@@ -116,40 +116,28 @@ test('snippet view and editor icons toggle modes without silently discarding dra
   const card = dom.window.document.querySelector(`[data-item-id="${A}"]`);
   const snippet = card.querySelector('.loom-snippet');
   const output = snippet.querySelector('.snippet-output');
-  const view = snippet.querySelector('[data-action="view-snippet"]');
   const edit = snippet.querySelector('[data-action="edit-snippet"]');
+  const actions = snippet.querySelector('.snippet-actions');
   assert.equal(output.hidden, false);
-  assert.equal(view.getAttribute('aria-pressed'), 'true');
-  assert.equal(edit.getAttribute('aria-pressed'), 'false');
+  assert.equal(actions.hidden, false);
+  assert.equal(snippet.querySelector('[data-action="view-snippet"]'), null);
 
   edit.click();
   assert.equal(output.hidden, true);
+  assert.equal(actions.hidden, true);
   assert.equal(snippet.querySelector('.snippet-editor textarea').value, '(+ 40 2)');
-  assert.equal(view.getAttribute('aria-pressed'), 'false');
-  assert.equal(edit.getAttribute('aria-pressed'), 'true');
 
-  view.click();
+  snippet.querySelector('[data-action="cancel-snippet"]').click();
   assert.equal(snippet.querySelector('.snippet-editor'), null);
   assert.equal(output.hidden, false);
-  assert.equal(view.getAttribute('aria-pressed'), 'true');
-  assert.equal(edit.getAttribute('aria-pressed'), 'false');
+  assert.equal(actions.hidden, false);
 
   edit.click();
   const textarea = snippet.querySelector('.snippet-editor textarea');
   textarea.value = '(+ 1 1)';
-  let confirmations = 0;
-  dom.window.confirm = () => { confirmations++; return false; };
-  view.click();
-  assert.equal(confirmations, 1);
-  assert.ok(snippet.querySelector('.snippet-editor'));
-  assert.equal(output.hidden, true);
-  assert.equal(app.getBase().items[0].body, '~~~clojurescript\n(+ 40 2)\n~~~');
-
-  dom.window.confirm = () => { confirmations++; return true; };
-  view.click();
-  assert.equal(confirmations, 2);
-  assert.equal(snippet.querySelector('.snippet-editor'), null);
-  assert.equal(output.hidden, false);
-  assert.equal(app.getBase().items[0].body, '~~~clojurescript\n(+ 40 2)\n~~~');
+  snippet.querySelector('[data-action="apply-snippet"]').click();
+  assert.equal(dom.window.document.querySelector(`[data-item-id="${A}"] .snippet-editor`), null);
+  assert.equal(dom.window.document.querySelector(`[data-item-id="${A}"] .snippet-output`).hidden, false);
+  assert.equal(app.getBase().items[0].body, '~~~clojurescript\n(+ 1 1)\n~~~');
   dom.window.close();
 });

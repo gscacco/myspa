@@ -7,16 +7,48 @@ import { highlightClojure } from './syntax-highlight.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ELEMENTS = new Set('p span div section article aside h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code em strong b i small br hr table thead tbody tr th td a'.split(' '));
+const HICCUP_STYLE_PROPERTIES = new Set(`color background-color
+  font font-family font-size font-style font-weight font-variant
+  line-height letter-spacing word-spacing text-align text-decoration text-transform text-indent
+  white-space overflow-wrap word-break vertical-align
+  display gap row-gap column-gap align-items align-content align-self justify-content justify-items justify-self
+  flex flex-direction flex-wrap flex-grow flex-shrink flex-basis
+  grid-template-columns grid-template-rows grid-auto-flow
+  margin margin-top margin-right margin-bottom margin-left
+  padding padding-top padding-right padding-bottom padding-left
+  border border-top border-right border-bottom border-left border-color border-style border-width border-radius
+  width min-width max-width height min-height max-height
+  opacity overflow overflow-x overflow-y`.trim().split(/\s+/));
+const UNSAFE_STYLE_VALUE = /url\s*\(|expression\s*\(|@import|javascript\s*:|vbscript\s*:|behavior\s*:|-moz-binding/i;
 const SNIPPET_ICONS = {
-  'view-snippet': 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zM12 9a3 3 0 100 6 3 3 0 000-6z',
   'edit-snippet': 'M4 20h4L18 10l-4-4L4 16v4zM13 7l4 4',
 };
 
-function snippetButton(ctx, action, label, pressed) {
+function cssPropertyName(name) {
+  if (typeof name !== 'string') return null;
+  const kebab = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+  return /^-?[a-z][a-z0-9-]*$/.test(kebab) ? kebab : null;
+}
+
+function applyHiccupStyle(element, style) {
+  if (!style || typeof style !== 'object' || Array.isArray(style) || style instanceof EDNKeyword) {
+    throw new TypeError('Hiccup style must be a map');
+  }
+  for (const [rawName, rawValue] of Object.entries(style)) {
+    const name = cssPropertyName(rawName);
+    if (!name || !HICCUP_STYLE_PROPERTIES.has(name)) throw new TypeError(`Unsupported Hiccup style property: ${rawName}`);
+    if (typeof rawValue !== 'string' || !rawValue.trim() || rawValue.length > 300
+      || /[\u0000-\u001f\u007f;{}]/.test(rawValue) || UNSAFE_STYLE_VALUE.test(rawValue)) {
+      throw new TypeError(`Invalid Hiccup style value for ${rawName}`);
+    }
+    element.style.setProperty(name, rawValue.trim());
+  }
+}
+
+function snippetButton(ctx, action, label) {
   const button = ctx.document.createElement('button');
   button.type = 'button'; button.className = 'icon-button'; button.dataset.action = action;
   button.title = label; button.setAttribute('aria-label', label);
-  button.setAttribute('aria-pressed', String(pressed));
   const ns = 'http://www.w3.org/2000/svg';
   const svg = ctx.document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -90,18 +122,6 @@ function headingSlugs(tokens) {
   return slugs;
 }
 
-export function sectionSourceOffset(source, name) {
-  if (!name) return 0;
-  const tokens = lexMarkdown(source);
-  const slugs = headingSlugs(tokens);
-  let offset = 0;
-  for (const [index, token] of tokens.entries()) {
-    if (slugs.get(index) === name) return offset;
-    offset += token.raw.length;
-  }
-  return null;
-}
-
 function sectionTokens(tokens, name) {
   if (!name) return { tokens, slugs: headingSlugs(tokens) };
   const slugs = headingSlugs(tokens);
@@ -134,11 +154,7 @@ function transclude(target, label, ctx) {
   embed.setAttribute('aria-label', label || `Embedded ${item.title}`);
   const header = document.createElement('header');
   const title = document.createElement('span'); title.textContent = `From ${item.title}`;
-  const open = document.createElement('button'); open.type = 'button'; open.textContent = 'Open source';
-  open.addEventListener('click', () => ctx.onNavigate?.(target.id, target.section));
-  const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit source';
-  edit.addEventListener('click', () => ctx.onEditSource?.(target.id, target.section));
-  header.append(title, open, edit);
+  header.append(title);
   embed.append(header, blocks(selected.tokens, { ...ctx, path: [...path, key], transcluded: true }, selected.slugs));
   return embed;
 }
@@ -157,6 +173,7 @@ function inline(tokens, ctx) {
       case 'br': node = ctx.document.createElement('br'); break;
       case 'link': node = makeLink(ctx, token.href, inline(token.tokens, ctx)); break;
       case 'loomItemReference': node = itemLink(ctx, { id: token.id, section: null }); break;
+      case 'loomTransclusion': node = transclude({ id: token.id, section: token.section }, null, ctx); break;
       case 'image': node = token.href?.startsWith('loom:')
         ? transclude(parseLoomURL(token.href), token.text, ctx)
         : errorNode(ctx.document, `Unsupported image: ${token.href}`); break;
@@ -178,19 +195,19 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
         node.append(inline(token.tokens, ctx)); break;
       case 'paragraph': case 'text':
         node = ctx.document.createElement('p'); node.append(inline(token.tokens, ctx)); break;
+      case 'loomTransclusion':
+        node = transclude({ id: token.id, section: token.section }, null, ctx); break;
       case 'code': {
         if (isExecutableLanguage(token.lang) && !ctx.transcluded) {
           node = ctx.document.createElement('div'); node.className = 'loom-snippet';
           const ordinal = ctx.snippetCounter ? ctx.snippetCounter.value++ : 0;
           const actions = ctx.document.createElement('div'); actions.className = 'snippet-actions';
-          const view = snippetButton(ctx, 'view-snippet', 'View result', true);
-          const edit = snippetButton(ctx, 'edit-snippet', 'Edit code', false);
-          actions.append(view, edit);
+          const edit = snippetButton(ctx, 'edit-snippet', 'Edit code');
+          actions.append(edit);
           const code = ctx.document.createElement('pre'); code.textContent = token.text;
           code.className = 'snippet-source'; code.hidden = true;
           const output = ctx.document.createElement('div'); output.className = 'snippet-output';
           edit.addEventListener('click', () => ctx.onEditSnippet?.({ ordinal, source: token.text, node }));
-          view.addEventListener('click', () => ctx.onViewSnippet?.({ ordinal, source: token.text, node }));
           node.append(actions, code, output);
         } else {
           node = ctx.document.createElement('pre'); const code = ctx.document.createElement('code');
@@ -246,10 +263,17 @@ function renderHiccupNode(value, ctx, state, depth) {
   if (attributes) for (const [name, attribute] of Object.entries(attributes)) {
     const allowed = ['class', 'title'].includes(name) || /^aria-[a-z0-9-]+$/.test(name)
       || (/^data-[a-z0-9-]+$/.test(name) && !name.startsWith('data-loom-'))
+      || ['key', 'style'].includes(name)
       || (tag === 'a' && name === 'href')
       || (['td', 'th'].includes(tag) && ['colspan', 'rowspan'].includes(name));
     if (!allowed) throw new TypeError(`Unsupported Hiccup attribute: ${name}`);
-    if (name === 'href') {
+    if (name === 'style') {
+      applyHiccupStyle(element, attribute);
+    } else if (name === 'key') {
+      if (typeof attribute !== 'string' && !(typeof attribute === 'number' && Number.isFinite(attribute))) {
+        throw new TypeError('Invalid Hiccup key');
+      }
+    } else if (name === 'href') {
       const target = parseLoomURL(attribute), external = safeExternalURL(attribute);
       if (!target && !external) throw new TypeError(`Unsafe href URL: ${attribute}`);
       element.href = target ? attribute : external;
