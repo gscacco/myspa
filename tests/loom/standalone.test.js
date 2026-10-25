@@ -40,12 +40,8 @@ test('Loom evaluates clojurescript blocks offline and ships Scittle attribution'
   dom.window.close();
 });
 
-test('Loom embeds its programming font and attribution offline', async () => {
+test('Loom uses a classic system monospace font without embedded fonts', async () => {
   const html = await buildLoomArtifact();
-  assert.match(html, /@font-face/);
-  assert.match(html, /font-family:JetBrains Mono/);
-  assert.match(html, /data:font\/woff2;base64,/);
-  assert.doesNotMatch(html, /url\(["']?(?:\.\.\/)?fonts\//);
-  assert.match(html, /JetBrains Mono Project Authors/);
-  assert.match(html, /SIL Open Font License/);
+  assert.match(html, /font-family:Courier New/);
+  assert.doesNotMatch(html, /@font-face|JetBrains Mono|data:font/);
 });

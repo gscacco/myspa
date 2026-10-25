@@ -1,6 +1,3 @@
-@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400;font-display:swap;src:url("../fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2")}
-@font-face{font-family:"JetBrains Mono";font-style:italic;font-weight:400;font-display:swap;src:url("../fonts/jetbrains-mono-latin-400-italic.woff2") format("woff2")}
-@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:600;font-display:swap;src:url("../fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2")}
 :root{font:16px/1.5 system-ui,sans-serif;color:#202735;background:#f4f1ea}
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -57,7 +54,7 @@ button:disabled{opacity:.45;cursor:default}
 .item-content code .n{color:#9b4f16}
 .item-content code .k{color:#8d2f87;font-weight:600}
 .item-content code .b{color:#166b7c;font-weight:600}
-.item-content pre,.item-content code,.snippet-code-field{font-family:"JetBrains Mono","Cascadia Code","Fira Code","Source Code Pro","SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0}
+.item-content pre,.item-content code,.snippet-code-field{font-family:"Courier New",Courier,monospace;font-variant-ligatures:none;font-feature-settings:"liga" 0,"calt" 0}
 .item-form{position:relative;display:grid;gap:.75rem}
 .item-form label{display:grid;gap:.2rem;font-weight:600}
 .item-form input,.item-form textarea{border:1px solid #bdb3a8;border-radius:7px;padding:.5rem;font-weight:400}
@@ -82,16 +79,16 @@ button:disabled{opacity:.45;cursor:default}
 .snippet-editor-actions{position:absolute;top:.45rem;right:.45rem;display:flex;gap:.2rem}
 .snippet-editor-actions .icon-button{width:1.9rem;height:1.9rem}
 .snippet-editor label{display:grid;gap:.25rem;width:100%;font-weight:600}
-.snippet-code-field{position:relative;width:100%;min-height:8rem;overflow:hidden;resize:vertical;border:1px solid #a6b5db;border-radius:5px;background:#fff;font-size:14px;line-height:21px}
-.snippet-highlight,.snippet-editor textarea{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:.6rem;border:0;border-radius:4px;font:inherit;line-height:21px;white-space:pre;tab-size:2}
-.snippet-highlight{overflow:hidden;pointer-events:none;background:transparent;color:#202735}
-.snippet-highlight code{font:inherit;white-space:inherit}
+.snippet-code-field{display:grid;width:100%;min-height:8rem;font-size:14px;line-height:21px}
+.snippet-highlight,.snippet-editor textarea{grid-area:1/1;width:100%;min-height:8rem;margin:0;padding:.6rem;border:1px solid transparent;border-radius:5px;font:inherit;line-height:21px;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
+.snippet-highlight{overflow:auto;pointer-events:none;background:#fff;color:#202735}
+.snippet-highlight code{font:inherit}
 .snippet-highlight .c{color:#7f887f;font-style:italic}
 .snippet-highlight .s{color:#2f7b47}
 .snippet-highlight .n{color:#9b4f16}
 .snippet-highlight .k{color:#8d2f87;font-weight:600}
 .snippet-highlight .b{color:#166b7c;font-weight:600}
-.snippet-editor textarea{z-index:1;overflow:auto;outline-offset:-2px;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#202735;resize:none}
+.snippet-editor textarea{position:relative;z-index:1;overflow:auto;border-color:#a6b5db;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#202735;resize:vertical}
 .snippet-editor [role=alert]{margin:0;color:#96352c;width:100%}
 @media(max-width:700px){
   #loom-app{height:auto;min-height:100vh;overflow:visible}

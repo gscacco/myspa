@@ -300,7 +300,6 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
       syncScroll();
     };
     textarea.spellcheck = false;
-    textarea.wrap = 'off';
     textarea.addEventListener('input', sync);
     textarea.addEventListener('scroll', syncScroll);
     field.append(highlight, textarea);
