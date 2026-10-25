@@ -2,7 +2,7 @@
 
 **Status:** Approved requirements. Implementation is in progress; see traceability for delivered cases.
 
-This document defines the initial Loom scope. `LOOM-001` through `LOOM-030` are stable requirement identifiers. A change to a requirement's meaning requires review before implementation; identifiers must not be reused. Planned tests and their links to these requirements are in [requirements-traceability.md](requirements-traceability.md). The proposed technical contracts are in [loom-design.md](loom-design.md).
+This document defines the initial Loom scope. `LOOM-*` identifiers are stable. A change to a requirement's meaning requires review before implementation; identifiers must not be reused. Planned tests and their links to these requirements are in [requirements-traceability.md](requirements-traceability.md). The proposed technical contracts are in [loom-design.md](loom-design.md).
 
 ## Application and data
 
@@ -52,6 +52,7 @@ This document defines the initial Loom scope. `LOOM-001` through `LOOM-030` are 
 | LOOM-032 | Use icon-only controls to commit or discard executable snippet edits. | **Apply code** and **Cancel** are labelled SVG buttons in the snippet editor's upper-right corner with tooltips, accessible labels, and keyboard support; their existing commit and discard behavior remains unchanged. |
 | LOOM-033 | Show ClojureScript syntax highlighting while editing executable snippets. | The editable source field uses a classic web-safe monospace stack with fixed 14 px text and 21 px line height, synchronized with a DOM-safe, non-interactive highlighting layer; comments, strings, literals, keywords, built-ins, and numbers are visually distinguished; ligatures are disabled and soft wrapping is supported; highlighting follows input and scroll without changing source text or bypassing the renderer's safe tokenization. |
 | LOOM-034 | Protect structural boundaries during character deletion. | With a collapsed cursor immediately after a closing delimiter or before an opening delimiter, Backspace or Delete moves the cursor across the delimiter instead of removing it; the rule covers round, square, and curly brackets and double quotes, including delimiters at the start or end of the source, while existing whole-pair removal and text deletion remain available. |
+| LOOM-035 | Align the ClojureScript editor caret with the highlighted source. | The native textarea caret is hidden and an accessible, non-interactive custom caret is measured from the corresponding highlighted text offset; it follows input and scroll, spans the configured line height, hides for non-collapsed selections and while unfocused, and reappears at the selection position when focus returns. |
 
 ## Scope and change control
 
