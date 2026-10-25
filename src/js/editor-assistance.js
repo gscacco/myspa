@@ -138,4 +138,4 @@ export function completionInsertion(candidate, code, cursor, word) {
   return { text: candidate.n, from, to: cursor, caret: from + candidate.n.length };
 }
 
-export { indentFor, pareditSlurp, pareditBarf, pareditSplice, pareditWrap, pareditNewline, safeDeletion, formBefore } from "../../shared/js/paredit.js";
+export { indentFor, pareditSlurp, pareditBarf, pareditBackwardSlurp, pareditBackwardBarf, pareditSplice, pareditWrap, pareditNewline, safeDeletion, formBefore } from "../../shared/js/paredit.js";

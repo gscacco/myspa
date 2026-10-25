@@ -48,6 +48,7 @@ function nextFormEnd(text, i) {
 function formEnd(text, i) {
   const c = text[i];
   if (c === undefined) return null;
+  if (CLOSERS_S.includes(c)) return null;
   if (c === '"') return skipStr(text, i);
   if (OPENERS.includes(c)) { const m = matchAt(text, i); return m < 0 ? null : m + 1; }
   if (c === '#' && text[i + 1] === '"') return skipStr(text, i + 1);
@@ -87,14 +88,18 @@ function pairs(text) {
   return out;
 }
 
-function enclosingPair(text, pos) {
-  let best = null;
+function enclosingPairs(text, pos) {
+  const matches = [];
   for (const p of pairs(text)) {
     const inside = p.open < pos && pos <= p.close;
     const justClosed = p.close + 1 === pos;
-    if ((inside || justClosed) && (!best || p.open > best.open)) best = p;
+    if (inside || justClosed) matches.push(p);
   }
-  return best;
+  return matches.sort((a, b) => b.open - a.open);
+}
+
+function enclosingPair(text, pos) {
+  return enclosingPairs(text, pos)[0] ?? null;
 }
 
 function topForms(text, from, to) {
@@ -124,13 +129,27 @@ export function indentFor(text, pos) {
 }
 
 export function pareditSlurp(text, pos) {
+  for (const p of enclosingPairs(text, pos)) {
+    const start = skipWS(text, p.close + 1);
+    if (start >= text.length) continue;
+    const end = formEnd(text, start);
+    if (end === null) continue;
+    return { from: p.close, to: end, text: text.slice(p.close + 1, end) + p.cc, caret: pos };
+  }
+  return null;
+}
+
+export function pareditBackwardSlurp(text, pos) {
   const p = enclosingPair(text, pos);
   if (!p) return null;
-  const start = skipWS(text, p.close + 1);
-  if (start >= text.length) return null;
-  const end = formEnd(text, start);
-  if (end === null) return null;
-  return { from: p.close, to: end, text: text.slice(p.close + 1, end) + p.cc, caret: pos };
+  const previous = formBefore(text, p.open);
+  if (!previous) return null;
+  return {
+    from: previous.from,
+    to: p.open + 1,
+    text: p.oc + text.slice(previous.from, p.open),
+    caret: pos,
+  };
 }
 
 export function pareditBarf(text, pos) {
@@ -148,6 +167,23 @@ export function pareditBarf(text, pos) {
     : pos < last.start ? prevEnd + p.cc.length + (pos - prevEnd)
       : movedStart + Math.min(moved.length, pos - last.start);
   return { from: prevEnd, to: p.close + 1, text: region, caret };
+}
+
+export function pareditBackwardBarf(text, pos) {
+  const p = enclosingPair(text, pos);
+  if (!p) return null;
+  const forms = topForms(text, p.open + 1, p.close);
+  if (!forms.length) return null;
+  const first = forms[0];
+  const nextStart = forms.length > 1 ? forms[1].start : p.close;
+  const gap = text.slice(first.end, nextStart) || ' ';
+  const moved = text.slice(first.start, first.end);
+  const region = moved + gap + p.oc;
+  const caret = pos < first.start ? pos
+    : pos < first.end ? p.open + (pos - first.start)
+      : pos < nextStart ? p.open + moved.length + Math.min(gap.length, pos - first.end)
+        : p.open + region.length + (pos - nextStart);
+  return { from: p.open, to: nextStart, text: region, caret };
 }
 
 export function pareditSplice(text, pos) {

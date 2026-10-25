@@ -76,3 +76,19 @@ test('keyboard slurp and barf handle reader-prefixed forms and comments', () => 
   assert.equal(textarea.selectionStart, 14);
   dom.window.close();
 });
+
+test('keyboard backward slurp and barf keep reader-prefixed forms intact', () => {
+  const dom = new JSDOM('<textarea></textarea>');
+  const textarea = dom.window.document.querySelector('textarea');
+  attachStructuralEditor(textarea);
+  const run = (value, cursor, key, expected) => {
+    textarea.value = value;
+    textarea.setSelectionRange(cursor, cursor);
+    textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    assert.equal(textarea.value, expected);
+    assert.equal(textarea.selectionStart, cursor);
+  };
+  run('baz (foo bar)', 9, 'ArrowRight', '(baz foo bar)');
+  run('(baz foo bar)', 9, 'ArrowLeft', 'baz (foo bar)');
+  dom.window.close();
+});

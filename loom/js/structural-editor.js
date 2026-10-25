@@ -1,7 +1,8 @@
 /** Textarea adapter for Foglio's shared structural editing operations. */
 
 import {
-  pareditSlurp, pareditBarf, pareditSplice, pareditWrap, pareditNewline,
+  pareditSlurp, pareditBarf, pareditBackwardSlurp, pareditBackwardBarf,
+  pareditSplice, pareditWrap, pareditNewline,
   safeDeletion,
 } from '../../shared/js/paredit.js';
 
@@ -39,8 +40,8 @@ export function attachStructuralEditor(textarea, { onStatus = () => {} } = {}) {
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && !event.altKey) {
       const operation = {
-        ArrowRight: () => pareditSlurp(source, from),
-        ArrowLeft: () => pareditBarf(source, from),
+        ArrowRight: () => event.shiftKey ? pareditBackwardSlurp(source, from) : pareditSlurp(source, from),
+        ArrowLeft: () => event.shiftKey ? pareditBackwardBarf(source, from) : pareditBarf(source, from),
         ArrowUp: () => pareditSplice(source, from),
         ArrowDown: () => pareditWrap(source, from, to),
       }[event.key];
