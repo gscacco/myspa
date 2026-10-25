@@ -38,7 +38,7 @@ This document defines the initial Loom scope. `LOOM-*` identifiers are stable. A
 
 | ID | Requirement | Acceptance criterion |
 | --- | --- | --- |
-| LOOM-021 | Reuse Foglio's actual structural editing operations for ClojureScript snippets, with necessary corrections and regression coverage. | Pairing, protected deletion, slurp, barf, splice, wrap, and indentation work on nested forms and respect strings, escapes, and line comments. |
+| LOOM-021 | Reuse Foglio's actual structural editing operations for ClojureScript snippets, with necessary corrections and regression coverage. | Pairing, protected deletion, slurp, barf, splice, wrap, and indentation work on nested forms and respect strings, escapes, line comments, and reader-prefixed forms including `#(...)`, `#{...}`, `#"..."`, quote, deref, and metadata. Barf retains intervening comments and whitespace and keeps the cursor with the moved form. |
 | LOOM-022 | Keep snippet editing scoped to its source fence and preserve navigation context. | Applying or cancelling a snippet edit preserves surrounding Markdown, item ID, open cards, focus, and scroll position. |
 | LOOM-023 | Present a narrow search sidebar, a spacious stacked-card workspace, and clear search, source, error, and editing states across desktop and narrow viewports. | The sidebar is limited to search, grouped results, and New Item; item boundaries, focus, active state, and errors remain legible without a dashboard or unrequested panels. |
 | LOOM-024 | Support keyboard access and meaningful feedback. | Search, open, close, back, forward, formatting actions, edit, save, import, and source navigation are keyboard operable with visible focus and programmatic labels/status. Bold and italic expose Ctrl/Cmd+B and Ctrl/Cmd+I shortcuts. |

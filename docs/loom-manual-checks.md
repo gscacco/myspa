@@ -27,6 +27,7 @@
 - Confirm missing sections, transclusion cycles, and nesting limits fail locally without breaking unrelated content.
 - Open two snippet editors in one item, change the second, and verify save and leave protection still detect the draft.
 - Exercise Paredit operations with nested delimiters, strings, comments, and partial forms; verify surrounding Markdown is unchanged.
+- Slurp and barf reader-prefixed forms such as `#(inc %)`, `#{:x}`, `#"a b"`, `'x`, and `@x`; confirm each moves as one form. Barf a form after a comment and confirm the comment is retained and the cursor stays on the moved form.
 - Type a comment, string, keyword, number, built-in call, and special form in a snippet editor; confirm the classic Courier New monospace glyphs are used, colors and the custom caret update while typing, no native caret is visible, and text and caret stay aligned after wrapping and scrolling. Select text or move focus away and confirm the custom caret disappears; return focus and confirm it reappears at the saved position.
 - Place the cursor after each of `)`, `]`, `}`, and the closing `"`, press Backspace, and confirm the source is unchanged while the cursor moves left. Repeat before each opening delimiter with Delete and confirm the cursor moves right.
 - Render `clojurescript` and legacy `cljs loom` blocks; confirm they execute automatically, item editing shows their source, `clojure` remains display-only and highlighted, and `cljs` remains an ordinary example.
