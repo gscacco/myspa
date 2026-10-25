@@ -6,6 +6,8 @@ import { applySnippetEdit, findSnippetSpan } from './snippet-source.js';
 import { attachStructuralEditor } from './structural-editor.js';
 import { createEDNFileIO } from './files.js';
 import { readLocalKnowledgeBase, writeLocalKnowledgeBase } from './local-store.js';
+import { searchItems } from './item-search.js';
+import { attachLinkCompletion } from './link-completion.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
 const ACTION_ICONS = {
@@ -194,6 +196,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
       field.append(input); form.append(field);
     }
     form.addEventListener('submit', event => { event.preventDefault(); applyItem(id); });
+    attachLinkCompletion(form.elements.body, { getItems: () => base.items });
     content.replaceChildren(form);
     setActions(card, id, true);
     form.querySelector('[name="title"]').focus();
@@ -405,20 +408,6 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     sync();
   }
 
-  function searchExcerpt(item, query) {
-    const text = item.body
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-      .replace(/[#>*_`~-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const index = text.toLocaleLowerCase().indexOf(query);
-    if (index < 0) return '';
-    const start = Math.max(0, index - 35), end = Math.min(text.length, index + 85);
-    return `${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
-  }
-
   function searchResult(item, detail) {
     const button = document.createElement('button');
     button.type = 'button'; button.className = 'search-result'; button.dataset.itemId = item.id;
@@ -441,22 +430,10 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   function refreshSearch() {
     const query = search.value.trim().toLocaleLowerCase(); results.replaceChildren();
     if (!query) return;
-    const primary = [], content = [], details = new Map();
-    for (const item of base.items) {
-      const matchingTags = item.tags.map(tag => tag.name).filter(name => name.toLocaleLowerCase().includes(query));
-      const titleMatch = item.title.toLocaleLowerCase().includes(query);
-      const bodyMatch = item.body.toLocaleLowerCase().includes(query);
-      if (titleMatch || matchingTags.length) {
-        if (matchingTags.length) details.set(item.id, matchingTags.map(name => `:${name}`).join(' '));
-        primary.push(item);
-      } else if (bodyMatch) {
-        details.set(item.id, searchExcerpt(item, query));
-        content.push(item);
-      }
-    }
-    if (!primary.length && !content.length) { results.textContent = 'No matching items'; return; }
-    appendSearchGroup('titles-tags', 'Titles and tags', primary.slice(0, 30), details);
-    appendSearchGroup('content', 'Content', content.slice(0, 30), details);
+    const found = searchItems(base.items, query);
+    if (!found.total) { results.textContent = 'No matching items'; return; }
+    appendSearchGroup('titles-tags', 'Titles and tags', found.primary.slice(0, 30), found.details);
+    appendSearchGroup('content', 'Content', found.content.slice(0, 30), found.details);
   }
 
   async function exportEDN() {

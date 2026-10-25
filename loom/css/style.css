@@ -49,10 +49,13 @@ button:disabled{opacity:.45;cursor:default}
 .item-content a{color:#2854a8;text-decoration-thickness:1px;text-underline-offset:2px}
 .item-content pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:.8rem;background:#f5f3ee;border-radius:7px;overflow-x:auto;font:.9rem/1.5 ui-monospace,monospace}
 .item-content code{font:.9em ui-monospace,monospace}
-.item-form{display:grid;gap:.75rem}
+.item-form{position:relative;display:grid;gap:.75rem}
 .item-form label{display:grid;gap:.2rem;font-weight:600}
 .item-form input,.item-form textarea{border:1px solid #bdb3a8;border-radius:7px;padding:.5rem;font-weight:400}
 .item-form textarea{min-height:14rem;resize:vertical;font-family:ui-monospace,monospace}
+.link-completion{position:absolute;z-index:20;width:min(26rem,calc(100vw - 3rem));max-height:18rem;overflow-y:auto;padding:.45rem;background:#fff;border:1px solid #b7c1d8;border-radius:9px;box-shadow:0 10px 30px #27344d2e}
+.link-completion-empty{margin:.35rem .5rem;color:#746b61;font-size:.85rem}
+.link-completion-option.active{background:#e8edf8}
 .transclusion{border-left:3px solid #91a4d2;background:#f8f9fd;padding:.65rem 1rem;margin:.8rem 0}
 .transclusion>header{display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:#5e6a88}
 .transclusion>header span{margin-right:auto}
