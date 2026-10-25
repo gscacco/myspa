@@ -16,3 +16,8 @@ test('Loom browser source modules only use resolvable import specifiers', async 
   }
   assert.deepEqual(bare, [], `Browser-native modules cannot resolve bare specifiers:\n${bare.join('\n')}`);
 });
+
+test('Loom source declares an inline favicon', async () => {
+  const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
+  assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/i);
+});
