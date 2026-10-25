@@ -51,15 +51,24 @@ export function attachStructuralEditor(textarea, { onStatus = () => {} } = {}) {
     if (event.key === 'Tab') { event.preventDefault(); replace({ from, to, text: '  ', caret: from + 2 }); return; }
     if (event.key === 'Backspace' || event.key === 'Delete') {
       const empty = from === to;
-      if (empty && event.key === 'Backspace' && from > 0 && PAIRS[source[from - 1]] === source[from]) {
+      if (empty && event.key === 'Backspace' && from > 0 && Object.hasOwn(PAIRS, source[from - 1])
+        && PAIRS[source[from - 1]] === source[from]) {
         event.preventDefault(); replace({ from: from - 1, to: from + 1, text: '', caret: from - 1 }); return;
       }
-      if (empty && event.key === 'Delete' && PAIRS[source[from]] === source[from + 1]) {
+      if (empty && event.key === 'Delete' && Object.hasOwn(PAIRS, source[from])
+        && PAIRS[source[from]] === source[from + 1]) {
         event.preventDefault(); replace({ from, to: from + 2, text: '', caret: from }); return;
       }
       const start = empty ? from - (event.key === 'Backspace' ? 1 : 0) : from;
       const end = empty ? from + (event.key === 'Delete' ? 1 : 0) : to;
-      if (!safeDeletion(source, start, end)) { event.preventDefault(); onStatus('Paredit protected a structural delimiter'); }
+      if (!safeDeletion(source, start, end)) {
+        event.preventDefault();
+        if (empty) {
+          const position = event.key === 'Backspace' ? Math.max(0, from - 1) : Math.min(source.length, from + 1);
+          textarea.setSelectionRange(position, position);
+        }
+        onStatus('Paredit protected a structural delimiter');
+      }
       return;
     }
     if (event.key.length !== 1) return;

@@ -9,6 +9,7 @@ import { readLocalKnowledgeBase, writeLocalKnowledgeBase } from './local-store.j
 import { searchItems } from './item-search.js';
 import { attachLinkCompletion } from './link-completion.js';
 import { MARKDOWN_FORMATS, applyMarkdownFormat } from './markdown-toolbar.js';
+import { highlightClojure } from './syntax-highlight.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
 const APPLY_ICON = 'M5 12l4 4L19 6';
@@ -286,6 +287,26 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     closeSnippetEditor(node);
   }
 
+  function highlightedEditor(textarea) {
+    const field = document.createElement('div'); field.className = 'snippet-code-field';
+    const highlight = document.createElement('pre'); highlight.className = 'snippet-highlight';
+    highlight.setAttribute('aria-hidden', 'true');
+    const code = document.createElement('code'); highlight.append(code);
+    const syncScroll = () => {
+      highlight.scrollTop = textarea.scrollTop; highlight.scrollLeft = textarea.scrollLeft;
+    };
+    const sync = () => {
+      code.replaceChildren(highlightClojure(document, textarea.value + (textarea.value.endsWith('\n') ? ' ' : '')));
+      syncScroll();
+    };
+    textarea.spellcheck = false;
+    textarea.addEventListener('input', sync);
+    textarea.addEventListener('scroll', syncScroll);
+    field.append(highlight, textarea);
+    sync();
+    return field;
+  }
+
   function editSnippet(id, { ordinal, node }) {
     if (snippetEditors.has(node)) { snippetEditors.get(node).textarea.focus(); return; }
     const originalBody = itemFor(id).body;
@@ -295,7 +316,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const label = document.createElement('label'); label.textContent = 'ClojureScript source';
     const textarea = document.createElement('textarea'); textarea.value = span.source;
     textarea.dataset.original = span.source;
-    label.append(textarea);
+    label.append(highlightedEditor(textarea));
     const feedback = document.createElement('p'); feedback.setAttribute('role', 'alert');
     const itemTitle = itemFor(id).title;
     const apply = actionButton('apply-snippet', 'Apply code', itemTitle);

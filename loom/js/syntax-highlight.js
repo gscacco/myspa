@@ -1,4 +1,4 @@
-/** DOM-safe syntax highlighting for display-only Clojure code fences. */
+/** DOM-safe syntax highlighting for Clojure and ClojureScript source. */
 
 const TOKEN_RE = /(;[^\n]*)|("(?:[^"\\]|\\.)*"?)|(::?[^\s()\[\]{}",;]*)|([+-]?\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)|([^\s()\[\]{}",;]+)|([\s\S])/g;
 const KEYWORDS = new Set([

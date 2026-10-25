@@ -35,6 +35,16 @@ test('structural snippet editing changes only its code and retains other cards',
   card.querySelector('[data-action="edit-snippet"]').click();
   const textarea = card.querySelector('.snippet-editor textarea');
   assert.equal(textarea.value, '(a b) c');
+  const highlight = card.querySelector('.snippet-highlight');
+  assert.ok(highlight);
+  assert.equal(highlight.getAttribute('aria-hidden'), 'true');
+  assert.equal(highlight.textContent, '(a b) c');
+  textarea.value = '(def greeting "hello")';
+  textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  assert.equal(highlight.textContent, '(def greeting "hello")');
+  assert.equal(highlight.querySelector('.k')?.textContent, 'def');
+  assert.equal(highlight.querySelector('.s')?.textContent, '"hello"');
+  textarea.value = '(a b) c';
   textarea.setSelectionRange(4, 4);
   textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', ctrlKey: true, bubbles: true }));
   assert.equal(textarea.value, '(a b c)');

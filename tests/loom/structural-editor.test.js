@@ -34,3 +34,31 @@ test('editor protects isolated delimiter deletion and handles paired removal', (
   assert.equal(textarea.value, '');
   dom.window.close();
 });
+
+test('deletion moves across structural delimiters without removing them', () => {
+  const dom = new JSDOM('<textarea></textarea>');
+  const textarea = dom.window.document.querySelector('textarea');
+  attachStructuralEditor(textarea);
+  const source = '(a [b] {c} "d")';
+  const press = (key, position) => {
+    textarea.value = source; textarea.setSelectionRange(position, position);
+    const event = new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    textarea.dispatchEvent(event);
+    return event;
+  };
+  for (let index = 0; index < source.length; index++) {
+    if (')]}'.includes(source[index]) || (source[index] === '"' && index > source.indexOf('"'))) {
+      const event = press('Backspace', index + 1);
+      assert.equal(event.defaultPrevented, true);
+      assert.equal(textarea.value, source);
+      assert.equal(textarea.selectionStart, index);
+    }
+    if ('([{'.includes(source[index]) || (source[index] === '"' && index === source.indexOf('"'))) {
+      const event = press('Delete', index);
+      assert.equal(event.defaultPrevented, true);
+      assert.equal(textarea.value, source);
+      assert.equal(textarea.selectionStart, index + 1);
+    }
+  }
+  dom.window.close();
+});
