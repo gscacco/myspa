@@ -2,6 +2,8 @@
 
 import { EDNKeyword, writeEDN } from '../../shared/js/edn-codec.js';
 import { lexMarkdown } from './markdown.js';
+import { isClojureLanguage, isExecutableLanguage } from './code-blocks.js';
+import { highlightClojure } from './syntax-highlight.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ELEMENTS = new Set('p span div section article aside h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code em strong b i small br hr table thead tbody tr th td a'.split(' '));
@@ -159,7 +161,7 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
       case 'paragraph': case 'text':
         node = ctx.document.createElement('p'); node.append(inline(token.tokens, ctx)); break;
       case 'code': {
-        if (token.lang === 'cljs loom' && !ctx.transcluded) {
+        if (isExecutableLanguage(token.lang) && !ctx.transcluded) {
           node = ctx.document.createElement('div'); node.className = 'loom-snippet';
           const run = ctx.document.createElement('button'); run.type = 'button'; run.textContent = 'Run trusted code'; run.dataset.action = 'run-snippet';
           const ordinal = ctx.snippetCounter ? ctx.snippetCounter.value++ : 0;
@@ -172,7 +174,9 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
           node.append(run, edit, code, output);
         } else {
           node = ctx.document.createElement('pre'); const code = ctx.document.createElement('code');
-          code.textContent = token.text; node.append(code);
+          if (isClojureLanguage(token.lang)) code.append(highlightClojure(ctx.document, token.text));
+          else code.textContent = token.text;
+          node.append(code);
         }
         break;
       }

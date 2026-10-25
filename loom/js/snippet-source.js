@@ -1,6 +1,7 @@
 /** Byte-preserving locations for executable fenced code inside Markdown source. */
 
 import { lexMarkdown } from './markdown.js';
+import { EXECUTABLE_FENCE_OPENING, isExecutableLanguage } from './code-blocks.js';
 
 export function findSnippetSpan(source, ordinal) {
   if (!Number.isInteger(ordinal) || ordinal < 0) return null;
@@ -15,10 +16,10 @@ export function findSnippetSpan(source, ordinal) {
   };
   let offset = 0, seen = 0;
   for (const token of tokens) {
-    if (token.type === 'code' && token.lang === 'cljs loom') {
+    if (token.type === 'code' && isExecutableLanguage(token.lang)) {
       if (seen++ === ordinal) {
         const raw = token.raw;
-        const opening = /^ {0,3}(`{3,}|~{3,})[ \t]*cljs loom[ \t]*\r?\n/.exec(raw);
+        const opening = EXECUTABLE_FENCE_OPENING.exec(raw);
         if (!opening) return null;
         const closing = new RegExp(`\\n {0,3}${opening[1][0]}{${opening[1].length},}[ \\t]*(?:\\n)?$`).exec(raw);
         if (!closing) return null;

@@ -49,6 +49,11 @@ button:disabled{opacity:.45;cursor:default}
 .item-content a{color:#2854a8;text-decoration-thickness:1px;text-underline-offset:2px}
 .item-content pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:.8rem;background:#f5f3ee;border-radius:7px;overflow-x:auto;font:.9rem/1.5 ui-monospace,monospace}
 .item-content code{font:.9em ui-monospace,monospace}
+.item-content code .c{color:#7f887f;font-style:italic}
+.item-content code .s{color:#2f7b47}
+.item-content code .n{color:#9b4f16}
+.item-content code .k{color:#8d2f87;font-weight:600}
+.item-content code .b{color:#166b7c;font-weight:600}
 .item-form{position:relative;display:grid;gap:.75rem}
 .item-form label{display:grid;gap:.2rem;font-weight:600}
 .item-form input,.item-form textarea{border:1px solid #bdb3a8;border-radius:7px;padding:.5rem;font-weight:400}
