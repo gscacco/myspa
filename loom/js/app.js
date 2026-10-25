@@ -1,15 +1,21 @@
 import { keyword } from '../../shared/js/edn-codec.js';
-import { addItem, emptyKnowledgeBase, updateItem, validateKnowledgeBase } from './model.js';
+import { addItem, deleteItem, emptyKnowledgeBase, parseKnowledgeBase, updateItem, validateKnowledgeBase, writeKnowledgeBase } from './model.js';
 import { renderMarkdown, renderResult, sectionSourceOffset } from './render.js';
 import { createSnippetRuntime } from './runtime.js';
 import { applySnippetEdit, findSnippetSpan } from './snippet-source.js';
 import { attachStructuralEditor } from './structural-editor.js';
+import { createEDNFileIO } from './files.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
 
-export function createLoomApp({ document, window, base: initial = emptyKnowledgeBase() }) {
+export function createLoomApp({ document, window, base: initial = emptyKnowledgeBase(), saveFile, chooseFile, confirmReplace, confirmDelete } ) {
   let base = validateKnowledgeBase(initial);
   let dirty = false;
+  const fileIO = createEDNFileIO({ window, document });
+  saveFile ||= fileIO.save;
+  chooseFile ||= fileIO.choose;
+  confirmReplace ||= message => window.confirm(message);
+  confirmDelete ||= message => window.confirm(message);
   const history = [snapshot(base)];
   let position = 0;
   const cards = new Map();
@@ -26,6 +32,18 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   function report(message = '') { status.textContent = message || `${base.items.length} items${dirty ? ' · Unsaved changes' : ''}`; }
   function itemFor(id) { return base.items.find(item => item.id === id); }
+  function hasDraft() {
+    for (const [id, card] of cards) {
+      const item = itemFor(id);
+      const form = card.querySelector('.item-form');
+      if (form && (form.elements.title.value !== item.title || form.elements.body.value !== item.body
+        || form.elements.tags.value.trim() !== item.tags.map(tag => tag.name).join(' '))) return true;
+      const code = card.querySelector('.snippet-editor textarea');
+      if (code && code.value !== code.dataset.original) return true;
+    }
+    return false;
+  }
+  function isDirty() { return dirty || hasDraft(); }
 
   function runtime() {
     if (!snippetRuntime) {
@@ -151,6 +169,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const editor = document.createElement('div'); editor.className = 'snippet-editor';
     const label = document.createElement('label'); label.textContent = 'ClojureScript source';
     const textarea = document.createElement('textarea'); textarea.value = span.source;
+    textarea.dataset.original = span.source;
     label.append(textarea);
     const feedback = document.createElement('p'); feedback.setAttribute('role', 'alert');
     const apply = document.createElement('button'); apply.type = 'button'; apply.dataset.action = 'apply-snippet'; apply.textContent = 'Apply code';
@@ -184,12 +203,14 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const heading = document.createElement('h2');
     const edit = document.createElement('button'); edit.type = 'button'; edit.dataset.action = 'edit'; edit.textContent = 'Edit';
     const close = document.createElement('button'); close.type = 'button'; close.dataset.action = 'close'; close.textContent = 'Close';
-    head.append(heading, edit, close);
+    const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.action = 'delete'; remove.textContent = 'Delete';
+    head.append(heading, edit, close, remove);
     const content = document.createElement('div'); content.className = 'item-content';
     card.append(head, content);
     card.addEventListener('click', event => {
       const action = event.target.closest('button')?.dataset.action;
       if (action === 'close') closeItem(id);
+      else if (action === 'delete') deleteKnowledgeItem(id);
       else if (action === 'edit') editItem(id);
       else if (action === 'apply') applyItem(id);
       else if (action === 'cancel') cancelEdit(id);
@@ -235,8 +256,22 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   function focusItem(id) { return openItem(id); }
   function closeItem(id) {
     if (!base.workspace['open-ids'].includes(id)) return;
+    const restoreFocus = cards.get(id)?.contains(document.activeElement);
     const openIds = base.workspace['open-ids'].filter(openId => openId !== id);
     navigate({ 'open-ids': openIds, 'active-id': base.workspace['active-id'] === id ? openIds.at(-1) ?? null : base.workspace['active-id'] });
+    if (restoreFocus) (cards.get(base.workspace['active-id']) || search).focus();
+  }
+  function deleteKnowledgeItem(id) {
+    const item = itemFor(id);
+    if (!item || !confirmDelete(`Delete "${item.title}" and its content?`)) return false;
+    base = deleteItem(base, id); dirty = true;
+    history.splice(position + 1); history.push(snapshot(base)); position++;
+    sync();
+    for (const [cardId, reads] of dependencies) {
+      if (reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
+    }
+    notifyItemChange(item, null); refreshSearch(); report();
+    return true;
   }
   function travel(delta) {
     if (position + delta < 0 || position + delta >= history.length) return;
@@ -257,6 +292,28 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     }
   }
 
+  async function exportEDN() {
+    if (hasDraft()) { report('Apply or cancel open drafts before saving'); return null; }
+    const source = writeKnowledgeBase(base);
+    try {
+      if (!await saveFile(source, 'loom.edn')) return null;
+      dirty = false; report('Knowledge base saved'); return source;
+    } catch (error) { report(`Save failed: ${error.message}`); throw error; }
+  }
+
+  function importEDN(source) {
+    let imported;
+    try { imported = parseKnowledgeBase(source); }
+    catch (error) { report(`Import failed: ${error.message}`); return false; }
+    if (isDirty() && !confirmReplace('Replace the current knowledge base and discard unsaved changes?')) return false;
+    for (const id of cards.keys()) disposeSnippets(id);
+    cards.clear(); dependencies.clear(); editingPreviews.clear(); workspace.replaceChildren();
+    base = imported; dirty = false;
+    history.splice(0, history.length, snapshot(base)); position = 0;
+    sync(); refreshSearch(); report('Knowledge base imported');
+    return true;
+  }
+
   document.querySelector('#new-item').addEventListener('click', () => {
     base = addItem(base, { title: 'Untitled item' }); dirty = true;
     notifyItemChange(null, base.items.at(-1));
@@ -265,7 +322,18 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   backButton.addEventListener('click', () => travel(-1));
   forwardButton.addEventListener('click', () => travel(1));
   search.addEventListener('input', refreshSearch);
-  window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+  search.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      const first = results.querySelector('button');
+      if (first) { event.preventDefault(); first.click(); }
+    } else if (event.key === 'Escape') { search.value = ''; refreshSearch(); }
+  });
+  document.querySelector('#save-edn').addEventListener('click', () => { exportEDN().catch(() => {}); });
+  document.querySelector('#import-edn').addEventListener('click', async () => {
+    try { const file = await chooseFile(); if (file) importEDN(await file.text()); }
+    catch (error) { report(`Import failed: ${error.message}`); }
+  });
+  window.addEventListener('beforeunload', event => { if (isDirty()) { event.preventDefault(); event.returnValue = ''; } });
   sync(); document.querySelector('#loom-app').dataset.ready = 'true';
-  return { getBase: () => base, openItem, focusItem, closeItem, back: () => travel(-1), forward: () => travel(1) };
+  return { getBase: () => base, isDirty, exportEDN, importEDN, openItem, focusItem, closeItem, deleteItem: deleteKnowledgeItem, back: () => travel(-1), forward: () => travel(1) };
 }
