@@ -34,4 +34,4 @@
 ## Layout
 
 - Inspect desktop and narrow viewports for readable typography, card boundaries, overflow, focus visibility, and non-overlapping controls.
-- Confirm there is no mandatory folder hierarchy, graph view, dashboard, or sidebar.
+- Confirm the left sidebar contains only New Item, search, and grouped results, with no folders, graph view, dashboard, or unrequested panel.

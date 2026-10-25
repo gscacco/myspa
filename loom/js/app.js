@@ -7,6 +7,13 @@ import { attachStructuralEditor } from './structural-editor.js';
 import { createEDNFileIO } from './files.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
+const ACTION_ICONS = {
+  apply: 'M5 12l4 4L19 6',
+  cancel: 'M9 7L4 12l5 5M4 12h10a6 6 0 010 12',
+  close: 'M6 6l12 12M18 6L6 18',
+  delete: 'M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13',
+  edit: 'M4 20h4L18 10l-4-4L4 16v4zM13 7l4 4',
+};
 
 export function createLoomApp({ document, window, base: initial = emptyKnowledgeBase(), saveFile, chooseFile, confirmReplace, confirmDelete } ) {
   let base = validateKnowledgeBase(initial);
@@ -29,12 +36,18 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   const status = document.querySelector('#loom-status');
   const backButton = document.querySelector('#history-back');
   const forwardButton = document.querySelector('#history-forward');
+  let openOrder = [...base.workspace['open-ids']];
+  let uiActiveId = base.workspace['active-id'];
+  let draftSequence = 0;
+  let newDraft = null;
 
-  function report(message = '') { status.textContent = message || `${base.items.length} items${dirty ? ' · Unsaved changes' : ''}`; }
-  function itemFor(id) { return base.items.find(item => item.id === id); }
+  function report(message = '') { status.textContent = message || `${base.items.length} items${isDirty() ? ' · Unsaved changes' : ''}`; }
+  function isDraft(id) { return newDraft?.id === id; }
+  function itemFor(id) { return isDraft(id) ? newDraft.item : base.items.find(item => item.id === id); }
   function hasDraft() {
     for (const [id, card] of cards) {
       const item = itemFor(id);
+      if (!item) continue;
       const form = card.querySelector('.item-form');
       if (form && (form.elements.title.value !== item.title || form.elements.body.value !== item.body
         || form.elements.tags.value.trim() !== item.tags.map(tag => tag.name).join(' '))) return true;
@@ -44,7 +57,37 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     }
     return false;
   }
-  function isDirty() { return dirty || hasDraft(); }
+  function isDirty() { return dirty || newDraft !== null || hasDraft(); }
+
+  function icon(name) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
+    const path = document.createElementNS(ns, 'path'); path.setAttribute('d', ACTION_ICONS[name]); svg.append(path);
+    return svg;
+  }
+
+  function actionButton(action, label, itemTitle, { danger = false } = {}) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.dataset.action = action; button.className = 'icon-button';
+    if (danger) button.classList.add('danger');
+    button.title = label; button.setAttribute('aria-label', `${label}: ${itemTitle}`);
+    button.append(icon(action));
+    return button;
+  }
+
+  function setActions(card, id, editing) {
+    const item = itemFor(id), actions = card.querySelector('.card-actions');
+    if (!item || !actions) return;
+    actions.replaceChildren();
+    const definitions = editing
+      ? [['apply', 'Apply'], ['cancel', 'Cancel Changes'], ['delete', 'Delete']]
+      : [['edit', 'Edit'], ['close', 'Close'], ['delete', 'Delete']];
+    for (const [action, label] of definitions) {
+      actions.append(actionButton(action, label, item.title, { danger: action === 'delete' }));
+    }
+  }
 
   function runtime() {
     if (!snippetRuntime) {
@@ -91,7 +134,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     if (!card) return;
     const item = itemFor(id);
     card.querySelector('h2').textContent = item.title;
-    card.querySelector('[data-action="close"]').setAttribute('aria-label', `Close ${item.title}`);
+    setActions(card, id, false);
     const content = card.querySelector('.item-content');
     if (preserveSnippets && editingPreviews.has(id)) content.replaceChildren(editingPreviews.get(id));
     editingPreviews.delete(id);
@@ -137,17 +180,20 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
       const input = document.createElement(tag); input.name = name; input.value = value;
       field.append(input); form.append(field);
     }
-    for (const [action, label] of [['apply', 'Apply'], ['cancel', 'Cancel']]) {
-      const button = document.createElement('button'); button.type = 'button';
-      button.dataset.action = action; button.textContent = label; form.append(button);
-    }
+    form.addEventListener('submit', event => { event.preventDefault(); applyItem(id); });
     content.replaceChildren(form);
+    setActions(card, id, true);
     form.querySelector('[name="title"]').focus();
   }
 
   function cancelEdit(id) {
+    if (isDraft(id)) { discardDraft(); return; }
     const preview = editingPreviews.get(id);
-    if (preview) { cards.get(id).querySelector('.item-content').replaceChildren(preview); editingPreviews.delete(id); }
+    if (preview) {
+      const card = cards.get(id);
+      card.querySelector('.item-content').replaceChildren(preview); editingPreviews.delete(id);
+      setActions(card, id, false);
+    }
     else showItem(id);
   }
 
@@ -193,8 +239,48 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const form = cards.get(id).querySelector('.item-form');
     try {
       const tags = form.elements.tags.value.trim().split(/\s+/).filter(Boolean).map(name => keyword(name.replace(/^:/, '')));
-      commitItemChanges(id, { title: form.elements.title.value, tags, body: form.elements.body.value });
+      const changes = { title: form.elements.title.value, tags, body: form.elements.body.value };
+      if (isDraft(id)) applyDraft(changes);
+      else commitItemChanges(id, changes);
     } catch (error) { report(error.message); }
+  }
+
+  function applyDraft(changes) {
+    const draftId = newDraft.id;
+    base = addItem(base, changes);
+    const created = base.items.at(-1);
+    newDraft = null;
+    openOrder = openOrder.map(id => id === draftId ? created.id : id);
+    uiActiveId = created.id; dirty = true;
+    persistWorkspace();
+    history.splice(position + 1); history.push(snapshot(base)); position++;
+    sync(); refreshSearch(); notifyItemChange(null, created); report();
+    cards.get(created.id)?.focus();
+  }
+
+  function discardDraft() {
+    if (!newDraft) return;
+    const draftId = newDraft.id;
+    newDraft = null;
+    openOrder = openOrder.filter(id => id !== draftId);
+    if (uiActiveId === draftId) uiActiveId = openOrder[0] ?? null;
+    sync(); refreshSearch(); report();
+    (cards.get(uiActiveId) || document.querySelector('#new-item')).focus();
+  }
+
+  function startDraft() {
+    if (newDraft) {
+      openItem(newDraft.id);
+      cards.get(newDraft.id)?.querySelector('[name="title"]')?.focus();
+      report('Apply or cancel the open draft before creating another item');
+      return;
+    }
+    const now = new Date().toISOString();
+    const id = `draft-${++draftSequence}`;
+    newDraft = { id, item: { id, title: 'Untitled item', body: '', tags: [], 'created-at': now, 'updated-at': now } };
+    openOrder = [id, ...openOrder];
+    uiActiveId = id;
+    sync(); editItem(id);
   }
 
   function createCard(id) {
@@ -202,10 +288,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     card.className = 'item-card'; card.dataset.itemId = id; card.tabIndex = -1;
     const head = document.createElement('header');
     const heading = document.createElement('h2');
-    const edit = document.createElement('button'); edit.type = 'button'; edit.dataset.action = 'edit'; edit.textContent = 'Edit';
-    const close = document.createElement('button'); close.type = 'button'; close.dataset.action = 'close'; close.textContent = 'Close';
-    const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.action = 'delete'; remove.textContent = 'Delete';
-    head.append(heading, edit, close, remove);
+    const actions = document.createElement('div'); actions.className = 'card-actions';
+    actions.setAttribute('role', 'group'); actions.setAttribute('aria-label', 'Item actions');
+    head.append(heading, actions);
     const content = document.createElement('div'); content.className = 'item-content';
     card.append(head, content);
     card.addEventListener('click', event => {
@@ -222,13 +307,13 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   }
 
   function sync() {
-    const ids = base.workspace['open-ids'];
+    const ids = openOrder;
     for (const [id, card] of cards) if (!ids.includes(id)) { card.remove(); cards.delete(id); dependencies.delete(id); editingPreviews.delete(id); disposeSnippets(id); }
     workspace.querySelector('.workspace-empty')?.remove();
     for (const [index, id] of ids.entries()) {
       const card = cards.get(id) || createCard(id);
       if (workspace.children[index] !== card) workspace.insertBefore(card, workspace.children[index] || null);
-      card.classList.toggle('active', id === base.workspace['active-id']);
+      card.classList.toggle('active', id === uiActiveId);
     }
     if (!ids.length) {
       const empty = document.createElement('p'); empty.className = 'workspace-empty';
@@ -240,35 +325,54 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     report();
   }
 
-  function navigate(next) {
-    if (JSON.stringify(base.workspace) === JSON.stringify(next)) return;
-    base = { ...base, workspace: next };
-    history.splice(position + 1); history.push(snapshot(base)); position++;
-    dirty = true; sync();
+  function persistWorkspace() {
+    const openIds = openOrder.filter(id => !isDraft(id) && itemFor(id));
+    const activeId = openIds.includes(uiActiveId) ? uiActiveId : openIds[0] ?? null;
+    base = { ...base, workspace: { 'open-ids': openIds, 'active-id': activeId } };
+  }
+
+  function commitWorkspaceChange() {
+    const before = JSON.stringify(base.workspace);
+    persistWorkspace();
+    if (before !== JSON.stringify(base.workspace)) {
+      history.splice(position + 1); history.push(snapshot(base)); position++;
+      dirty = true;
+    }
+    sync();
   }
 
   function openItem(id) {
     if (!itemFor(id)) { report(`Missing item: ${id}`); return false; }
-    const openIds = [id, ...base.workspace['open-ids'].filter(openId => openId !== id)];
-    navigate({ 'open-ids': openIds, 'active-id': id });
+    openOrder = [id, ...openOrder.filter(openId => openId !== id)];
+    uiActiveId = id;
+    commitWorkspaceChange();
     return true;
   }
   function focusItem(id) { return openItem(id); }
   function closeItem(id) {
-    if (!base.workspace['open-ids'].includes(id)) return;
+    if (!openOrder.includes(id)) return;
     const restoreFocus = cards.get(id)?.contains(document.activeElement);
-    const openIds = base.workspace['open-ids'].filter(openId => openId !== id);
-    navigate({ 'open-ids': openIds, 'active-id': base.workspace['active-id'] === id ? openIds[0] ?? null : base.workspace['active-id'] });
-    if (restoreFocus) (cards.get(base.workspace['active-id']) || search).focus();
+    openOrder = openOrder.filter(openId => openId !== id);
+    if (uiActiveId === id) uiActiveId = openOrder[0] ?? null;
+    commitWorkspaceChange();
+    if (restoreFocus) (cards.get(uiActiveId) || search).focus();
   }
   function deleteKnowledgeItem(id) {
+    if (isDraft(id)) {
+      if (!confirmDelete('Discard this unsaved item?')) return false;
+      discardDraft();
+      return true;
+    }
     const item = itemFor(id);
     if (!item || !confirmDelete(`Delete "${item.title}" and its content?`)) return false;
     const restoreFocus = cards.get(id)?.contains(document.activeElement);
-    base = deleteItem(base, id); dirty = true;
+    base = deleteItem(base, id); openOrder = openOrder.filter(openId => openId !== id);
+    if (uiActiveId === id) uiActiveId = openOrder[0] ?? null;
+    dirty = true;
+    persistWorkspace();
     history.splice(position + 1); history.push(snapshot(base)); position++;
     sync();
-    if (restoreFocus) (cards.get(base.workspace['active-id']) || search).focus();
+    if (restoreFocus) (cards.get(uiActiveId) || search).focus();
     for (const [cardId, reads] of dependencies) {
       if (reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
     }
@@ -279,6 +383,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     if (position + delta < 0 || position + delta >= history.length) return;
     position += delta;
     const state = history[position], openIds = state['open-ids'].filter(id => itemFor(id));
+    const drafts = openOrder.filter(isDraft);
+    openOrder = [...drafts, ...openIds];
+    uiActiveId = openIds.includes(state['active-id']) ? state['active-id'] : drafts[0] ?? openIds[0] ?? null;
     base = { ...base, workspace: { 'open-ids': openIds, 'active-id': openIds.includes(state['active-id']) ? state['active-id'] : openIds[0] ?? null } };
     sync();
   }
@@ -338,7 +445,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   }
 
   async function exportEDN() {
-    if (hasDraft()) { report('Apply or cancel open drafts before saving'); return null; }
+    if (newDraft || hasDraft()) { report('Apply or cancel open drafts before saving'); return null; }
     const source = writeKnowledgeBase(base);
     try {
       if (!await saveFile(source, 'loom.edn')) return null;
@@ -353,17 +460,14 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     if (isDirty() && !confirmReplace('Replace the current knowledge base and discard unsaved changes?')) return false;
     for (const id of cards.keys()) disposeSnippets(id);
     cards.clear(); dependencies.clear(); editingPreviews.clear(); workspace.replaceChildren();
-    base = imported; dirty = false;
+    newDraft = null; base = imported; dirty = false;
+    openOrder = [...base.workspace['open-ids']]; uiActiveId = base.workspace['active-id'];
     history.splice(0, history.length, snapshot(base)); position = 0;
     sync(); refreshSearch(); report('Knowledge base imported');
     return true;
   }
 
-  document.querySelector('#new-item').addEventListener('click', () => {
-    base = addItem(base, { title: 'Untitled item' }); dirty = true;
-    notifyItemChange(null, base.items.at(-1));
-    const id = base.items.at(-1).id; openItem(id); editItem(id);
-  });
+  document.querySelector('#new-item').addEventListener('click', startDraft);
   backButton.addEventListener('click', () => travel(-1));
   forwardButton.addEventListener('click', () => travel(1));
   search.addEventListener('input', refreshSearch);

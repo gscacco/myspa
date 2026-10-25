@@ -34,9 +34,11 @@ The shipped HTML starts with an empty knowledge base. User data is kept in a sep
 
 ## Workspace and search
 
-The primary surface is a horizontally scrollable set of independently closable item cards. On narrow screens, cards stack in reading order. Opening a link or search result focuses an existing card or adds a card while preserving the others and their edit/scroll state. The workspace has search, new item, and back/forward actions, but no mandatory sidebar, folders, dashboard, or graph.
+The primary surface is a vertical stack of independently closable item cards beside a narrow search sidebar. The most recently opened item is at the top. Opening a link or search result moves an existing card to the top or adds a card while preserving the others and their edit/scroll state. The sidebar contains only the New Item button, the search field, and grouped results. There are no folders, dashboard, or graph views.
 
-Search matches case-folded title, tag name, and body text. It uses a derived in-memory index updated for changed items and limits the displayed result list. Results identify the matching item and are keyboard operable. A navigation history entry records open card IDs, their order, and the active ID for open, close, and focus transitions. Back/forward restore those snapshots; stale IDs from subsequently deleted items are skipped. The current workspace order and active ID are included in EDN export.
+Search updates while the user types and matches case-folded partial title, tag name, and body text. Title/tag matches are grouped before content-only matches, every item appears once, and result metadata shows the matching tag or a content excerpt. Results identify the matching item and are keyboard operable. A navigation history entry records open card IDs, their order, and the active ID for open, close, and focus transitions. Back/forward restore those snapshots; stale IDs from subsequently deleted items are skipped. The current workspace order and active ID are included in EDN export.
+
+Display-mode cards expose Edit, Close, and Delete SVG actions in their upper-right corner. Editing mode replaces them with Apply, Cancel Changes, and Delete. Apply creates or updates exactly one item; Cancel restores the saved version or discards a new draft; Close only removes a card from the workspace. New items remain in memory until Apply and are never saved or placed in EDN as drafts.
 
 ## Markdown links and transclusion
 
