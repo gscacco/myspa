@@ -23,7 +23,10 @@ test('snippet spans identify only exact executable fences and reject stale sourc
 
 test('structural snippet editing changes only its code and retains other cards', async () => {
   const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../../loom/css/style.css', import.meta.url), 'utf8');
   const dom = new JSDOM(html, { url: 'http://localhost/' });
+  const style = dom.window.document.createElement('style'); style.textContent = css;
+  dom.window.document.head.append(style);
   const body = 'Before\n\n~~~cljs loom\n(a b) c\n~~~\n\nAfter';
   let base = addItem(emptyKnowledgeBase(), { title: 'Code', body }, { id: A, now: NOW });
   base = addItem(base, { title: 'Context', body: 'Stay open' }, { id: B, now: NOW });
@@ -39,6 +42,9 @@ test('structural snippet editing changes only its code and retains other cards',
   assert.ok(highlight);
   assert.equal(highlight.getAttribute('aria-hidden'), 'true');
   assert.equal(highlight.textContent, '(a b) c');
+  const field = card.querySelector('.snippet-code-field');
+  assert.match(dom.window.getComputedStyle(field).fontFamily, /JetBrains Mono/);
+  assert.equal(dom.window.getComputedStyle(textarea).paddingTop, dom.window.getComputedStyle(highlight).paddingTop);
   textarea.value = '(def greeting "hello")';
   textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.equal(highlight.textContent, '(def greeting "hello")');
