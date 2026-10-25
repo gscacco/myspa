@@ -7,6 +7,24 @@ import { highlightClojure } from './syntax-highlight.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ELEMENTS = new Set('p span div section article aside h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code em strong b i small br hr table thead tbody tr th td a'.split(' '));
+const SNIPPET_ICONS = {
+  'view-snippet': 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12zM12 9a3 3 0 100 6 3 3 0 000-6z',
+  'edit-snippet': 'M4 20h4L18 10l-4-4L4 16v4zM13 7l4 4',
+};
+
+function snippetButton(ctx, action, label, pressed) {
+  const button = ctx.document.createElement('button');
+  button.type = 'button'; button.className = 'icon-button'; button.dataset.action = action;
+  button.title = label; button.setAttribute('aria-label', label);
+  button.setAttribute('aria-pressed', String(pressed));
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = ctx.document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
+  const path = ctx.document.createElementNS(ns, 'path'); path.setAttribute('d', SNIPPET_ICONS[action]);
+  svg.append(path); button.append(svg);
+  return button;
+}
 
 function errorNode(document, message) {
   const node = document.createElement('span'); node.className = 'render-error';
@@ -164,13 +182,16 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
         if (isExecutableLanguage(token.lang) && !ctx.transcluded) {
           node = ctx.document.createElement('div'); node.className = 'loom-snippet';
           const ordinal = ctx.snippetCounter ? ctx.snippetCounter.value++ : 0;
-          const edit = ctx.document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit code';
-          edit.dataset.action = 'edit-snippet';
+          const actions = ctx.document.createElement('div'); actions.className = 'snippet-actions';
+          const view = snippetButton(ctx, 'view-snippet', 'View result', true);
+          const edit = snippetButton(ctx, 'edit-snippet', 'Edit code', false);
+          actions.append(view, edit);
           const code = ctx.document.createElement('pre'); code.textContent = token.text;
           code.className = 'snippet-source'; code.hidden = true;
           const output = ctx.document.createElement('div'); output.className = 'snippet-output';
           edit.addEventListener('click', () => ctx.onEditSnippet?.({ ordinal, source: token.text, node }));
-          node.append(edit, code, output);
+          view.addEventListener('click', () => ctx.onViewSnippet?.({ ordinal, source: token.text, node }));
+          node.append(actions, code, output);
         } else {
           node = ctx.document.createElement('pre'); const code = ctx.document.createElement('code');
           if (isClojureLanguage(token.lang)) code.append(highlightClojure(ctx.document, token.text));

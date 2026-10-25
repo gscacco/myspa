@@ -70,10 +70,10 @@ button:disabled{opacity:.45;cursor:default}
 .transclusion>header button{font-size:.75rem;padding:.2rem .4rem}
 .render-error{display:inline-block;color:#9a3026;background:#fff0eb;padding:.2rem .4rem;border-radius:4px}
 .unresolved-link{color:#9a3026;background:#fff0eb;border-bottom:1px dotted #c97066;padding:0 .2rem;border-radius:3px}
-.loom-snippet{border:1px solid #d7dded;border-radius:8px;padding:.7rem;margin:.9rem 0;background:#f9faff}
+.loom-snippet{position:relative;border:1px solid #d7dded;border-radius:8px;padding:2.25rem .7rem .7rem;margin:.9rem 0;background:#f9faff}
 .snippet-output{margin-top:.5rem}
-.loom-snippet>button{margin-right:.4rem}
-.loom-snippet>[data-action=edit-snippet]{margin:0 0 .4rem;padding:.2rem .45rem;font-size:.78rem;color:#4d5f8a}
+.snippet-actions{position:absolute;top:.45rem;right:.45rem;display:flex;gap:.2rem}
+.snippet-actions .icon-button{width:1.9rem;height:1.9rem}
 .snippet-editor{display:flex;gap:.5rem;flex-wrap:wrap;padding:.8rem;background:#edf1fb;border-radius:6px}
 .snippet-editor label{display:grid;gap:.25rem;width:100%;font-weight:600}
 .snippet-editor textarea{width:100%;min-height:8rem;border:1px solid #a6b5db;border-radius:5px;padding:.6rem;font:.9rem/1.5 ui-monospace,monospace;resize:vertical}

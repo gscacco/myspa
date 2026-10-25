@@ -42,6 +42,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   const cards = new Map();
   const dependencies = new Map();
   const activeSnippets = new Map();
+  const snippetEditors = new WeakMap();
   let snippetRuntime = null;
   const workspace = document.querySelector('#workspace');
   const search = document.querySelector('#loom-search');
@@ -182,6 +183,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
         if (offset !== null) { textarea.focus(); textarea.setSelectionRange(offset, offset); }
       },
       onEditSnippet: snippet => editSnippet(id, snippet),
+      onViewSnippet: snippet => viewSnippet(snippet),
     });
     dependencies.set(id, reads);
     content.replaceChildren(rendered);
@@ -257,8 +259,31 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     refreshSearch(); report();
   }
 
+  function setSnippetMode(node, mode) {
+    const editing = mode === 'edit';
+    node.querySelector('[data-action="view-snippet"]')?.setAttribute('aria-pressed', String(!editing));
+    node.querySelector('[data-action="edit-snippet"]')?.setAttribute('aria-pressed', String(editing));
+    const output = node.querySelector('.snippet-output');
+    if (output) output.hidden = editing;
+  }
+
+  function closeSnippetEditor(node) {
+    const open = snippetEditors.get(node);
+    if (!open) return;
+    open.detach(); open.editor.remove(); snippetEditors.delete(node); setSnippetMode(node, 'view');
+  }
+
+  function viewSnippet({ node }) {
+    const open = snippetEditors.get(node);
+    if (!open) { setSnippetMode(node, 'view'); return; }
+    const { textarea } = open;
+    if (textarea.value !== textarea.dataset.original
+      && !window.confirm('Discard the unapplied code changes and view the saved result?')) return;
+    closeSnippetEditor(node);
+  }
+
   function editSnippet(id, { ordinal, node }) {
-    if (node.querySelector('.snippet-editor')) return;
+    if (snippetEditors.has(node)) { snippetEditors.get(node).textarea.focus(); return; }
     const originalBody = itemFor(id).body;
     const span = findSnippetSpan(originalBody, ordinal);
     if (!span) { report('Unable to locate the snippet in Markdown source'); return; }
@@ -273,11 +298,13 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     editor.append(label, apply, cancel, feedback);
     node.append(editor);
     const detach = attachStructuralEditor(textarea, { onStatus: message => { feedback.textContent = message; } });
-    cancel.addEventListener('click', () => { detach(); editor.remove(); });
+    snippetEditors.set(node, { editor, textarea, detach });
+    setSnippetMode(node, 'edit');
+    cancel.addEventListener('click', () => closeSnippetEditor(node));
     apply.addEventListener('click', () => {
       try {
         const body = applySnippetEdit(originalBody, itemFor(id).body, span, textarea.value);
-        detach(); commitItemChanges(id, { body });
+        snippetEditors.delete(node); detach(); commitItemChanges(id, { body });
       } catch (error) { feedback.textContent = error.message; }
     });
     textarea.focus();

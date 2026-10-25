@@ -30,7 +30,17 @@ test('only clojurescript and the legacy marker create executable blocks', () => 
   assert.equal(snippets[0].querySelector('pre').hidden, true);
   assert.equal(snippets[1].querySelector('pre').hidden, true);
   assert.equal(dom.window.document.querySelectorAll('[data-action="edit-snippet"]').length, 2);
+  assert.equal(dom.window.document.querySelectorAll('[data-action="view-snippet"]').length, 2);
   assert.equal(dom.window.document.querySelectorAll('[data-action="run-snippet"]').length, 0);
+  const actions = snippets[0].querySelector('.snippet-actions');
+  assert.deepEqual([...actions.querySelectorAll('button')].map(button => button.dataset.action), ['view-snippet', 'edit-snippet']);
+  for (const button of actions.querySelectorAll('button')) {
+    assert.ok(button.querySelector('svg'));
+    assert.equal(button.textContent, '');
+    assert.ok(button.title);
+    assert.ok(button.getAttribute('aria-label'));
+  }
+  assert.deepEqual([...actions.querySelectorAll('button')].map(button => button.title), ['View result', 'Edit code']);
   assert.equal([...dom.window.document.querySelectorAll('pre code')].length, 2);
   dom.window.close();
 });
