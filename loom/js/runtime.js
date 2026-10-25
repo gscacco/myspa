@@ -4,7 +4,7 @@ import { readEDN } from '../../shared/js/edn-codec.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const CORE_SOURCE = `(ns loom.core)
+const API_SOURCE = `(ns loom)
 (defn- item-map [raw]
   (when raw
     (update (js->clj raw :keywordize-keys true) :tags #(mapv keyword %))))
@@ -13,10 +13,12 @@ const CORE_SOURCE = `(ns loom.core)
   ([opts] (let [tag (:tag opts)]
             (mapv item-map (.items js/globalThis.__loomBridge (when tag (name tag)))))))
 (defn item [id] (item-map (.item js/globalThis.__loomBridge id)))
-(defn link [id label]
-  (if (.validLink js/globalThis.__loomBridge id)
-    [:a {:href (str "loom:" id)} label]
-    (throw (js/Error. "Loom link requires a valid item UUID"))))
+(defn link
+  ([id] (link id nil))
+  ([id label]
+   (if (.resolveLink js/globalThis.__loomBridge id)
+     (if (nil? label) [:a {:href (str "loom:" id)}] [:a {:href (str "loom:" id)} label])
+     (throw (js/Error. "Loom link requires a valid item UUID")))))
 (defn data [value] {"loom/data" value})
 (defn normalize [value]
   (cond
@@ -25,7 +27,14 @@ const CORE_SOURCE = `(ns loom.core)
       (let [values (vec (take 1001 value))]
         (when (> (count values) 1000) (throw (js/Error. "Snippet result limit exceeded")))
         (mapv normalize values))
-    :else value))`;
+    :else value))
+
+(ns loom.core (:require [loom :as api]))
+(def items api/items)
+(def item api/item)
+(def link api/link)
+(def data api/data)
+(def normalize api/normalize)`;
 
 export function createSnippetRuntime({ getItems, scittle = globalThis.scittle, host = globalThis }) {
   const evaluate = scittle?.core?.eval_string;
@@ -47,12 +56,16 @@ export function createSnippetRuntime({ getItems, scittle = globalThis.scittle, h
         const item = items.find(value => value.id === id);
         return item ? { ...item, tags: item.tags.map(value => value.name) } : null;
       },
-      validLink: id => typeof id === 'string' && UUID.test(id),
+      resolveLink(id) {
+        if (typeof id !== 'string' || !UUID.test(id)) return false;
+        dependencies.add(`item:${id}`);
+        return true;
+      },
     };
     try {
-      if (!initialized) { evaluate(CORE_SOURCE); initialized = true; }
-      evaluate('(ns loom.user (:require [loom.core]))');
-      const result = evaluate(`(pr-str (loom.core/normalize (do ${source})))`);
+      if (!initialized) { evaluate(API_SOURCE); initialized = true; }
+      evaluate('(ns loom.user (:require [loom] [loom.core]))');
+      const result = evaluate(`(pr-str (loom/normalize (do ${source})))`);
       return { value: readEDN(result), dependencies };
     } finally { delete host.__loomBridge; }
   }

@@ -18,7 +18,7 @@ test('the Loom SCI API composes tagged item queries and navigable Hiccup links',
   const runtime = createSnippetRuntime({ getItems: () => base.items, scittle: globalThis.scittle });
   const source = '(into [:ul] (map (fn [{:keys [id title]}] [:li (loom.core/link id title)]) (sort-by :title (loom.core/items {:tag :clojure}))))';
   const { value, dependencies } = runtime.run(source);
-  assert.deepEqual([...dependencies], ['tag:clojure']);
+  assert.deepEqual([...dependencies], ['tag:clojure', `item:${B}`, `item:${A}`]);
   const dom = new JSDOM('<main></main>'), opened = [];
   dom.window.document.querySelector('main').append(renderResult(value, { document: dom.window.document, items: base.items, onNavigate: id => opened.push(id) }));
   assert.deepEqual([...dom.window.document.querySelectorAll('li')].map(node => node.textContent), ['Alpha', 'Beta']);
