@@ -38,12 +38,22 @@ test('structural snippet editing changes only its code and retains other cards',
   textarea.setSelectionRange(4, 4);
   textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', ctrlKey: true, bubbles: true }));
   assert.equal(textarea.value, '(a b c)');
-  card.querySelector('[data-action="apply-snippet"]').click();
+  const apply = card.querySelector('[data-action="apply-snippet"]');
+  const cancel = card.querySelector('[data-action="cancel-snippet"]');
+  for (const [button, title] of [[apply, 'Apply code'], [cancel, 'Cancel']]) {
+    assert.ok(button.classList.contains('icon-button'));
+    assert.ok(button.querySelector('svg'));
+    assert.equal(button.textContent, '');
+    assert.equal(button.title, title);
+    assert.ok(button.getAttribute('aria-label'));
+  }
+  apply.click();
   assert.equal(app.getBase().items.find(item => item.id === A).body, body.replace('(a b) c', '(a b c)'));
   assert.equal(dom.window.document.querySelector(`[data-item-id="${B}"]`), context);
   assert.equal(card.scrollTop, 36);
   card.querySelector('[data-action="edit-snippet"]').click();
   card.querySelector('.snippet-editor textarea').value = '(changed)';
+  assert.ok(card.querySelector('[data-action="cancel-snippet"] svg'));
   card.querySelector('[data-action="cancel-snippet"]').click();
   assert.equal(app.getBase().items.find(item => item.id === A).body, body.replace('(a b) c', '(a b c)'));
   dom.window.close();

@@ -11,9 +11,13 @@ import { attachLinkCompletion } from './link-completion.js';
 import { MARKDOWN_FORMATS, applyMarkdownFormat } from './markdown-toolbar.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
+const APPLY_ICON = 'M5 12l4 4L19 6';
+const CANCEL_ICON = 'M9 7L4 12l5 5M4 12h10a6 6 0 010 12';
 const ACTION_ICONS = {
-  apply: 'M5 12l4 4L19 6',
-  cancel: 'M9 7L4 12l5 5M4 12h10a6 6 0 010 12',
+  apply: APPLY_ICON,
+  'apply-snippet': APPLY_ICON,
+  cancel: CANCEL_ICON,
+  'cancel-snippet': CANCEL_ICON,
   close: 'M6 6l12 12M18 6L6 18',
   delete: 'M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13',
   edit: 'M4 20h4L18 10l-4-4L4 16v4zM13 7l4 4',
@@ -293,9 +297,12 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     textarea.dataset.original = span.source;
     label.append(textarea);
     const feedback = document.createElement('p'); feedback.setAttribute('role', 'alert');
-    const apply = document.createElement('button'); apply.type = 'button'; apply.dataset.action = 'apply-snippet'; apply.textContent = 'Apply code';
-    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.dataset.action = 'cancel-snippet'; cancel.textContent = 'Cancel';
-    editor.append(label, apply, cancel, feedback);
+    const itemTitle = itemFor(id).title;
+    const apply = actionButton('apply-snippet', 'Apply code', itemTitle);
+    const cancel = actionButton('cancel-snippet', 'Cancel', itemTitle);
+    const actions = document.createElement('div'); actions.className = 'snippet-editor-actions';
+    actions.append(apply, cancel);
+    editor.append(actions, label, feedback);
     node.append(editor);
     const detach = attachStructuralEditor(textarea, { onStatus: message => { feedback.textContent = message; } });
     snippetEditors.set(node, { editor, textarea, detach });
