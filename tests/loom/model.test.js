@@ -68,3 +68,29 @@ test('invalid import is rejected before a knowledge base can be replaced', () =>
   const badWorkspace = { ...base, workspace: { 'open-ids': [B], 'active-id': B } };
   assert.throws(() => writeKnowledgeBase(badWorkspace), /workspace.*id/i);
 });
+
+test('UUID generation falls back to getRandomValues without randomUUID', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  let counter = 0;
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value: {
+      getRandomValues(bytes) {
+        for (let index = 0; index < bytes.length; index++) bytes[index] = (counter + index + 1) & 0xff;
+        counter += bytes.length;
+        return bytes;
+      },
+    },
+  });
+  try {
+    const first = addItem(emptyKnowledgeBase(), { title: 'First' });
+    const second = addItem(first, { title: 'Second' });
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    assert.match(first.items[0].id, uuid);
+    assert.match(second.items[1].id, uuid);
+    assert.notEqual(first.items[0].id, second.items[1].id);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'crypto', original);
+    else delete globalThis.crypto;
+  }
+});

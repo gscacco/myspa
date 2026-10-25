@@ -64,8 +64,21 @@ export function emptyKnowledgeBase() {
   return { 'schema-version': 1, items: [], workspace: { 'open-ids': [], 'active-id': null } };
 }
 
+function createUUID() {
+  const crypto = globalThis.crypto;
+  if (typeof crypto?.randomUUID === 'function') {
+    try { return crypto.randomUUID(); } catch { /* Fall back for insecure contexts. */ }
+  }
+  if (typeof crypto?.getRandomValues !== 'function') return null;
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** Add an item; the optional ID and timestamp make the operation testable. */
-export function addItem(base, fields, { id = globalThis.crypto?.randomUUID?.(), now = new Date().toISOString() } = {}) {
+export function addItem(base, fields, { id = createUUID(), now = new Date().toISOString() } = {}) {
   const current = validateKnowledgeBase(base);
   if (!id) throw new Error('Cryptographic UUID generation is unavailable');
   if (current.items.some(item => item.id === id)) throw new TypeError(`Duplicate item ID: ${id}`);
