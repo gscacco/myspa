@@ -41,7 +41,7 @@ test('standalone build is a single-file offline document with a bootable timetab
   dom.window.close();
 });
 
-test('the offline artifact imports selected classes from the supplied OFD without loading the whole timetable', async () => {
+test('the offline artifact imports selected classes from the supplied OFD without loading the whole timetable (external OFD fixture)', async () => {
   const html = await buildTimetableArtifact();
   const bytes = await readFile(samplePath);
   const dom = new JSDOM(html, { url: 'file:///tmp/timetable.html', runScripts: 'dangerously', beforeParse: window => { window.structuredClone = structuredClone; } });

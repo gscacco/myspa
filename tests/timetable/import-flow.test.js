@@ -22,7 +22,7 @@ async function mount(options = {}) {
   return { app, dom, document: dom.window.document };
 }
 
-test('OFD is imported from its roster sheet and adds only the selected entity type', async () => {
+test('OFD is imported from its roster sheet and adds only the selected entity type (external OFD fixture)', async () => {
   const { app, dom, document } = await mount();
   assert.equal(document.querySelector('#ofd-file'), null);
   assert.equal(document.querySelector('#edn-file').accept, '.edn');

@@ -86,7 +86,7 @@ test('bounded local search moves a short chain and cancellation preserves the in
   assert.deepEqual(timetable.lessons.map(lesson => lesson.assignedTime.periodIndex), [0, 1, 2]);
 });
 
-test('immediate search returns safe alternatives on the supplied timetable without mutating it', async () => {
+test('immediate search returns safe alternatives on the supplied timetable without mutating it (external OFD fixture)', async () => {
   const { timetable } = importOFD(await readFile(samplePath), { DOMParser: domParser });
   const before = structuredClone(timetable);
   const started = performance.now();

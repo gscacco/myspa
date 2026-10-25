@@ -8,7 +8,8 @@
 
 import {
   PAIRS, CLOSERS, highlightClojureScript, syntaxError, computeSuggestions, completionInsertion,
-  indentFor, pareditNewline, pareditSlurp, pareditBarf, pareditSplice, pareditWrap,
+  indentFor, pareditNewline, pareditSlurp, pareditBarf, pareditBackwardSlurp, pareditBackwardBarf,
+  pareditSplice, pareditWrap,
   safeDeletion, formBefore,
 } from './editor-assistance.js';
 
@@ -240,6 +241,8 @@ export function createEditor(ctx) {
   const PAREDIT = {
     slurp: { f: (v, a) => pareditSlurp(v, a), hint: 'nessuna forma da tirare dentro: metti il cursore nella lista (o subito dopo la sua «)») seguita da una forma' },
     barf: { f: (v, a) => pareditBarf(v, a), hint: 'niente da spingere fuori: la lista è vuota o il cursore non è in una lista' },
+    'backward-slurp': { f: (v, a) => pareditBackwardSlurp(v, a), hint: 'nessuna forma precedente da tirare dentro: metti il cursore in una lista preceduta da una forma' },
+    'backward-barf': { f: (v, a) => pareditBackwardBarf(v, a), hint: 'niente da spingere fuori: la lista è vuota o il cursore non è in una lista' },
     splice: { f: (v, a) => pareditSplice(v, a), hint: 'nessuna lista attorno al cursore da togliere' },
     wrap: { f: (v, a, b) => pareditWrap(v, a, b), hint: 'seleziona del testo (o metti il cursore prima di una forma) per avvolgerlo in «( )»' },
   };
@@ -379,6 +382,8 @@ export function createEditor(ctx) {
         return;
       }
       // Paredit keyboard commands: slurp/barf/splice/wrap.
+      if (m && e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); command('backward-slurp'); return; }
+      if (m && e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); command('backward-barf'); return; }
       if (m && e.key === 'ArrowRight') { e.preventDefault(); command('slurp'); return; }
       if (m && e.key === 'ArrowLeft') { e.preventDefault(); command('barf'); return; }
       if (m && e.key === 'ArrowUp') { e.preventDefault(); command('splice'); return; }

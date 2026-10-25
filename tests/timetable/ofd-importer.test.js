@@ -10,7 +10,7 @@ const samplePath = fileURLToPath(new URL('../../OR_30_SETT.ofd', import.meta.url
 const unsupportedPath = fileURLToPath(new URL('../../timetable/fixtures/unsupported-demo.ofd', import.meta.url));
 const parse = (source, options = {}) => importOFD(source, { DOMParser: domParser, ...options });
 
-test('imports observed entities, lesson relationships, calendar, constraints, and diagnostics from the supplied OFD', async () => {
+test('imports observed entities, lesson relationships, calendar, constraints, and diagnostics from the supplied OFD (external OFD fixture)', async () => {
   const original = await readFile(samplePath);
   const result = parse(original);
   const timetable = result.timetable;

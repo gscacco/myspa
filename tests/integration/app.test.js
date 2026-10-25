@@ -757,15 +757,17 @@ test('the dependency-flow toggle highlights sources and dependents', async () =>
 test('paredit keyboard shortcuts run slurp, barf, splice, and wrap', async () => {
   const { document, window, close } = await mountApp();
   const ta = document.querySelector('#code');
-  const run = (value, cursor, keyName, expected) => {
+  const run = (value, cursor, keyName, expected, shiftKey = false) => {
     ta.value = value;
     ta.setSelectionRange(cursor, cursor);
-    key(window, ta, { key: keyName, ctrlKey: true });
+    key(window, ta, { key: keyName, ctrlKey: true, shiftKey });
     assert.equal(ta.value, expected, keyName);
   };
   run('(a b) c', 5, 'ArrowRight', '(a b c)');
   run('(a b c)', 7, 'ArrowLeft', '(a b) c');
   run('(a b) c', 5, 'ArrowUp', 'a b c');
+  run('baz (foo bar)', 9, 'ArrowRight', '(baz foo bar)', true);
+  run('(baz foo bar)', 9, 'ArrowLeft', 'baz (foo bar)', true);
   ta.value = 'a b';
   ta.setSelectionRange(0, 3);
   key(window, ta, { key: 'ArrowDown', ctrlKey: true });

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loom</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232854a8'/%3E%3Cpath d='M18 16v32h26v-8H26V16z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main id="loom-app">
+    <header class="app-header">
+      <div class="brand"><h1>Loom</h1><p>Follow ideas, keep your place.</p></div>
+      <nav class="toolbar" aria-label="Workspace actions">
+        <button id="history-back" type="button" aria-label="Back" disabled>←</button>
+        <button id="history-forward" type="button" aria-label="Forward" disabled>→</button>
+        <button id="save-edn" type="button">Save EDN</button>
+        <button id="import-edn" type="button">Import EDN</button>
+      </nav>
+      <input id="edn-file" type="file" accept=".edn,application/edn,text/plain" hidden>
+      <span id="loom-status" role="status" aria-live="polite"></span>
+    </header>
+    <div class="app-body">
+      <aside id="sidebar" class="sidebar" aria-label="Search and create items">
+        <button id="new-item" class="icon-button new-item-button" type="button" title="New Item" aria-label="New Item">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <div class="search-area">
+          <label for="loom-search">Search items</label>
+          <input id="loom-search" type="search" autocomplete="off" placeholder="Title, tag, or text">
+          <div id="search-results" role="region" aria-label="Search results"></div>
+        </div>
+      </aside>
+      <section id="workspace" class="workspace" aria-label="Open items"></section>
+    </div>
+  </main>
+  <script src="../node_modules/scittle/dist/scittle.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

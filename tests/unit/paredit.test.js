@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pareditSlurp, pareditBarf, pareditSplice, pareditWrap, pareditNewline, indentFor, safeDeletion, formBefore } from '../../src/js/editor-assistance.js';
+import {
+  pareditSlurp, pareditBarf, pareditBackwardSlurp, pareditBackwardBarf,
+  pareditSplice, pareditWrap, pareditNewline, indentFor, safeDeletion, formBefore,
+} from '../../src/js/editor-assistance.js';
 
 /** Applica il risultato di un comando paredit al testo. */
 const ap = (t, r) => (r ? t.slice(0, r.from) + r.text + t.slice(r.to) : null);
@@ -18,6 +21,33 @@ test('barf spinge fuori l’ultima forma', () => {
   assert.equal(ap('(a b)', pareditBarf('(a b)', 3)), '(a) b');
   assert.equal(ap('(a)', pareditBarf('(a)', 2)), '() a');
   assert.equal(ap('(a "x y")', pareditBarf('(a "x y")', 2)), '(a) "x y"');
+});
+
+test('backward slurp tira dentro la forma precedente e mantiene il cursore', () => {
+  const source = 'baz (foo bar)';
+  const edit = pareditBackwardSlurp(source, source.indexOf('bar'));
+  assert.equal(ap(source, edit), '(baz foo bar)');
+  assert.equal(edit.caret, source.indexOf('bar'));
+  const nested = '(baz qux) (foo bar)';
+  assert.equal(ap(nested, pareditBackwardSlurp(nested, nested.indexOf('bar'))), '((baz qux) foo bar)');
+  assert.equal(pareditBackwardSlurp('(foo bar)', 5), null);
+});
+
+test('backward barf spinge fuori la prima forma e mantiene il cursore', () => {
+  const source = '(baz foo bar)';
+  const edit = pareditBackwardBarf(source, source.indexOf('bar'));
+  assert.equal(ap(source, edit), 'baz (foo bar)');
+  assert.equal(edit.caret, source.indexOf('bar'));
+  const nested = '((baz qux) foo bar)';
+  assert.equal(ap(nested, pareditBackwardBarf(nested, nested.indexOf('bar'))), '(baz qux) (foo bar)');
+  assert.equal(pareditBackwardBarf('()', 1), null);
+});
+
+test('slurp ignora una chiusura interna e usa il contenitore esterno', () => {
+  const source = '(a [b]) c';
+  const edit = pareditSlurp(source, 6);
+  assert.equal(ap(source, edit), '(a [b] c)');
+  assert.equal(edit.caret, 6);
 });
 
 test('splice elimina le parentesi della lista corrente', () => {

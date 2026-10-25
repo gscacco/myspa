@@ -10,14 +10,17 @@
   "scripts": {
     "build": "node tools/build.js",
     "build:timetable": "node tools/build-timetable.js",
+    "build:loom": "node tools/build-loom.js",
     "dev": "node tools/serve.js",
-    "test": "npm run test:unit && npm run test:integration && npm run test:timetable",
+    "test": "npm run test:unit && npm run test:integration && npm run test:timetable && npm run test:loom",
     "test:unit": "node --import ./tools/load-scittle.js --test tests/unit/*.test.js",
     "test:integration": "node --import ./tools/load-scittle.js --test tests/integration/*.test.js",
-    "test:timetable": "node --test tests/timetable/*.test.js",
+    "test:timetable": "node --test --test-skip-pattern='external OFD fixture' tests/timetable/*.test.js",
+    "test:integration:ofd": "node --test --test-name-pattern='external OFD fixture' tests/timetable/*.test.js",
+    "test:loom": "node --import ./tools/load-scittle.js --test tests/loom/*.test.js",
     "test:perf:timetable": "node tests/timetable/recalculation.performance.js",
     "test:perf:optimization": "node tests/timetable/optimization.performance.js",
-    "test:e2e:timetable": "node --test tests/timetable/standalone.test.js",
+    "test:e2e:timetable": "node --test --test-skip-pattern='external OFD fixture' tests/timetable/standalone.test.js",
     "test:e2e": "node tools/build.js && node --test tests/e2e/*.test.js",
     "check": "npm test && npm run build && node tools/verify-artifact.js && node --test tests/e2e/*.test.js"
   },
@@ -27,6 +30,7 @@
   },
   "dependencies": {
     "@openai/codex": "^0.162.1",
+    "marked": "18.1.1",
     "scittle": "0.8.33"
   }
 }
