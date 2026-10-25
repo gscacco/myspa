@@ -51,7 +51,7 @@ button:disabled{opacity:.45;cursor:default}
 .item-content code{font:.9em ui-monospace,monospace}
 .item-form{display:grid;gap:.75rem}
 .item-form label{display:grid;gap:.2rem;font-weight:600}
-.item-form input,.item-form textarea{border:1px solid #bdb3a8;border-radius:7px;padding:.5rem}
+.item-form input,.item-form textarea{border:1px solid #bdb3a8;border-radius:7px;padding:.5rem;font-weight:400}
 .item-form textarea{min-height:14rem;resize:vertical;font-family:ui-monospace,monospace}
 .transclusion{border-left:3px solid #91a4d2;background:#f8f9fd;padding:.65rem 1rem;margin:.8rem 0}
 .transclusion>header{display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:#5e6a88}

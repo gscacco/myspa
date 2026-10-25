@@ -39,6 +39,15 @@ test('the sidebar owns search and the New Item button while the workspace stays 
   dom.window.close();
 });
 
+test('item editor fields use a plain font weight inside bold labels', async () => {
+  const css = await readFile(new URL('../../loom/css/style.css', import.meta.url), 'utf8');
+  const dom = new JSDOM(`<!doctype html><style>${css}</style><form class="item-form"><label>Title<input name="title"></label><label>Markdown<textarea name="body"></textarea></label></form>`);
+  const { document } = dom.window;
+  assert.equal(dom.window.getComputedStyle(document.querySelector('[name="title"]')).fontWeight, '400');
+  assert.equal(dom.window.getComputedStyle(document.querySelector('[name="body"]')).fontWeight, '400');
+  dom.window.close();
+});
+
 test('item actions use labelled SVG buttons in the upper-right and switch by mode', async () => {
   const { dom, document } = await mount();
   const card = document.querySelector(`[data-item-id="${A}"]`);
