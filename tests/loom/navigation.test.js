@@ -18,7 +18,7 @@ test('following a Markdown link retains the source card and source edits refresh
   app.openItem(A);
   const parent = dom.window.document.querySelector(`[data-item-id="${A}"]`);
   parent.querySelector('a').click();
-  assert.deepEqual(app.getBase().workspace['open-ids'], [A, B]);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [B, A]);
   assert.equal(dom.window.document.querySelector(`[data-item-id="${A}"]`), parent);
   const source = dom.window.document.querySelector(`[data-item-id="${B}"]`);
   source.querySelector('[data-action="edit"]').click();
@@ -27,7 +27,7 @@ test('following a Markdown link retains the source card and source edits refresh
   assert.match(parent.querySelector('.transclusion').textContent, /New text/);
   assert.equal(app.getBase().items.find(item => item.id === A).body.includes('Old text'), false);
   parent.querySelector('.transclusion button').click();
-  assert.deepEqual(app.getBase().workspace['open-ids'], [A, B]);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [B, A]);
   dom.window.close();
 });
 

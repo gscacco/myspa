@@ -215,7 +215,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
       else if (action === 'edit') editItem(id);
       else if (action === 'apply') applyItem(id);
       else if (action === 'cancel') cancelEdit(id);
-      else if (!action) focusItem(id);
+      else if (!action && !event.target.closest('a,button,input,textarea,select,label')) focusItem(id);
     });
     cards.set(id, card); showItem(id);
     return card;
@@ -249,8 +249,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   function openItem(id) {
     if (!itemFor(id)) { report(`Missing item: ${id}`); return false; }
-    const openIds = [...base.workspace['open-ids']];
-    if (!openIds.includes(id)) openIds.push(id);
+    const openIds = [id, ...base.workspace['open-ids'].filter(openId => openId !== id)];
     navigate({ 'open-ids': openIds, 'active-id': id });
     return true;
   }
@@ -259,7 +258,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     if (!base.workspace['open-ids'].includes(id)) return;
     const restoreFocus = cards.get(id)?.contains(document.activeElement);
     const openIds = base.workspace['open-ids'].filter(openId => openId !== id);
-    navigate({ 'open-ids': openIds, 'active-id': base.workspace['active-id'] === id ? openIds.at(-1) ?? null : base.workspace['active-id'] });
+    navigate({ 'open-ids': openIds, 'active-id': base.workspace['active-id'] === id ? openIds[0] ?? null : base.workspace['active-id'] });
     if (restoreFocus) (cards.get(base.workspace['active-id']) || search).focus();
   }
   function deleteKnowledgeItem(id) {
@@ -280,19 +279,62 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     if (position + delta < 0 || position + delta >= history.length) return;
     position += delta;
     const state = history[position], openIds = state['open-ids'].filter(id => itemFor(id));
-    base = { ...base, workspace: { 'open-ids': openIds, 'active-id': openIds.includes(state['active-id']) ? state['active-id'] : openIds.at(-1) ?? null } };
+    base = { ...base, workspace: { 'open-ids': openIds, 'active-id': openIds.includes(state['active-id']) ? state['active-id'] : openIds[0] ?? null } };
     sync();
+  }
+
+  function searchExcerpt(item, query) {
+    const text = item.body
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/[#>*_`~-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const index = text.toLocaleLowerCase().indexOf(query);
+    if (index < 0) return '';
+    const start = Math.max(0, index - 35), end = Math.min(text.length, index + 85);
+    return `${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
+  }
+
+  function searchResult(item, detail) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'search-result'; button.dataset.itemId = item.id;
+    const title = document.createElement('span'); title.className = 'search-title'; title.textContent = item.title;
+    button.append(title);
+    if (detail) { const meta = document.createElement('span'); meta.className = 'search-meta'; meta.textContent = detail; button.append(meta); }
+    button.addEventListener('click', () => openItem(item.id));
+    return button;
+  }
+
+  function appendSearchGroup(kind, label, items, details) {
+    if (!items.length) return;
+    const group = document.createElement('section');
+    group.className = 'search-group'; group.dataset.searchGroup = kind;
+    const heading = document.createElement('h3'); heading.textContent = label; group.append(heading);
+    for (const item of items) group.append(searchResult(item, details.get(item.id)));
+    results.append(group);
   }
 
   function refreshSearch() {
     const query = search.value.trim().toLocaleLowerCase(); results.replaceChildren();
     if (!query) return;
-    const matches = base.items.filter(item => `${item.title} ${item.body} ${item.tags.map(tag => tag.name).join(' ')}`.toLocaleLowerCase().includes(query)).slice(0, 30);
-    if (!matches.length) { results.textContent = 'No matching items'; return; }
-    for (const item of matches) {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = item.title;
-      button.addEventListener('click', () => openItem(item.id)); results.append(button);
+    const primary = [], content = [], details = new Map();
+    for (const item of base.items) {
+      const matchingTags = item.tags.map(tag => tag.name).filter(name => name.toLocaleLowerCase().includes(query));
+      const titleMatch = item.title.toLocaleLowerCase().includes(query);
+      const bodyMatch = item.body.toLocaleLowerCase().includes(query);
+      if (titleMatch || matchingTags.length) {
+        if (matchingTags.length) details.set(item.id, matchingTags.map(name => `:${name}`).join(' '));
+        primary.push(item);
+      } else if (bodyMatch) {
+        details.set(item.id, searchExcerpt(item, query));
+        content.push(item);
+      }
     }
+    if (!primary.length && !content.length) { results.textContent = 'No matching items'; return; }
+    appendSearchGroup('titles-tags', 'Titles and tags', primary.slice(0, 30), details);
+    appendSearchGroup('content', 'Content', content.slice(0, 30), details);
   }
 
   async function exportEDN() {

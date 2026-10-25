@@ -9,6 +9,8 @@ import { createLoomApp } from '../../loom/js/app.js';
 const A = '550e8400-e29b-41d4-a716-446655440000';
 const B = '550e8400-e29b-41d4-a716-446655440001';
 const C = '550e8400-e29b-41d4-a716-446655440002';
+const D = '550e8400-e29b-41d4-a716-446655440003';
+const E = '550e8400-e29d-41d4-a716-446655440004';
 const NOW = '2026-10-23T00:00:00.000Z';
 
 async function mount(options = {}) {
@@ -18,6 +20,8 @@ async function mount(options = {}) {
   base = addItem(base, { title: 'Alpha', body: 'Clarity of thought', tags: [keyword('clojure')] }, { id: A, now: NOW });
   base = addItem(base, { title: 'Beta', body: 'Other idea' }, { id: B, now: NOW });
   base = addItem(base, { title: 'Gamma', body: 'Unrelated' }, { id: C, now: NOW });
+  base = addItem(base, { title: 'Thought leadership', body: 'A thought that also mentions thought' }, { id: D, now: NOW });
+  base = addItem(base, { title: 'Notes', body: 'Another thought about navigation' }, { id: E, now: NOW });
   const app = createLoomApp({ document: dom.window.document, window: dom.window, base, ...options });
   return { app, dom, document: dom.window.document };
 }
@@ -29,15 +33,26 @@ test('cards open and close independently, and history restores exploration', asy
   const first = document.querySelector(`[data-item-id="${A}"]`);
   first.scrollTop = 45;
   app.openItem(C);
-  assert.deepEqual(app.getBase().workspace['open-ids'], [A, B, C]);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [C, B, A]);
+  assert.deepEqual([...document.querySelectorAll('#workspace [data-item-id]')].map(card => card.dataset.itemId), [C, B, A]);
   assert.equal(document.querySelector(`[data-item-id="${A}"]`), first);
   assert.equal(first.scrollTop, 45);
   app.closeItem(B);
-  assert.deepEqual(app.getBase().workspace['open-ids'], [A, C]);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [C, A]);
   app.back();
-  assert.deepEqual(app.getBase().workspace['open-ids'], [A, B, C]);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [C, B, A]);
   app.forward();
-  assert.deepEqual(app.getBase().workspace['open-ids'], [A, C]);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [C, A]);
+  dom.window.close();
+});
+
+test('opening an item that is already open moves it to the top without duplication', async () => {
+  const { app, dom, document } = await mount();
+  app.openItem(A); app.openItem(B); app.openItem(C);
+  app.openItem(A);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [A, C, B]);
+  assert.equal(document.querySelectorAll(`[data-item-id="${A}"]`).length, 1);
+  assert.deepEqual([...document.querySelectorAll('#workspace [data-item-id]')].map(card => card.dataset.itemId), [A, C, B]);
   dom.window.close();
 });
 
@@ -71,14 +86,33 @@ test('search matches title, tags, and body without closing cards', async () => {
   search.value = 'clojure';
   search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.equal(document.querySelectorAll('#search-results button').length, 1);
+  assert.match(document.querySelector('#search-results').textContent, /:clojure/);
   document.querySelector('#search-results button').click();
-  assert.deepEqual(app.getBase().workspace['open-ids'], [B, A]);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [A, B]);
   search.value = 'thought';
   search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.match(document.querySelector('#search-results').textContent, /Alpha/);
   search.value = 'absent';
   search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.match(document.querySelector('#search-results').textContent, /No matching items/);
+  dom.window.close();
+});
+
+test('search groups title and tag matches before content-only matches without duplicates', async () => {
+  const { app, dom, document } = await mount();
+  app.openItem(A);
+  const search = document.querySelector('#loom-search');
+  search.value = 'thought'; search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const groups = [...document.querySelectorAll('#search-results [data-search-group]')];
+  assert.deepEqual(groups.map(group => group.dataset.searchGroup), ['titles-tags', 'content']);
+  const titleGroup = groups[0], contentGroup = groups[1];
+  assert.match(titleGroup.textContent, /Thought leadership/);
+  assert.doesNotMatch(contentGroup.textContent, /Thought leadership/);
+  assert.match(contentGroup.textContent, /Alpha/);
+  assert.match(contentGroup.textContent, /Notes/);
+  assert.match(contentGroup.textContent, /Clarity of thought/);
+  assert.equal(document.querySelectorAll('#search-results [data-item-id]').length, 3);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [A]);
   dom.window.close();
 });
 
