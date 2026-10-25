@@ -52,6 +52,18 @@ test('deleting an item removes its card and history skips its stale ID', async (
   dom.window.close();
 });
 
+test('deleting a focused card restores focus to the remaining card or search', async () => {
+  const { app, dom, document } = await mount({ confirmDelete: () => true });
+  app.openItem(A); app.openItem(B);
+  let remove = document.querySelector(`[data-item-id="${B}"] [data-action="delete"]`);
+  remove.focus(); remove.click();
+  assert.equal(document.activeElement?.dataset.itemId, A);
+  remove = document.querySelector(`[data-item-id="${A}"] [data-action="delete"]`);
+  remove.focus(); remove.click();
+  assert.equal(document.activeElement, document.querySelector('#loom-search'));
+  dom.window.close();
+});
+
 test('search matches title, tags, and body without closing cards', async () => {
   const { app, dom, document } = await mount();
   app.openItem(B);

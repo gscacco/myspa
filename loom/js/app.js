@@ -265,9 +265,11 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   function deleteKnowledgeItem(id) {
     const item = itemFor(id);
     if (!item || !confirmDelete(`Delete "${item.title}" and its content?`)) return false;
+    const restoreFocus = cards.get(id)?.contains(document.activeElement);
     base = deleteItem(base, id); dirty = true;
     history.splice(position + 1); history.push(snapshot(base)); position++;
     sync();
+    if (restoreFocus) (cards.get(base.workspace['active-id']) || search).focus();
     for (const [cardId, reads] of dependencies) {
       if (reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
     }
