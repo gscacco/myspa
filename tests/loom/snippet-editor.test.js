@@ -44,6 +44,11 @@ test('structural snippet editing changes only its code and retains other cards',
   assert.equal(highlight.textContent, '(a b) c');
   const field = card.querySelector('.snippet-code-field');
   assert.match(dom.window.getComputedStyle(field).fontFamily, /JetBrains Mono/);
+  assert.equal(dom.window.getComputedStyle(field).fontSize, '14px');
+  assert.equal(dom.window.getComputedStyle(field).lineHeight, '21px');
+  assert.equal(dom.window.getComputedStyle(textarea).position, 'absolute');
+  assert.equal(dom.window.getComputedStyle(textarea).whiteSpace, 'pre');
+  assert.equal(textarea.wrap, 'off');
   assert.equal(dom.window.getComputedStyle(textarea).paddingTop, dom.window.getComputedStyle(highlight).paddingTop);
   textarea.value = '(def greeting "hello")';
   textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
