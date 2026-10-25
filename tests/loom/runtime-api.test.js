@@ -85,3 +85,23 @@ test('dynamic links follow the shared workspace rules and refresh when their tar
   assert.equal(query.querySelector('.snippet-output .unresolved-link').dataset.loomTarget, A);
   dom.window.close();
 });
+
+test('direct Hiccup loom links also rerun when the target title changes', async () => {
+  const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost/' });
+  let value = addItem(emptyKnowledgeBase(), { title: 'Target', body: '' }, { id: A, now: NOW });
+  value = addItem(value, { title: 'Query', body: `~~~clojurescript\n[:a {:href "loom:${A}"}]\n~~~` }, { id: B, now: NOW });
+  const app = createLoomApp({ document: dom.window.document, window: dom.window, base: value });
+  app.openItem(B);
+  const query = dom.window.document.querySelector(`[data-item-id="${B}"]`);
+  query.querySelector('[data-action="run-snippet"]').click();
+  assert.equal(query.querySelector('.snippet-output a').textContent, 'Target');
+
+  app.openItem(A);
+  const target = dom.window.document.querySelector(`[data-item-id="${A}"]`);
+  target.querySelector('[data-action="edit"]').click();
+  target.querySelector('[name="title"]').value = 'Renamed target';
+  target.querySelector('[data-action="apply"]').click();
+  assert.equal(query.querySelector('.snippet-output a').textContent, 'Renamed target');
+  dom.window.close();
+});

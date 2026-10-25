@@ -39,7 +39,7 @@ test('stable item references render the current title in every Markdown inline c
   const body = `# Heading [[item:${A}]]\n\nParagraph [[item:${B}]].\n\n- list [[item:${A}]]`;
   ctx.document.querySelector('main').append(renderMarkdown(body, ctx));
   assert.deepEqual([...ctx.document.querySelectorAll('a')].map(anchor => anchor.textContent), ['Current title', 'Other item', 'Current title']);
-  assert.deepEqual([...ctx.dependencies], [A, B]);
+  assert.deepEqual([...ctx.dependencies], [`item:${A}`, `item:${B}`]);
   ctx.document.querySelector('a').click();
   assert.deepEqual(ctx.opened, [A]);
   ctx.dom.window.close();

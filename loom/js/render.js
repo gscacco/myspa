@@ -45,7 +45,7 @@ function unresolvedLink(ctx, id) {
 }
 
 function itemLink(ctx, target, anchor = ctx.document.createElement('a')) {
-  ctx.dependencies?.add(target.id);
+  ctx.dependencies?.add(`item:${target.id}`);
   const item = ctx.items?.find(candidate => candidate.id === target.id);
   if (!item) return unresolvedLink(ctx, target.id);
   anchor.href = `loom:${target.id}${target.section ? `#${target.section}` : ''}`;
@@ -100,7 +100,7 @@ function sectionTokens(tokens, name) {
 function transclude(target, label, ctx) {
   const { document } = ctx;
   if (!target) return errorNode(document, 'Invalid transclusion target');
-  ctx.dependencies?.add(target.id);
+  ctx.dependencies?.add(`item:${target.id}`);
   const item = ctx.items?.find(candidate => candidate.id === target.id);
   if (!item) return errorNode(document, `Missing item: ${target.id}`);
   const key = `${target.id}#${target.section || ''}`;

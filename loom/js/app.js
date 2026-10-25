@@ -119,7 +119,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   function runSnippet(itemId, { source, output, run }) {
     try {
       const { value, dependencies: reads } = runtime().run(source);
-      const rendered = renderResult(value, { document, items: base.items, onNavigate: targetId => openItem(targetId) });
+      const rendered = renderResult(value, {
+        document, items: base.items, onNavigate: targetId => openItem(targetId), dependencies: reads,
+      });
       output.replaceChildren(rendered);
       activeSnippets.set(output, { itemId, source, dependencies: reads, run });
       run.textContent = 'Run again';
@@ -218,7 +220,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     base = updateItem(base, id, changes);
     dirty = true; persistLocal(); showItem(id, { preserveSnippets: before.body === itemFor(id).body });
     for (const [cardId, reads] of dependencies) {
-      if (cardId !== id && reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
+      if (cardId !== id && reads.has(`item:${id}`) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
     }
     notifyItemChange(before, itemFor(id));
     refreshSearch(); report();
@@ -391,7 +393,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     sync();
     if (restoreFocus) (cards.get(uiActiveId) || search).focus();
     for (const [cardId, reads] of dependencies) {
-      if (reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
+      if (reads.has(`item:${id}`) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
     }
     notifyItemChange(item, null); refreshSearch(); report();
     return true;
