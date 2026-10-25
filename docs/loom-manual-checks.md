@@ -27,6 +27,8 @@
 - Confirm missing sections, transclusion cycles, and nesting limits fail locally without breaking unrelated content.
 - Open two snippet editors in one item, change the second, and verify save and leave protection still detect the draft.
 - Exercise Paredit operations with nested delimiters, strings, comments, and partial forms; verify surrounding Markdown is unchanged.
+- Type a comment, string, keyword, number, built-in call, and special form in a snippet editor; confirm colors update while typing and stay aligned after wrapping, scrolling, and resizing.
+- Place the cursor after each of `)`, `]`, `}`, and the closing `"`, press Backspace, and confirm the source is unchanged while the cursor moves left. Repeat before each opening delimiter with Delete and confirm the cursor moves right.
 - Render `clojurescript` and legacy `cljs loom` blocks; confirm they execute automatically, item editing shows their source, `clojure` remains display-only and highlighted, and `cljs` remains an ordinary example.
 
 ## Persistence and security
