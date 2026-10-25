@@ -273,6 +273,8 @@ npm run dev
 
 Open <http://localhost:8080/src/index.html> in a browser. The development server serves the source files; ES modules are not intended to be opened directly from `file://`.
 
+For the Loom source application, open <http://localhost:8080/loom/>. To open Loom directly from the filesystem, build and use the standalone artifact with `npm run build:loom` and open `dist/loom.html`; browser modules cannot be loaded from `file://`.
+
 To build the portable, single-file version:
 
 ```sh

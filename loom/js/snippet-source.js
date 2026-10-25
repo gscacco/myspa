@@ -1,6 +1,6 @@
 /** Byte-preserving locations for executable fenced code inside Markdown source. */
 
-import { marked } from 'marked';
+import { marked } from '../../node_modules/marked/lib/marked.esm.js';
 
 export function findSnippetSpan(source, ordinal) {
   if (!Number.isInteger(ordinal) || ordinal < 0) return null;

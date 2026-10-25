@@ -1,6 +1,6 @@
 /** Safe DOM rendering for Loom Markdown, transclusion, and Hiccup values. */
 
-import { marked } from 'marked';
+import { marked } from '../../node_modules/marked/lib/marked.esm.js';
 import { EDNKeyword, writeEDN } from '../../shared/js/edn-codec.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
