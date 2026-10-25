@@ -81,6 +81,29 @@ test('cancelled save retains the unsaved state', async () => {
   dom.window.close();
 });
 
+test('an unapplied draft in any snippet editor blocks saving', async () => {
+  let saves = 0;
+  const body = '~~~cljs loom\n"First"\n~~~\n\n~~~cljs loom\n"Second"\n~~~';
+  const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost/' });
+  const base = addItem(emptyKnowledgeBase(), { title: 'Snippets', body }, { id: A, now: NOW });
+  const app = createLoomApp({
+    document: dom.window.document, window: dom.window, base,
+    saveFile: async () => { saves++; return true; },
+  });
+  app.openItem(A);
+  await app.exportEDN();
+  const card = dom.window.document.querySelector(`[data-item-id="${A}"]`);
+  const edits = card.querySelectorAll('[data-action="edit-snippet"]');
+  for (const edit of edits) edit.click();
+  const editors = card.querySelectorAll('.snippet-editor textarea');
+  editors[1].value = '(changed)';
+  assert.equal(app.isDirty(), true);
+  assert.equal(await app.exportEDN(), null);
+  assert.equal(saves, 1);
+  dom.window.close();
+});
+
 test('importing a file with executable snippets never runs them', async () => {
   const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
   const dom = new JSDOM(html, { url: 'http://localhost/' });

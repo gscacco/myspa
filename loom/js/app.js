@@ -38,8 +38,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
       const form = card.querySelector('.item-form');
       if (form && (form.elements.title.value !== item.title || form.elements.body.value !== item.body
         || form.elements.tags.value.trim() !== item.tags.map(tag => tag.name).join(' '))) return true;
-      const code = card.querySelector('.snippet-editor textarea');
-      if (code && code.value !== code.dataset.original) return true;
+      for (const code of card.querySelectorAll('.snippet-editor textarea')) {
+        if (code.value !== code.dataset.original) return true;
+      }
     }
     return false;
   }
