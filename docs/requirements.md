@@ -48,6 +48,7 @@ This document defines the initial Loom scope. `LOOM-001` through `LOOM-030` are 
 | LOOM-028 | Keep Loom standalone within the existing SPA project without a new framework, folder requirement, widget language, or graph visualization. | Dependency and final-diff review show only justified additions; navigation remains item-based and no graph or mandatory folder UI appears. |
 | LOOM-029 | Provide contextual insertion of stable-ID item links while editing Markdown. | Typing `[[` opens a cursor-adjacent picker that reuses sidebar search grouping, supports mouse and keyboard selection, dismisses with Escape, and inserts only the selected `[[item:uuid]]` reference without altering unrelated text or unsaved changes. |
 | LOOM-030 | Provide a Markdown formatting toolbar in item editing. | Bold, italic, strikethrough, inline code, heading, bulleted list, blockquote, item-link, and executable-code controls operate on the current selection or cursor; each has an SVG icon, tooltip, and accessible label; the executable-code control inserts a `clojurescript` fence and preserves surrounding Markdown. |
+| LOOM-031 | Provide explicit result and source modes for executable snippets. | Each executable block shows labelled SVG **View result** and **Edit code** controls in its upper-right corner with pressed state; view mode shows evaluated output, editor mode shows source, and leaving an unapplied source draft for view mode requires confirmation without changing the saved item. |
 
 ## Scope and change control
 
