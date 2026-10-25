@@ -1,10 +1,10 @@
 /** Byte-preserving locations for executable fenced code inside Markdown source. */
 
-import { marked } from '../../node_modules/marked/lib/marked.esm.js';
+import { lexMarkdown } from './markdown.js';
 
 export function findSnippetSpan(source, ordinal) {
   if (!Number.isInteger(ordinal) || ordinal < 0) return null;
-  const tokens = marked.lexer(source, { gfm: true });
+  const tokens = lexMarkdown(source);
   const originalOffset = normalizedOffset => {
     let original = 0, normalized = 0;
     while (normalized < normalizedOffset && original < source.length) {

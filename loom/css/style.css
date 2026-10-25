@@ -58,6 +58,7 @@ button:disabled{opacity:.45;cursor:default}
 .transclusion>header span{margin-right:auto}
 .transclusion>header button{font-size:.75rem;padding:.2rem .4rem}
 .render-error{display:inline-block;color:#9a3026;background:#fff0eb;padding:.2rem .4rem;border-radius:4px}
+.unresolved-link{color:#9a3026;background:#fff0eb;border-bottom:1px dotted #c97066;padding:0 .2rem;border-radius:3px}
 .loom-snippet{border:1px solid #d7dded;border-radius:8px;padding:.7rem;margin:.9rem 0;background:#f9faff}
 .snippet-output{margin-top:.5rem}
 .loom-snippet>button{margin-right:.4rem}

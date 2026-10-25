@@ -1,7 +1,7 @@
 /** Safe DOM rendering for Loom Markdown, transclusion, and Hiccup values. */
 
-import { marked } from '../../node_modules/marked/lib/marked.esm.js';
 import { EDNKeyword, writeEDN } from '../../shared/js/edn-codec.js';
+import { lexMarkdown } from './markdown.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ELEMENTS = new Set('p span div section article aside h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code em strong b i small br hr table thead tbody tr th td a'.split(' '));
@@ -27,16 +27,30 @@ function safeExternalURL(value) {
 
 function makeLink(ctx, href, label) {
   const target = parseLoomURL(href);
-  if (target) {
-    if (!ctx.items?.some(item => item.id === target.id)) return errorNode(ctx.document, `Missing item: ${target.id}`);
-    const anchor = ctx.document.createElement('a'); anchor.href = href;
-    anchor.addEventListener('click', event => { event.preventDefault(); ctx.onNavigate?.(target.id, target.section); });
-    anchor.append(label); return anchor;
-  }
+  if (target) return itemLink(ctx, target);
   const external = safeExternalURL(href);
   if (!external) return errorNode(ctx.document, `Unsafe or unsupported URL: ${href}`);
   const anchor = ctx.document.createElement('a'); anchor.href = external;
   anchor.rel = 'noopener noreferrer'; anchor.target = '_blank'; anchor.append(label);
+  return anchor;
+}
+
+function unresolvedLink(ctx, id) {
+  const node = errorNode(ctx.document, `Missing item: ${id}`);
+  node.classList.add('unresolved-link');
+  node.dataset.loomTarget = id;
+  return node;
+}
+
+function itemLink(ctx, target, anchor = ctx.document.createElement('a')) {
+  ctx.dependencies?.add(target.id);
+  const item = ctx.items?.find(candidate => candidate.id === target.id);
+  if (!item) return unresolvedLink(ctx, target.id);
+  anchor.href = `loom:${target.id}${target.section ? `#${target.section}` : ''}`;
+  anchor.className = 'loom-item-link';
+  anchor.dataset.loomTarget = target.id;
+  anchor.textContent = item.title;
+  anchor.addEventListener('click', event => { event.preventDefault(); ctx.onNavigate?.(target.id, target.section); });
   return anchor;
 }
 
@@ -58,7 +72,7 @@ function headingSlugs(tokens) {
 
 export function sectionSourceOffset(source, name) {
   if (!name) return 0;
-  const tokens = marked.lexer(source, { gfm: true });
+  const tokens = lexMarkdown(source);
   const slugs = headingSlugs(tokens);
   let offset = 0;
   for (const [index, token] of tokens.entries()) {
@@ -91,7 +105,7 @@ function transclude(target, label, ctx) {
   const path = ctx.path || [];
   if (path.includes(key)) return errorNode(document, `Transclusion cycle: ${item.title}`);
   if (path.length >= 16) return errorNode(document, 'Transclusion depth limit reached');
-  const tokens = marked.lexer(item.body, { gfm: true });
+  const tokens = lexMarkdown(item.body);
   const selected = sectionTokens(tokens, target.section);
   if (!selected) return errorNode(document, `Missing section: ${target.section}`);
   const embed = document.createElement('section');
@@ -122,6 +136,7 @@ function inline(tokens, ctx) {
       }
       case 'br': node = ctx.document.createElement('br'); break;
       case 'link': node = makeLink(ctx, token.href, inline(token.tokens, ctx)); break;
+      case 'loomItemReference': node = itemLink(ctx, { id: token.id, section: null }); break;
       case 'image': node = token.href?.startsWith('loom:')
         ? transclude(parseLoomURL(token.href), token.text, ctx)
         : errorNode(ctx.document, `Unsupported image: ${token.href}`); break;
@@ -180,7 +195,7 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
 }
 
 export function renderMarkdown(source, ctx) {
-  const tokens = marked.lexer(source, { gfm: true });
+  const tokens = lexMarkdown(source);
   return blocks(tokens, { snippetCounter: { value: 0 }, ...ctx });
 }
 
@@ -203,6 +218,7 @@ function renderHiccupNode(value, ctx, state, depth) {
   const element = document.createElement(tag);
   const hasAttrs = value.length > 1 && value[1] && typeof value[1] === 'object' && !Array.isArray(value[1]) && !(value[1] instanceof EDNKeyword);
   const attributes = hasAttrs ? value[1] : null;
+  let loomTarget = null;
   if (attributes) for (const [name, attribute] of Object.entries(attributes)) {
     const allowed = ['class', 'title'].includes(name) || /^aria-[a-z0-9-]+$/.test(name)
       || (/^data-[a-z0-9-]+$/.test(name) && !name.startsWith('data-loom-'))
@@ -213,7 +229,7 @@ function renderHiccupNode(value, ctx, state, depth) {
       const target = parseLoomURL(attribute), external = safeExternalURL(attribute);
       if (!target && !external) throw new TypeError(`Unsafe href URL: ${attribute}`);
       element.href = target ? attribute : external;
-      if (target) element.addEventListener('click', event => { event.preventDefault(); ctx.onNavigate?.(target.id, target.section); });
+      if (target) loomTarget = target;
       else { element.rel = 'noopener noreferrer'; element.target = '_blank'; }
     } else if (['colspan', 'rowspan'].includes(name)) {
       if (!Number.isInteger(attribute) || attribute < 1 || attribute > 100) throw new TypeError(`Invalid Hiccup attribute: ${name}`);
@@ -223,6 +239,7 @@ function renderHiccupNode(value, ctx, state, depth) {
       element.setAttribute(name, attribute);
     }
   }
+  if (loomTarget) return itemLink(ctx, loomTarget, element);
   for (const child of value.slice(hasAttrs ? 2 : 1)) element.append(renderHiccupNode(child, ctx, state, depth + 1));
   return element;
 }
