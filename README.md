@@ -291,15 +291,17 @@ npm run check
 
 The individual commands are `npm run test:unit`, `npm run test:integration`, `npm run test:timetable`, `npm run test:loom`, and `npm run test:e2e`. Timetable tests that require the external `OR_30_SETT.ofd` file are excluded from the normal suite; run them with `npm run test:integration:ofd` when that file is available at the repository root. Synthetic OFD tests remain in `npm run test:timetable`.
 
-## Loom foundation (in progress)
+## Loom (in progress)
 
-`npm run build:loom` generates `dist/loom.html` using the same standalone build environment. The artifact starts with an empty workspace and embeds Scittle. You can create items, edit their title, tags, and Markdown source, search items, keep multiple cards open, and use workspace back/forward history. Markdown renders as safe DOM. Use `[label](loom:item-uuid)` to open an item, `![label](loom:item-uuid)` to embed it, and `![label](loom:item-uuid#heading-slug)` to embed a section. Embedded content has source actions; source edits refresh it. EDN file import/export is not yet available in the UI.
+`npm run build:loom` generates `dist/loom.html` using the same standalone build environment. The artifact starts with an empty workspace and embeds Scittle. You can create, edit, search, and delete items, keep multiple cards open, and use workspace back/forward history. Search accepts `Enter` to open the first result and `Escape` to clear the query. Markdown renders as safe DOM. Use `[label](loom:item-uuid)` to open an item, `![label](loom:item-uuid)` to embed it, and `![label](loom:item-uuid#heading-slug)` to embed a section. Embedded content has source actions; source edits refresh it.
+
+Use **Save EDN** and **Import EDN** for explicit file persistence; Loom does not autosave. A save is refused while an item or snippet draft is unapplied. Import validates the complete knowledge base before replacing the current one, and Loom warns before replacing unsaved work or leaving the page. Imported snippets remain inert until the user runs them.
 
 Only a fenced code block with the exact info string `cljs loom` is executable. Ordinary `cljs` fences and inline code are examples. Click **Run trusted code** to evaluate one snippet at its position. Snippets share the session's `loom.user` namespace. `(loom.core/items)` returns item summaries; `(loom.core/items {:tag :clojure})` filters by tag; `(loom.core/item id)` returns one full item; `(loom.core/link id label)` returns a navigable Hiccup anchor; `(loom.core/data value)` forces EDN presentation. Strings render as text, supported Hiccup as DOM, and other structured values as EDN. Item-ID and item-list/tag reads trigger selective refresh while the card stays open. Changing a card's Markdown requires running its snippets again. Generated output is not stored in the item body.
 
 **Run only code you trust.** Scittle snippets can use `js/globalThis` to access browser JavaScript; Hiccup validation is not a code sandbox. Opening, searching, or embedding an item never runs its snippets. **Edit code** opens a structural editor for that fence only; Ctrl+Right slurps, Ctrl+Left barfs, Ctrl+Up splices, and Ctrl+Down wraps a form. Apply changes only the code span; Cancel keeps the Markdown source unchanged.
 
-`npm run test:loom` runs the current Loom model and standalone artifact tests. The complete `npm test` command includes them.
+`npm run test:loom` runs the current Loom model, workspace, persistence, rendering, snippet, structural-editor, and standalone artifact tests. The complete `npm test` command includes them.
 
 ## Source layout
 
