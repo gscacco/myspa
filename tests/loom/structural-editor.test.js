@@ -62,3 +62,17 @@ test('deletion moves across structural delimiters without removing them', () => 
   }
   dom.window.close();
 });
+
+test('keyboard slurp and barf handle reader-prefixed forms and comments', () => {
+  const dom = new JSDOM('<textarea></textarea>');
+  const textarea = dom.window.document.querySelector('textarea');
+  attachStructuralEditor(textarea);
+  textarea.value = '(a) #(inc %)'; textarea.setSelectionRange(2, 2);
+  textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', ctrlKey: true, bubbles: true, cancelable: true }));
+  assert.equal(textarea.value, '(a #(inc %))');
+  textarea.value = '(a b ; note\n c)'; textarea.setSelectionRange(textarea.value.indexOf('c'), textarea.value.indexOf('c'));
+  textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', ctrlKey: true, bubbles: true, cancelable: true }));
+  assert.equal(textarea.value, '(a b) ; note\n c');
+  assert.equal(textarea.selectionStart, 14);
+  dom.window.close();
+});

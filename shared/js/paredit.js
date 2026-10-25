@@ -40,11 +40,32 @@ function matchAt(text, i) {
   return -1;
 }
 
+function nextFormEnd(text, i) {
+  i = skipWS(text, i);
+  return i < text.length ? formEnd(text, i) : null;
+}
+
 function formEnd(text, i) {
   const c = text[i];
   if (c === undefined) return null;
   if (c === '"') return skipStr(text, i);
   if (OPENERS.includes(c)) { const m = matchAt(text, i); return m < 0 ? null : m + 1; }
+  if (c === '#' && text[i + 1] === '"') return skipStr(text, i + 1);
+  if (c === '#' && OPENERS.includes(text[i + 1])) {
+    const m = matchAt(text, i + 1); return m < 0 ? null : m + 1;
+  }
+  if (c === '#') {
+    let j = i + 1;
+    while (j < text.length && !/[\s,()\[\]{}";]/.test(text[j])) j++;
+    return nextFormEnd(text, j) ?? (j === i + 1 ? i + 1 : j);
+  }
+  if (c === '^') {
+    const metaEnd = nextFormEnd(text, i + 1);
+    return metaEnd === null ? null : nextFormEnd(text, metaEnd) ?? metaEnd;
+  }
+  if (c === "'" || c === '`' || c === '@' || c === '~') {
+    return nextFormEnd(text, i + (text[i + 1] === '@' ? 2 : 1));
+  }
   let j = i;
   while (j < text.length && !/[\s,()\[\]{}";]/.test(text[j])) j++;
   return j === i ? i + 1 : j;
@@ -119,8 +140,14 @@ export function pareditBarf(text, pos) {
   if (!forms.length) return null;
   const last = forms[forms.length - 1];
   const prevEnd = forms.length > 1 ? forms[forms.length - 2].end : p.open + 1;
-  const region = p.cc + ' ' + text.slice(last.start, p.close).replace(/\s+$/, '');
-  return { from: prevEnd, to: p.close + 1, text: region, caret: Math.min(pos, prevEnd + region.length) };
+  const gap = text.slice(prevEnd, last.start) || ' ';
+  const moved = text.slice(last.start, p.close).replace(/\s+$/, '');
+  const region = p.cc + gap + moved;
+  const movedStart = prevEnd + p.cc.length + gap.length;
+  const caret = pos <= prevEnd ? pos
+    : pos < last.start ? prevEnd + p.cc.length + (pos - prevEnd)
+      : movedStart + Math.min(moved.length, pos - last.start);
+  return { from: prevEnd, to: p.close + 1, text: region, caret };
 }
 
 export function pareditSplice(text, pos) {

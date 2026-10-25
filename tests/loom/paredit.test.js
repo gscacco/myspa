@@ -30,3 +30,31 @@ test('deletion protects delimiter types and ignores delimiters inside strings an
 test('mismatched partial forms are not treated as structural pairs', () => {
   assert.equal(pareditSlurp('(a] b', 2), null);
 });
+
+test('slurp and barf keep reader-prefixed forms intact', () => {
+  for (const [source, expected] of [
+    ['(a) #(inc %)', '(a #(inc %))'],
+    ['(a) #{:x}', '(a #{:x})'],
+    ['(a) #"x y"', '(a #"x y")'],
+    ['(a) #js {:x 1}', '(a #js {:x 1})'],
+    ["(a) 'b", "(a 'b)"],
+    ['(a) @b', '(a @b)'],
+    ['(a) ^:private b', '(a ^:private b)'],
+  ]) {
+    assert.equal(apply(source, pareditSlurp(source, 2)), expected, source);
+  }
+  assert.equal(apply('(a #(inc %))', pareditBarf('(a #(inc %))', 2)), '(a) #(inc %)');
+  assert.equal(apply('(a #{:x})', pareditBarf('(a #{:x})', 2)), '(a) #{:x}');
+  assert.equal(apply('(a #"x y")', pareditBarf('(a #"x y")', 2)), '(a) #"x y"');
+});
+
+test('barf preserves comments and keeps the cursor with the moved form', () => {
+  const source = '(a b ; note\n c)';
+  const barfed = pareditBarf(source, source.indexOf('c'));
+  assert.equal(apply(source, barfed), '(a b) ; note\n c');
+  assert.equal(barfed.caret, 14);
+
+  const simple = pareditBarf('(a b c)', 5);
+  assert.equal(apply('(a b c)', simple), '(a b) c');
+  assert.equal(simple.caret, 6);
+});
