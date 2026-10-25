@@ -87,7 +87,7 @@ button:disabled{opacity:.45;cursor:default}
 .snippet-highlight .n{color:#9b4f16}
 .snippet-highlight .k{color:#8d2f87;font-weight:600}
 .snippet-highlight .b{color:#166b7c;font-weight:600}
-.snippet-editor textarea{position:relative;z-index:1;overflow:auto;border-color:#a6b5db;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#202735;resize:vertical}
+.snippet-editor textarea{position:relative;z-index:1;overflow:auto;border-color:#a6b5db;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#202735;resize:vertical;padding-top:calc(.6rem + 1px)}
 .snippet-editor [role=alert]{margin:0;color:#96352c;width:100%}
 @media(max-width:700px){
   #loom-app{height:auto;min-height:100vh;overflow:visible}
