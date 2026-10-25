@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inlineBundle } from './build.js';
+import { SCITTLE_NOTICE } from '../loom/js/third-party-notices.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -27,7 +28,7 @@ export async function buildLoomArtifact({ minify = true } = {}) {
     }),
   ]);
   const css = minify ? (await transform(cssSource, { loader: 'css', minify: true, charset: 'utf8' })).code : cssSource;
-  const output = inlineBundle(html, css, result.outputFiles[0].text, vendor);
+  const output = inlineBundle(html, css, result.outputFiles[0].text, `${SCITTLE_NOTICE}\n${vendor}`);
   const destination = join(ROOT, 'dist/loom.html');
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, output, 'utf8');
