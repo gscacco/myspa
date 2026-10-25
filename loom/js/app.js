@@ -292,16 +292,59 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const highlight = document.createElement('pre'); highlight.className = 'snippet-highlight';
     highlight.setAttribute('aria-hidden', 'true');
     const code = document.createElement('code'); highlight.append(code);
+    const caret = document.createElement('span'); caret.className = 'snippet-caret'; caret.hidden = true;
+    caret.setAttribute('aria-hidden', 'true');
+
+    function caretRect(offset) {
+      const walker = document.createTreeWalker(code, 4);
+      let remaining = Math.max(0, offset), node = walker.nextNode();
+      while (node && remaining > node.data.length) {
+        remaining -= node.data.length; node = walker.nextNode();
+      }
+      const range = document.createRange();
+      if (node) {
+        range.setStart(node, remaining); range.collapse(true);
+      } else {
+        range.selectNodeContents(code); range.collapse(false);
+      }
+      const marker = document.createElement('span'); marker.textContent = '\u200b';
+      range.insertNode(marker);
+      const rect = marker.getBoundingClientRect();
+      marker.remove();
+      return rect;
+    }
+
+    function syncCaret() {
+      const focused = document.activeElement === textarea;
+      const start = textarea.selectionStart;
+      if (!focused || start !== textarea.selectionEnd || !code.isConnected) {
+        caret.hidden = true; return;
+      }
+      const rect = caretRect(start);
+      const highlightRect = highlight.getBoundingClientRect();
+      const lineHeight = Number.parseFloat(window.getComputedStyle(field).lineHeight) || 21;
+      const leading = Math.max(0, (lineHeight - rect.height) / 2);
+      caret.style.left = `${rect.left - highlightRect.left - highlight.clientLeft + highlight.scrollLeft}px`;
+      caret.style.top = `${rect.top - highlightRect.top - highlight.clientTop + highlight.scrollTop - leading}px`;
+      caret.style.height = `${lineHeight}px`;
+      caret.hidden = false;
+    }
+
     const syncScroll = () => {
       highlight.scrollTop = textarea.scrollTop; highlight.scrollLeft = textarea.scrollLeft;
     };
     const sync = () => {
       code.replaceChildren(highlightClojure(document, textarea.value + (textarea.value.endsWith('\n') ? ' ' : '')));
-      syncScroll();
+      syncScroll(); syncCaret();
     };
     textarea.spellcheck = false;
     textarea.addEventListener('input', sync);
     textarea.addEventListener('scroll', syncScroll);
+    for (const event of ['keyup', 'select', 'click', 'focus']) {
+      textarea.addEventListener(event, syncCaret);
+    }
+    textarea.addEventListener('blur', () => { caret.hidden = true; });
+    highlight.append(caret);
     field.append(highlight, textarea);
     sync();
     return field;

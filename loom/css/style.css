@@ -79,16 +79,20 @@ button:disabled{opacity:.45;cursor:default}
 .snippet-editor-actions{position:absolute;top:.45rem;right:.45rem;display:flex;gap:.2rem}
 .snippet-editor-actions .icon-button{width:1.9rem;height:1.9rem}
 .snippet-editor label{display:grid;gap:.25rem;width:100%;font-weight:600}
-.snippet-code-field{display:grid;width:100%;min-height:8rem;font-size:14px;line-height:21px}
+.snippet-code-field{position:relative;display:grid;width:100%;min-height:8rem;font-size:14px;line-height:21px}
 .snippet-highlight,.snippet-editor textarea{grid-area:1/1;width:100%;min-height:8rem;margin:0;padding:.6rem;border:1px solid transparent;border-radius:5px;font:inherit;line-height:21px;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
-.snippet-highlight{overflow:auto;pointer-events:none;background:#fff;color:#202735}
+.snippet-highlight{position:relative;overflow:auto;pointer-events:none;background:#fff;color:#202735}
 .snippet-highlight code{font:inherit}
+.snippet-caret{position:absolute;z-index:2;width:1px;background:#202735;pointer-events:none;animation:loom-caret-blink 1.06s step-end infinite}
+.snippet-caret[hidden]{display:none}
+@keyframes loom-caret-blink{0%,45%{opacity:1}50%,95%{opacity:0}100%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.snippet-caret{animation:none}}
 .snippet-highlight .c{color:#7f887f;font-style:italic}
 .snippet-highlight .s{color:#2f7b47}
 .snippet-highlight .n{color:#9b4f16}
 .snippet-highlight .k{color:#8d2f87;font-weight:600}
 .snippet-highlight .b{color:#166b7c;font-weight:600}
-.snippet-editor textarea{position:relative;z-index:1;overflow:auto;border-color:#a6b5db;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:#202735;resize:vertical}
+.snippet-editor textarea{position:relative;z-index:1;overflow:auto;border-color:#a6b5db;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:transparent;resize:vertical}
 .snippet-editor [role=alert]{margin:0;color:#96352c;width:100%}
 @media(max-width:700px){
   #loom-app{height:auto;min-height:100vh;overflow:visible}

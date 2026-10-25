@@ -50,6 +50,33 @@ test('structural snippet editing changes only its code and retains other cards',
   assert.equal(dom.window.getComputedStyle(textarea).whiteSpace, 'pre-wrap');
   assert.notEqual(textarea.wrap, 'off');
   assert.equal(dom.window.getComputedStyle(textarea).paddingTop, dom.window.getComputedStyle(highlight).paddingTop);
+  const caret = field.querySelector('.snippet-caret');
+  assert.ok(caret);
+  assert.equal(dom.window.getComputedStyle(caret).position, 'absolute');
+  assert.match(dom.window.getComputedStyle(textarea).caretColor, /^transparent$|^rgba\(0, 0, 0, 0\)$/);
+  assert.equal(caret.hidden, false);
+  textarea.setSelectionRange(1, 2);
+  textarea.dispatchEvent(new dom.window.Event('select', { bubbles: true }));
+  assert.equal(caret.hidden, true);
+  textarea.setSelectionRange(1, 1);
+  const nativeRect = dom.window.Element.prototype.getBoundingClientRect;
+  dom.window.Element.prototype.getBoundingClientRect = function () {
+    if (this.classList?.contains('snippet-highlight')) {
+      return { left: 100, top: 50, width: 300, height: 200 };
+    }
+    if (this.textContent === '\u200b') return { left: 145, top: 74, width: 0, height: 17 };
+    return nativeRect.call(this);
+  };
+  textarea.dispatchEvent(new dom.window.KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+  assert.equal(caret.hidden, false);
+  assert.equal(caret.style.left, '45px');
+  assert.equal(caret.style.top, '22px');
+  assert.equal(caret.style.height, '21px');
+  textarea.dispatchEvent(new dom.window.Event('blur'));
+  assert.equal(caret.hidden, true);
+  textarea.focus();
+  textarea.dispatchEvent(new dom.window.Event('focus'));
+  assert.equal(caret.hidden, false);
   textarea.value = '(def greeting "hello")';
   textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   assert.equal(highlight.textContent, '(def greeting "hello")');
