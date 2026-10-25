@@ -5,6 +5,7 @@ import { createSnippetRuntime } from './runtime.js';
 import { applySnippetEdit, findSnippetSpan } from './snippet-source.js';
 import { attachStructuralEditor } from './structural-editor.js';
 import { createEDNFileIO } from './files.js';
+import { readLocalKnowledgeBase, writeLocalKnowledgeBase } from './local-store.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
 const ACTION_ICONS = {
@@ -15,9 +16,10 @@ const ACTION_ICONS = {
   edit: 'M4 20h4L18 10l-4-4L4 16v4zM13 7l4 4',
 };
 
-export function createLoomApp({ document, window, base: initial = emptyKnowledgeBase(), saveFile, chooseFile, confirmReplace, confirmDelete } ) {
-  let base = validateKnowledgeBase(initial);
+export function createLoomApp({ document, window, base: initial = emptyKnowledgeBase(), saveFile, chooseFile, confirmReplace, confirmDelete, storage = null } ) {
+  let base = validateKnowledgeBase(readLocalKnowledgeBase(storage) ?? initial);
   let dirty = false;
+  let localSaveFailed = false;
   const fileIO = createEDNFileIO({ window, document });
   saveFile ||= fileIO.save;
   chooseFile ||= fileIO.choose;
@@ -41,7 +43,12 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   let draftSequence = 0;
   let newDraft = null;
 
-  function report(message = '') { status.textContent = message || `${base.items.length} items${isDirty() ? ' · Unsaved changes' : ''}`; }
+  function report(message = '') {
+    const suffix = newDraft || hasDraft() ? ' · Unsaved draft'
+      : !storage ? (dirty ? ' · Unsaved changes' : '')
+        : localSaveFailed ? ' · Local save failed' : ' · Saved locally';
+    status.textContent = message || `${base.items.length} items${suffix}`;
+  }
   function isDraft(id) { return newDraft?.id === id; }
   function itemFor(id) { return isDraft(id) ? newDraft.item : base.items.find(item => item.id === id); }
   function hasDraft() {
@@ -58,6 +65,12 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     return false;
   }
   function isDirty() { return dirty || newDraft !== null || hasDraft(); }
+
+  function persistLocal() {
+    if (!storage) return false;
+    localSaveFailed = !writeLocalKnowledgeBase(storage, base);
+    return !localSaveFailed;
+  }
 
   function icon(name) {
     const ns = 'http://www.w3.org/2000/svg';
@@ -200,7 +213,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   function commitItemChanges(id, changes) {
     const before = itemFor(id);
     base = updateItem(base, id, changes);
-    dirty = true; showItem(id, { preserveSnippets: before.body === itemFor(id).body });
+    dirty = true; persistLocal(); showItem(id, { preserveSnippets: before.body === itemFor(id).body });
     for (const [cardId, reads] of dependencies) {
       if (cardId !== id && reads.has(id) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
     }
@@ -252,7 +265,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     newDraft = null;
     openOrder = openOrder.map(id => id === draftId ? created.id : id);
     uiActiveId = created.id; dirty = true;
-    persistWorkspace();
+    persistWorkspace(); persistLocal();
     history.splice(position + 1); history.push(snapshot(base)); position++;
     sync(); refreshSearch(); notifyItemChange(null, created); report();
     cards.get(created.id)?.focus();
@@ -337,6 +350,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     if (before !== JSON.stringify(base.workspace)) {
       history.splice(position + 1); history.push(snapshot(base)); position++;
       dirty = true;
+      persistLocal();
     }
     sync();
   }
@@ -369,7 +383,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     base = deleteItem(base, id); openOrder = openOrder.filter(openId => openId !== id);
     if (uiActiveId === id) uiActiveId = openOrder[0] ?? null;
     dirty = true;
-    persistWorkspace();
+    persistWorkspace(); persistLocal();
     history.splice(position + 1); history.push(snapshot(base)); position++;
     sync();
     if (restoreFocus) (cards.get(uiActiveId) || search).focus();
@@ -387,6 +401,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     openOrder = [...drafts, ...openIds];
     uiActiveId = openIds.includes(state['active-id']) ? state['active-id'] : drafts[0] ?? openIds[0] ?? null;
     base = { ...base, workspace: { 'open-ids': openIds, 'active-id': openIds.includes(state['active-id']) ? state['active-id'] : openIds[0] ?? null } };
+    persistLocal();
     sync();
   }
 
@@ -462,6 +477,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     cards.clear(); dependencies.clear(); editingPreviews.clear(); workspace.replaceChildren();
     newDraft = null; base = imported; dirty = false;
     openOrder = [...base.workspace['open-ids']]; uiActiveId = base.workspace['active-id'];
+    persistLocal();
     history.splice(0, history.length, snapshot(base)); position = 0;
     sync(); refreshSearch(); report('Knowledge base imported');
     return true;
@@ -482,7 +498,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     try { const file = await chooseFile(); if (file) importEDN(await file.text()); }
     catch (error) { report(`Import failed: ${error.message}`); }
   });
-  window.addEventListener('beforeunload', event => { if (isDirty()) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('beforeunload', event => {
+    if (newDraft || hasDraft() || (!(storage && !localSaveFailed) && dirty)) { event.preventDefault(); event.returnValue = ''; }
+  });
   sync(); document.querySelector('#loom-app').dataset.ready = 'true';
   return { getBase: () => base, isDirty, exportEDN, importEDN, openItem, focusItem, closeItem, deleteItem: deleteKnowledgeItem, back: () => travel(-1), forward: () => travel(1) };
 }

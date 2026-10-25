@@ -25,6 +25,7 @@
 
 ## Persistence and security
 
+- Create and edit items, reload the page without exporting, and confirm items and open-card order are restored from local storage.
 - Save, reload, and import an EDN file; confirm items and open-card order round-trip.
 - Cancel save and import; confirm current edits and drafts remain unchanged.
 - Import malformed, unsupported, and hostile EDN; confirm the current knowledge base is preserved.
