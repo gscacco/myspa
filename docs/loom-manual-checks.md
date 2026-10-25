@@ -17,17 +17,20 @@
 
 ## Editing and rendering
 
-- Render headings, lists, quotes, tables, code examples, links, whole-item transclusion, and section transclusion.
+- Render headings, lists, quotes, tables, code examples, links, whole-item and section transclusion; confirm `![[item:...]]` content appears inside the same bordered/light-blue surface as executable ClojureScript output, has no action buttons, and refreshes after editing its source.
 - Insert `[[item:...]]` links by typing `[[`; verify the picker groups title/tag matches first, works by mouse and keyboard, inserts only the stable-ID reference, and closes with Escape.
+- Start editing an item with tags used by other cards, focus the Tags field, and confirm the suggestion list filters while typing, excludes tags already entered, inserts the mouse/`Enter`/`Tab` choice in place of the current token, and closes with Escape.
 - Use every formatting-toolbar control with a selection, a multi-line selection, and a collapsed cursor; confirm only the intended Markdown changes, focus returns to the field, and Ctrl/Cmd+B and Ctrl/Cmd+I work.
-- Insert an executable block from the toolbar, enter code, Apply, and confirm the rendered output replaces the source until the item is edited again.
+- Insert an executable block from the toolbar, enter code, Apply, and confirm the rendered output replaces the source at the same top height as the single translucent Edit control until the item is edited again; confirm the Edit control becomes fully visible on hover and focus.
 - Rename a linked item and confirm every Markdown link displays the new title without rewriting source; delete it and confirm the reference becomes unresolved rather than resolving by title.
 - Confirm link-like text in inline code, `clojure` examples, display-only fences, and executable source stays inert.
 - Confirm raw HTML, unsafe URLs, unsupported images, and unsupported Hiccup remain inert or produce local diagnostics.
-- Confirm missing sections, transclusion cycles, and nesting limits fail locally without breaking unrelated content.
+- Confirm an item transcluding itself and an indirect cycle across multiple items both show a local diagnostic without breaking sibling content; repeat with a section target. Confirm nesting limits also fail locally.
 - Open two snippet editors in one item, change the second, and verify save and leave protection still detect the draft.
 - Exercise Paredit operations with nested delimiters, strings, comments, and partial forms; verify surrounding Markdown is unchanged.
 - Slurp and barf reader-prefixed forms such as `#(inc %)`, `#{:x}`, `#"a b"`, `'x`, and `@x`; confirm each moves as one form. Barf a form after a comment and confirm the comment is retained and the cursor stays on the moved form.
+- With the cursor inside a list preceded by another expression, press Ctrl+Shift+Right and confirm backward slurp pulls that expression into the list without moving the cursor. Press Ctrl+Shift+Left and confirm backward barf expels the first form to the left while keeping the cursor in place. Repeat with `[]` and `{}` and confirm the delimiters stay balanced.
+- Put the cursor immediately after a closed collection but before its parent's closing delimiter, with a form after the parent, as in `(a [b]|) c`; press Ctrl+Right and confirm the parent slurps the following form instead of moving the inner collection's close over `)`.
 - Type a comment, string, keyword, number, built-in call, and special form in a snippet editor; confirm the classic Courier New monospace glyphs are used, colors and the custom caret update while typing, no native caret is visible, and text and caret stay aligned after wrapping and scrolling. Select text or move focus away and confirm the custom caret disappears; return focus and confirm it reappears at the saved position.
 - Place the cursor after each of `)`, `]`, `}`, and the closing `"`, press Backspace, and confirm the source is unchanged while the cursor moves left. Repeat before each opening delimiter with Delete and confirm the cursor moves right.
 - Render `clojurescript` and legacy `cljs loom` blocks; confirm they execute automatically, item editing shows their source, `clojure` remains display-only and highlighted, and `cljs` remains an ordinary example.
