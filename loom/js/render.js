@@ -163,15 +163,14 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
       case 'code': {
         if (isExecutableLanguage(token.lang) && !ctx.transcluded) {
           node = ctx.document.createElement('div'); node.className = 'loom-snippet';
-          const run = ctx.document.createElement('button'); run.type = 'button'; run.textContent = 'Run trusted code'; run.dataset.action = 'run-snippet';
           const ordinal = ctx.snippetCounter ? ctx.snippetCounter.value++ : 0;
           const edit = ctx.document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit code';
           edit.dataset.action = 'edit-snippet';
           const code = ctx.document.createElement('pre'); code.textContent = token.text;
+          code.className = 'snippet-source'; code.hidden = true;
           const output = ctx.document.createElement('div'); output.className = 'snippet-output';
-          run.addEventListener('click', () => ctx.onRun?.({ source: token.text, output, run }));
           edit.addEventListener('click', () => ctx.onEditSnippet?.({ ordinal, source: token.text, node }));
-          node.append(run, edit, code, output);
+          node.append(edit, code, output);
         } else {
           node = ctx.document.createElement('pre'); const code = ctx.document.createElement('code');
           if (isClojureLanguage(token.lang)) code.append(highlightClojure(ctx.document, token.text));

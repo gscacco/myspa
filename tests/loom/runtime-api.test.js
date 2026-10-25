@@ -69,7 +69,6 @@ test('dynamic links follow the shared workspace rules and refresh when their tar
   const app = createLoomApp({ document: dom.window.document, window: dom.window, base: value, confirmDelete: () => true });
   app.openItem(B);
   const query = dom.window.document.querySelector(`[data-item-id="${B}"]`);
-  query.querySelector('[data-action="run-snippet"]').click();
   assert.equal(query.querySelector('.snippet-output a').textContent, 'Target');
   query.querySelector('.snippet-output a').click();
   assert.deepEqual(app.getBase().workspace['open-ids'], [A, B]);
@@ -94,7 +93,6 @@ test('direct Hiccup loom links also rerun when the target title changes', async 
   const app = createLoomApp({ document: dom.window.document, window: dom.window, base: value });
   app.openItem(B);
   const query = dom.window.document.querySelector(`[data-item-id="${B}"]`);
-  query.querySelector('[data-action="run-snippet"]').click();
   assert.equal(query.querySelector('.snippet-output a').textContent, 'Target');
 
   app.openItem(A);

@@ -58,6 +58,9 @@ button:disabled{opacity:.45;cursor:default}
 .item-form label{display:grid;gap:.2rem;font-weight:600}
 .item-form input,.item-form textarea{border:1px solid #bdb3a8;border-radius:7px;padding:.5rem;font-weight:400}
 .item-form textarea{min-height:14rem;resize:vertical;font-family:ui-monospace,monospace}
+.body-field{display:grid;gap:.35rem}
+.format-toolbar{display:flex;flex-wrap:wrap;gap:.18rem;padding:.25rem;background:#f3f0e9;border:1px solid #d8cfc2;border-radius:8px}
+.format-button{width:1.9rem;height:1.9rem}
 .link-completion{position:absolute;z-index:20;width:min(26rem,calc(100vw - 3rem));max-height:18rem;overflow-y:auto;padding:.45rem;background:#fff;border:1px solid #b7c1d8;border-radius:9px;box-shadow:0 10px 30px #27344d2e}
 .link-completion-empty{margin:.35rem .5rem;color:#746b61;font-size:.85rem}
 .link-completion-option.active{background:#e8edf8}
@@ -70,6 +73,7 @@ button:disabled{opacity:.45;cursor:default}
 .loom-snippet{border:1px solid #d7dded;border-radius:8px;padding:.7rem;margin:.9rem 0;background:#f9faff}
 .snippet-output{margin-top:.5rem}
 .loom-snippet>button{margin-right:.4rem}
+.loom-snippet>[data-action=edit-snippet]{margin:0 0 .4rem;padding:.2rem .45rem;font-size:.78rem;color:#4d5f8a}
 .snippet-editor{display:flex;gap:.5rem;flex-wrap:wrap;padding:.8rem;background:#edf1fb;border-radius:6px}
 .snippet-editor label{display:grid;gap:.25rem;width:100%;font-weight:600}
 .snippet-editor textarea{width:100%;min-height:8rem;border:1px solid #a6b5db;border-radius:5px;padding:.6rem;font:.9rem/1.5 ui-monospace,monospace;resize:vertical}

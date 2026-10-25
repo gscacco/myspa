@@ -39,7 +39,7 @@ test('unsupported EDN reader forms are rejected before replacement', async () =>
   dom.window.close();
 });
 
-test('imported hostile Markdown stays inert and imported snippets do not run', async () => {
+test('imported hostile Markdown stays inert while rendered snippets execute as trusted code', async () => {
   const body = [
     '# Imported',
     '<script>globalThis.__loomImportExecuted = true</script>',
@@ -47,7 +47,7 @@ test('imported hostile Markdown stays inert and imported snippets do not run', a
     '[bad](javascript:globalThis.__loomImportExecuted=true)',
     '![remote](https://example.test/image.png)',
     '~~~cljs loom',
-    '(set! js/globalThis.__loomImportExecuted true)',
+    '(set! (.-__loomImportExecuted js/globalThis) true)',
     '~~~',
   ].join('\n\n');
   let importedBase = addItem(emptyKnowledgeBase(), { title: 'Hostile', body }, { id: A, now: NOW });
@@ -56,14 +56,14 @@ test('imported hostile Markdown stays inert and imported snippets do not run', a
   try {
     const { app, dom, document } = await mount();
     assert.equal(app.importEDN(writeKnowledgeBase(importedBase)), true);
-    assert.equal(globalThis.__loomImportExecuted, false);
+    assert.equal(globalThis.__loomImportExecuted, true);
     assert.equal(document.querySelector('.item-content script'), null);
     assert.equal(document.querySelector('.item-content img'), null);
     assert.equal(document.querySelector('.item-content a[href^="javascript"]'), null);
     assert.match(document.querySelector('.item-content').textContent, /<script>globalThis/);
     assert.match(document.querySelector('.item-content').textContent, /Unsafe or unsupported URL/);
     assert.match(document.querySelector('.item-content').textContent, /Unsupported image/);
-    assert.equal(document.querySelector('.snippet-output').textContent, '');
+    assert.equal(document.querySelector('.snippet-output').textContent, 'true');
     dom.window.close();
   } finally {
     delete globalThis.__loomImportExecuted;

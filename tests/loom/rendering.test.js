@@ -74,13 +74,14 @@ test('missing sections and excessive transclusion depth fail locally', () => {
   ctx.dom.window.close();
 });
 
-test('only the exact cljs loom fence creates a Run control', () => {
+test('only executable fence markers create Loom snippet blocks', () => {
   const ctx = context();
   const fence = (lang) => ['~~~' + lang, '(+ 1 2)', '~~~'].join('\n');
   const host = ctx.document.querySelector('main');
   host.append(renderMarkdown(`${fence('cljs')}\n\n${fence('cljs loom')}`, ctx));
   assert.equal(host.querySelectorAll('.loom-snippet').length, 1);
   assert.equal(host.querySelectorAll('pre code').length, 1);
+  assert.equal(host.querySelector('[data-action="run-snippet"]'), null);
   ctx.dom.window.close();
 });
 

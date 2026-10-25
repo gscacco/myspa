@@ -44,7 +44,7 @@ test('oversized generated collections fail explicitly instead of being truncated
   assert.throws(() => runtime.run('(range 1001)'), /limit/i);
 });
 
-test('opening never runs a snippet; Run shows a text result at its fence', async () => {
+test('rendering executes a snippet automatically and shows a text result at its fence', async () => {
   const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
   const dom = new JSDOM(html, { url: 'http://localhost/' });
   const body = 'Before\n\n~~~cljs loom\n(str "<b>literal</b>")\n~~~\n\nAfter';
@@ -52,10 +52,9 @@ test('opening never runs a snippet; Run shows a text result at its fence', async
   const app = createLoomApp({ document: dom.window.document, window: dom.window, base });
   app.openItem(A);
   const card = dom.window.document.querySelector(`[data-item-id="${A}"]`);
-  assert.equal(card.querySelector('.snippet-output').textContent, '');
-  card.querySelector('.loom-snippet button').click();
   assert.equal(card.querySelector('.snippet-output').textContent, '<b>literal</b>');
   assert.equal(card.querySelector('.snippet-output b'), null);
+  assert.equal(card.querySelector('[data-action="run-snippet"]'), null);
   assert.match(card.textContent, /Before.*literal.*After/s);
   dom.window.close();
 });
@@ -68,8 +67,6 @@ test('a failing snippet reports locally and does not prevent its sibling from ru
   const app = createLoomApp({ document: dom.window.document, window: dom.window, base });
   app.openItem(A);
   const card = dom.window.document.querySelector(`[data-item-id="${A}"]`);
-  const runs = card.querySelectorAll('[data-action="run-snippet"]');
-  runs[0].click(); runs[1].click();
   assert.ok(card.querySelector('.loom-snippet [role="alert"]'));
   assert.equal(card.querySelectorAll('.snippet-output')[1].textContent, 'Working');
   assert.match(card.textContent, /Start.*Middle.*End/s);

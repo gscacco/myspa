@@ -26,9 +26,11 @@ test('only clojurescript and the legacy marker create executable blocks', () => 
   dom.window.document.querySelector('main').append(renderMarkdown(body, ctx));
   const snippets = dom.window.document.querySelectorAll('.loom-snippet');
   assert.equal(snippets.length, 2);
-  assert.equal(snippets[0].querySelector('[data-action="run-snippet"]').textContent, 'Run trusted code');
   assert.equal(snippets[1].querySelector('pre').textContent, '"Legacy executable"');
-  assert.equal(dom.window.document.querySelectorAll('[data-action="run-snippet"]').length, 2);
+  assert.equal(snippets[0].querySelector('pre').hidden, true);
+  assert.equal(snippets[1].querySelector('pre').hidden, true);
+  assert.equal(dom.window.document.querySelectorAll('[data-action="edit-snippet"]').length, 2);
+  assert.equal(dom.window.document.querySelectorAll('[data-action="run-snippet"]').length, 0);
   assert.equal([...dom.window.document.querySelectorAll('pre code')].length, 2);
   dom.window.close();
 });
@@ -67,10 +69,9 @@ test('clojurescript blocks evaluate through Scittle and keep output separate fro
   app.openItem(A);
   const card = dom.window.document.querySelector(`[data-item-id="${A}"]`);
   assert.equal(card.querySelectorAll('.loom-snippet').length, 1);
-  assert.equal(card.querySelector('.snippet-output').textContent, '');
-  card.querySelector('[data-action="run-snippet"]').click();
   assert.equal(card.querySelector('.snippet-output').textContent, 'runtime-3');
   assert.match(card.querySelector('.loom-snippet pre').textContent, /runtime-/);
+  assert.equal(card.querySelector('.loom-snippet pre').hidden, true);
   assert.equal(app.getBase().items[0].body, body);
   dom.window.close();
 });

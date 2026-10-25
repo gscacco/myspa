@@ -23,7 +23,6 @@ test('active snippets rerun only for observed item and tag dependencies', async 
     const app = createLoomApp({ document: dom.window.document, window: dom.window, base });
     app.openItem(C);
     const card = dom.window.document.querySelector(`[data-item-id="${C}"]`);
-    for (const button of card.querySelectorAll('[data-action="run-snippet"]')) button.click();
     assert.deepEqual(globalThis.__loomProbe, { tag: 1, item: 1 });
     const edit = (id, name, value) => {
       app.openItem(id);

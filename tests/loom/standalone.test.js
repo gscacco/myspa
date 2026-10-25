@@ -35,7 +35,6 @@ test('Loom evaluates clojurescript blocks offline and ships Scittle attribution'
   draft.elements.body.value = '~~~clojurescript\n(str "offline-" (+ 20 22))\n~~~';
   draft.closest('.item-card').querySelector('[data-action="apply"]').click();
   const card = dom.window.document.querySelector('.item-card');
-  card.querySelector('[data-action="run-snippet"]').click();
   assert.equal(card.querySelector('.snippet-output').textContent, 'offline-42');
   assert.deepEqual(errors, []);
   dom.window.close();

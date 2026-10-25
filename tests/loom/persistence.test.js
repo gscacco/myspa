@@ -104,10 +104,10 @@ test('an unapplied draft in any snippet editor blocks saving', async () => {
   dom.window.close();
 });
 
-test('importing a file with executable snippets never runs them', async () => {
+test('importing a file executes snippets when their items are rendered', async () => {
   const html = await readFile(new URL('../../loom/index.html', import.meta.url), 'utf8');
   const dom = new JSDOM(html, { url: 'http://localhost/' });
-  const body = '~~~cljs loom\n(set! js/globalThis.__loomImportProbe 1)\n~~~';
+  const body = '~~~cljs loom\n(set! (.-__loomImportProbe js/globalThis) 1)\n~~~';
   let base = addItem(emptyKnowledgeBase(), { title: 'Imported code', body }, { id: A, now: NOW });
   base = { ...base, workspace: { 'open-ids': [A], 'active-id': A } };
   globalThis.__loomImportProbe = 0;
@@ -118,7 +118,7 @@ test('importing a file with executable snippets never runs them', async () => {
     });
     dom.window.document.querySelector('#import-edn').click();
     await new Promise(resolve => dom.window.setTimeout(resolve, 0));
-    assert.equal(globalThis.__loomImportProbe, 0);
-    assert.equal(dom.window.document.querySelector('.snippet-output')?.textContent, '');
+    assert.equal(globalThis.__loomImportProbe, 1);
+    assert.equal(dom.window.document.querySelector('.snippet-output')?.textContent, '1');
   } finally { delete globalThis.__loomImportProbe; dom.window.close(); }
 });

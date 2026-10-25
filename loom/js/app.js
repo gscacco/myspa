@@ -8,6 +8,7 @@ import { createEDNFileIO } from './files.js';
 import { readLocalKnowledgeBase, writeLocalKnowledgeBase } from './local-store.js';
 import { searchItems } from './item-search.js';
 import { attachLinkCompletion } from './link-completion.js';
+import { MARKDOWN_FORMATS, applyMarkdownFormat } from './markdown-toolbar.js';
 
 const snapshot = base => ({ 'open-ids': [...base.workspace['open-ids']], 'active-id': base.workspace['active-id'] });
 const ACTION_ICONS = {
@@ -16,6 +17,15 @@ const ACTION_ICONS = {
   close: 'M6 6l12 12M18 6L6 18',
   delete: 'M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13',
   edit: 'M4 20h4L18 10l-4-4L4 16v4zM13 7l4 4',
+  bold: 'M7 5h6a4 4 0 010 8H7zM7 13h7a4 4 0 010 8H7z',
+  italic: 'M10 5h8M6 19h8M14 5l-4 14',
+  strikethrough: 'M5 12h14M8 7c1-2 3-3 5-3 3 0 5 1 5 4M8 17c1 2 3 3 5 3 3 0 5-1 5-4',
+  'inline-code': 'M9 7l-5 5 5 5M15 7l5 5-5 5',
+  heading: 'M5 5v14M19 5v14M5 12h14',
+  'bullet-list': 'M5 7h.01M5 12h.01M5 17h.01M9 7h10M9 12h10M9 17h10',
+  blockquote: 'M5 6h4v7H5zM5 16v2M15 6h4v7h-4zM15 16v2',
+  'item-link': 'M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1',
+  'executable-code': 'M8 8l-4 4 4 4M16 8l4 4-4 4M12 5v14',
 };
 
 export function createLoomApp({ document, window, base: initial = emptyKnowledgeBase(), saveFile, chooseFile, confirmReplace, confirmDelete, storage = null } ) {
@@ -31,7 +41,6 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
   let position = 0;
   const cards = new Map();
   const dependencies = new Map();
-  const editingPreviews = new Map();
   const activeSnippets = new Map();
   let snippetRuntime = null;
   const workspace = document.querySelector('#workspace');
@@ -116,15 +125,14 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     for (const [output, subscription] of activeSnippets) if (subscription.itemId === id) activeSnippets.delete(output);
   }
 
-  function runSnippet(itemId, { source, output, run }) {
+  function runSnippet(itemId, { source, output }) {
     try {
       const { value, dependencies: reads } = runtime().run(source);
       const rendered = renderResult(value, {
         document, items: base.items, onNavigate: targetId => openItem(targetId), dependencies: reads,
       });
       output.replaceChildren(rendered);
-      activeSnippets.set(output, { itemId, source, dependencies: reads, run });
-      run.textContent = 'Run again';
+      activeSnippets.set(output, { itemId, source, dependencies: reads });
     } catch (error) {
       activeSnippets.delete(output);
       const message = document.createElement('span'); message.className = 'render-error';
@@ -133,30 +141,35 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     }
   }
 
-  function notifyItemChange(before, after) {
-    const id = after?.id || before?.id;
+  function refreshDependents(id, before, after) {
     const oldTags = before?.tags.map(tag => tag.name) || [];
     const newTags = after?.tags.map(tag => tag.name) || [];
     const summaryChanged = !before || !after || before.title !== after.title || JSON.stringify(oldTags) !== JSON.stringify(newTags);
-    for (const [output, subscription] of [...activeSnippets]) {
+    const subscriptions = [...activeSnippets];
+    const affectedCards = new Set();
+    for (const [cardId, reads] of dependencies) {
+      if (cardId !== id && reads.has(`item:${id}`)) affectedCards.add(cardId);
+    }
+    for (const cardId of affectedCards) {
+      if (cards.has(cardId) && !cards.get(cardId).querySelector('.item-form')) showItem(cardId);
+    }
+    for (const [output, subscription] of subscriptions) {
+      if (subscription.itemId === id || affectedCards.has(subscription.itemId)) continue;
       const reads = subscription.dependencies;
-      const affected = reads.has(`item:${id}`) || (summaryChanged && (reads.has('index')
+      const changed = reads.has(`item:${id}`) || (summaryChanged && (reads.has('index')
         || [...reads].some(read => read.startsWith('tag:') && (oldTags.includes(read.slice(4)) || newTags.includes(read.slice(4))))));
-      if (affected && output.isConnected) runSnippet(subscription.itemId, { source: subscription.source, output, run: subscription.run });
+      if (changed && output.isConnected) runSnippet(subscription.itemId, { source: subscription.source, output });
     }
   }
 
-  function showItem(id, { preserveSnippets = false } = {}) {
+  function showItem(id) {
     const card = cards.get(id);
     if (!card) return;
     const item = itemFor(id);
     card.querySelector('h2').textContent = item.title;
     setActions(card, id, false);
     const content = card.querySelector('.item-content');
-    if (preserveSnippets && editingPreviews.has(id)) content.replaceChildren(editingPreviews.get(id));
-    editingPreviews.delete(id);
-    const oldSnippets = preserveSnippets ? [...content.querySelectorAll('.loom-snippet')] : [];
-    if (!preserveSnippets) disposeSnippets(id);
+    disposeSnippets(id);
     const reads = new Set();
     const rendered = renderMarkdown(item.body, {
       document, items: base.items, dependencies: reads,
@@ -168,35 +181,62 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
         const offset = sectionSourceOffset(itemFor(targetId).body, section);
         if (offset !== null) { textarea.focus(); textarea.setSelectionRange(offset, offset); }
       },
-      onRun: snippet => runSnippet(id, snippet),
       onEditSnippet: snippet => editSnippet(id, snippet),
     });
-    if (preserveSnippets) {
-      const nextSnippets = [...rendered.querySelectorAll('.loom-snippet')];
-      for (const [index, next] of nextSnippets.entries()) {
-        const old = oldSnippets[index];
-        if (old && old.querySelector('pre')?.textContent === next.querySelector('pre')?.textContent) next.replaceWith(old);
-      }
-    }
     dependencies.set(id, reads);
     content.replaceChildren(rendered);
+    for (const snippet of content.querySelectorAll('.loom-snippet')) {
+      runSnippet(id, { source: snippet.querySelector('pre').textContent, output: snippet.querySelector('.snippet-output') });
+    }
+  }
+
+  function createFormatToolbar(textarea) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'format-toolbar';
+    toolbar.setAttribute('role', 'toolbar');
+    toolbar.setAttribute('aria-label', 'Markdown formatting');
+    const apply = action => {
+      const result = applyMarkdownFormat(textarea.value, textarea.selectionStart, textarea.selectionEnd, action);
+      textarea.value = result.value;
+      textarea.focus();
+      textarea.setSelectionRange(result.start, result.end);
+      textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+    };
+    for (const definition of MARKDOWN_FORMATS) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'icon-button format-button';
+      button.dataset.formatAction = definition.action;
+      button.title = definition.label; button.setAttribute('aria-label', definition.label);
+      button.append(icon(definition.icon));
+      button.addEventListener('mousedown', event => event.preventDefault());
+      button.addEventListener('click', () => apply(definition.action));
+      toolbar.append(button);
+    }
+    textarea.addEventListener('keydown', event => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const action = event.key.toLowerCase() === 'b' ? 'bold' : event.key.toLowerCase() === 'i' ? 'italic' : null;
+      if (!action) return;
+      event.preventDefault(); apply(action);
+    });
+    return toolbar;
   }
 
   function editItem(id) {
     const item = itemFor(id), card = cards.get(id);
     const content = card.querySelector('.item-content');
-    const preview = document.createDocumentFragment(); preview.append(...content.childNodes);
-    editingPreviews.set(id, preview);
     const form = document.createElement('form'); form.className = 'item-form';
     for (const [name, label, tag, value] of [
       ['title', 'Title', 'input', item.title],
       ['tags', 'Tags (space-separated keywords)', 'input', item.tags.map(tag => tag.name).join(' ')],
-      ['body', 'Markdown', 'textarea', item.body],
     ]) {
       const field = document.createElement('label'); field.textContent = label;
       const input = document.createElement(tag); input.name = name; input.value = value;
       field.append(input); form.append(field);
     }
+    const bodyField = document.createElement('div'); bodyField.className = 'body-field';
+    const bodyLabel = document.createElement('label'); bodyLabel.htmlFor = `body-${id}`; bodyLabel.textContent = 'Markdown';
+    const textarea = document.createElement('textarea'); textarea.id = `body-${id}`; textarea.name = 'body'; textarea.value = item.body;
+    bodyField.append(bodyLabel, createFormatToolbar(textarea), textarea); form.append(bodyField);
     form.addEventListener('submit', event => { event.preventDefault(); applyItem(id); });
     attachLinkCompletion(form.elements.body, { getItems: () => base.items });
     content.replaceChildren(form);
@@ -206,23 +246,14 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   function cancelEdit(id) {
     if (isDraft(id)) { discardDraft(); return; }
-    const preview = editingPreviews.get(id);
-    if (preview) {
-      const card = cards.get(id);
-      card.querySelector('.item-content').replaceChildren(preview); editingPreviews.delete(id);
-      setActions(card, id, false);
-    }
-    else showItem(id);
+    showItem(id);
   }
 
   function commitItemChanges(id, changes) {
     const before = itemFor(id);
     base = updateItem(base, id, changes);
-    dirty = true; persistLocal(); showItem(id, { preserveSnippets: before.body === itemFor(id).body });
-    for (const [cardId, reads] of dependencies) {
-      if (cardId !== id && reads.has(`item:${id}`) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
-    }
-    notifyItemChange(before, itemFor(id));
+    dirty = true; persistLocal(); showItem(id);
+    refreshDependents(id, before, itemFor(id));
     refreshSearch(); report();
   }
 
@@ -240,10 +271,9 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     const apply = document.createElement('button'); apply.type = 'button'; apply.dataset.action = 'apply-snippet'; apply.textContent = 'Apply code';
     const cancel = document.createElement('button'); cancel.type = 'button'; cancel.dataset.action = 'cancel-snippet'; cancel.textContent = 'Cancel';
     editor.append(label, apply, cancel, feedback);
-    const preview = node.querySelector('pre'); preview.hidden = true;
     node.append(editor);
     const detach = attachStructuralEditor(textarea, { onStatus: message => { feedback.textContent = message; } });
-    cancel.addEventListener('click', () => { detach(); editor.remove(); preview.hidden = false; });
+    cancel.addEventListener('click', () => { detach(); editor.remove(); });
     apply.addEventListener('click', () => {
       try {
         const body = applySnippetEdit(originalBody, itemFor(id).body, span, textarea.value);
@@ -272,7 +302,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     uiActiveId = created.id; dirty = true;
     persistWorkspace(); persistLocal();
     history.splice(position + 1); history.push(snapshot(base)); position++;
-    sync(); refreshSearch(); notifyItemChange(null, created); report();
+    sync(); refreshSearch(); refreshDependents(created.id, null, created); report();
     cards.get(created.id)?.focus();
   }
 
@@ -326,7 +356,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
 
   function sync() {
     const ids = openOrder;
-    for (const [id, card] of cards) if (!ids.includes(id)) { card.remove(); cards.delete(id); dependencies.delete(id); editingPreviews.delete(id); disposeSnippets(id); }
+    for (const [id, card] of cards) if (!ids.includes(id)) { card.remove(); cards.delete(id); dependencies.delete(id); disposeSnippets(id); }
     workspace.querySelector('.workspace-empty')?.remove();
     for (const [index, id] of ids.entries()) {
       const card = cards.get(id) || createCard(id);
@@ -392,10 +422,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     history.splice(position + 1); history.push(snapshot(base)); position++;
     sync();
     if (restoreFocus) (cards.get(uiActiveId) || search).focus();
-    for (const [cardId, reads] of dependencies) {
-      if (reads.has(`item:${id}`) && !cards.get(cardId)?.querySelector('.item-form')) showItem(cardId, { preserveSnippets: true });
-    }
-    notifyItemChange(item, null); refreshSearch(); report();
+    refreshDependents(id, item, null); refreshSearch(); report();
     return true;
   }
   function travel(delta) {
@@ -453,7 +480,7 @@ export function createLoomApp({ document, window, base: initial = emptyKnowledge
     catch (error) { report(`Import failed: ${error.message}`); return false; }
     if (isDirty() && !confirmReplace('Replace the current knowledge base and discard unsaved changes?')) return false;
     for (const id of cards.keys()) disposeSnippets(id);
-    cards.clear(); dependencies.clear(); editingPreviews.clear(); workspace.replaceChildren();
+    cards.clear(); dependencies.clear(); workspace.replaceChildren();
     newDraft = null; base = imported; dirty = false;
     openOrder = [...base.workspace['open-ids']]; uiActiveId = base.workspace['active-id'];
     persistLocal();
