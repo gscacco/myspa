@@ -71,8 +71,9 @@ test('new, edited, and deleted items persist only after Apply or Delete', async 
   reopened.dom.window.close();
 
   const created = first.app.getBase().items.find(item => item.title === 'Unapplied draft');
-  reopened = await mount(storage, emptyKnowledgeBase(), { confirmDelete: () => true });
+  reopened = await mount(storage, emptyKnowledgeBase());
   reopened.app.deleteItem(created.id);
+  reopened.document.querySelector('[data-action="confirm-delete"]').click();
   const final = await mount(storage, emptyKnowledgeBase());
   assert.equal(final.app.getBase().items.some(item => item.id === created.id), false);
   first.dom.window.close(); reopened.dom.window.close(); final.dom.window.close();

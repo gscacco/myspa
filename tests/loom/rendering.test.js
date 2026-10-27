@@ -47,6 +47,9 @@ test('whole and section transclusion retain source identity and bound cycles', (
   host.append(renderMarkdown(`![Selected section](loom:${A}#detail)\n\n![All](loom:${A})`, ctx));
   const embeds = host.querySelectorAll('[data-loom-source]');
   assert.equal(embeds[0].dataset.loomSource, A);
+  assert.equal(embeds[0].querySelector('header'), null);
+  assert.equal(embeds[0].hasAttribute('aria-label'), false);
+  assert.doesNotMatch(embeds[0].textContent, /From Source/);
   assert.match(embeds[0].textContent, /Selected/);
   assert.doesNotMatch(embeds[0].textContent, /Excluded/);
   assert.match(host.textContent, /Transclusion cycle/);
@@ -110,18 +113,21 @@ test('wiki-style transclusion detects direct and indirect cycles locally', () =>
   ctx.dom.window.close();
 });
 
-test('wiki-style transclusion uses the executable output block styling', async () => {
+test('wiki-style transclusion has no border or source label', async () => {
   const css = await readFile(new URL('../../loom/css/style.css', import.meta.url), 'utf8');
   const ctx = context([{ id: A, title: 'Referenced', body: 'Embedded content' }]);
   const style = ctx.document.createElement('style'); style.textContent = css;
   ctx.document.head.append(style);
   const host = ctx.document.querySelector('main');
-  host.append(renderMarkdown(`![[item:${A}]]\n\n~~~clojurescript\n"Output"\n~~~`, ctx));
-  const transclusion = ctx.dom.window.getComputedStyle(ctx.document.querySelector('.transclusion'));
-  const snippet = ctx.dom.window.getComputedStyle(ctx.document.querySelector('.loom-snippet'));
-  for (const property of ['backgroundColor', 'borderTopColor', 'borderTopStyle', 'borderTopWidth', 'borderRadius', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']) {
-    assert.equal(transclusion[property], snippet[property], property);
+  host.append(renderMarkdown(`![[item:${A}]]`, ctx));
+  const embed = ctx.document.querySelector('.transclusion');
+  const transclusion = ctx.dom.window.getComputedStyle(embed);
+  for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+    assert.equal(transclusion[`border${side}Width`], '0px', `border${side}Width`);
   }
+  assert.equal(embed.querySelector('header'), null);
+  assert.equal(embed.hasAttribute('aria-label'), false);
+  assert.doesNotMatch(embed.textContent, /From Referenced/);
   ctx.dom.window.close();
 });
 

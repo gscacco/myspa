@@ -15,7 +15,33 @@ button:disabled{opacity:.45;cursor:default}
 #loom-status{min-width:9rem;color:#71675f;text-align:right;font-size:.85rem}
 .app-body{display:grid;grid-template-columns:clamp(14rem,20vw,17rem) minmax(0,1fr);flex:1;min-height:0}
 .sidebar{display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;padding:1rem;background:#f9f6f0;border-right:1px solid #d6cec0;overflow:hidden}
+.sidebar-actions{display:flex;align-items:center;gap:.35rem}
+.sidebar-page{min-width:0;min-height:0;flex:1}
+.items-page{display:flex;flex-direction:column}
+.items-page[hidden],.setup-page[hidden]{display:none}
+.setup-page{display:flex;flex-direction:column;gap:.8rem;overflow-y:auto}
+.setup-page h2{margin:0;font:600 1.25rem Georgia,serif}
+.setup-page h3{margin:0;color:#776d62;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.setup-page p{margin:0;color:#71675f;font-size:.86rem}
+.setup-group{display:flex;flex-direction:column;gap:.45rem}
+.setup-actions{display:flex;flex-direction:column;gap:.45rem}
+.setup-actions button{text-align:left}
+.setup-button.active{color:#2854a8;border-color:#b9c6e3;background:#edf0f7}
 .new-item-button{align-self:flex-start}
+.items-browser{display:flex;flex:1;flex-direction:column;gap:.55rem;min-height:0}
+.browser-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.2rem;padding:.2rem;background:#eee9df;border-radius:9px}
+.browser-tab{min-width:0;padding:.35rem .15rem;border:0;background:transparent;color:#6e665e;font-size:.71rem;font-weight:650}
+.browser-tab[aria-selected="true"]{background:#fff;color:#2854a8;box-shadow:0 1px 5px #44372d1f}
+.browser-panel{display:flex;flex:1;flex-direction:column;gap:.35rem;min-height:0}
+.browser-panel[hidden]{display:none}
+.item-browser-list{flex:1;min-height:0;overflow-y:auto;color:#60584f;font-size:.9rem;padding-right:.15rem}
+.browser-empty{margin:.45rem .5rem;color:#746b61;font-size:.85rem}
+.browser-pagination{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.35rem;padding-top:.35rem;border-top:1px solid #e1d9cd}
+.browser-pagination[hidden]{display:none}
+.browser-pagination button{padding:.25rem .45rem;font-size:.76rem}
+.browser-page-status{color:#746b61;font-size:.75rem;text-align:center}
+.tag-filter{display:flex;align-items:baseline;gap:.35rem;margin:0;padding:.25rem .35rem;color:#746b61;font-size:.76rem}
+.tag-filter strong{color:#2854a8;font:700 13px/1.4 "Courier New",Courier,monospace;overflow-wrap:anywhere}
 .search-area{display:flex;flex-direction:column;gap:.45rem;min-height:0;flex:1}
 .search-area label{font-weight:650;font-size:.82rem;letter-spacing:.02em}
 .search-area input{width:100%;min-width:0;border:1px solid #bdb3a8;border-radius:8px;padding:.45rem .65rem;background:#fff}
@@ -28,11 +54,29 @@ button:disabled{opacity:.45;cursor:default}
 .search-meta{display:-webkit-box;color:#746b61;font-size:.78rem;line-height:1.35;overflow:hidden;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .workspace{display:flex;flex-direction:column;align-items:stretch;gap:1rem;min-width:0;padding:1.25rem;overflow-y:auto}
 .workspace-empty{color:#756e67;margin:4rem auto;text-align:center}
+.loom-dialog-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:1rem;background:#20273566}
+.loom-dialog{width:min(32rem,100%);max-height:min(70vh,36rem);overflow:auto;padding:1.1rem;background:#fff;border:1px solid #c8bfb2;border-radius:12px;box-shadow:0 18px 55px #20273540}
+.loom-dialog h2{margin:0;font:600 1.35rem Georgia,serif}
+.loom-dialog p{margin:.55rem 0 .8rem;color:#60584f}
+.loom-dialog-list{margin:0;padding-left:1.35rem;overflow-wrap:anywhere}
+.loom-dialog-list li+li{margin-top:.35rem}
+.loom-dialog-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}
+.loom-dialog-actions [data-action="open-all"]{color:#fff;background:#2854a8;border-color:#2854a8}
+.loom-dialog-actions [data-action="open-all"]:hover{background:#21458a}
+.loom-dialog-actions .danger{color:#fff;background:#9d2c28;border-color:#9d2c28}
+.loom-dialog-actions .danger:hover{background:#84231f}
 .item-card{flex:none;width:100%;min-height:10rem;background:#fff;border:1px solid #ddd3c7;border-radius:12px;box-shadow:0 6px 24px #44372d12}
 .item-card.active{border-color:#7183bf;box-shadow:0 8px 30px #3b56a827}
 .item-card>header{display:flex;align-items:center;gap:.65rem;padding:.65rem .8rem .65rem 1rem;background:#fff;border-bottom:1px solid #ece5db;border-radius:12px 12px 0 0}
-.item-card h2{min-width:0;margin:0 auto 0 0;font:600 1.3rem Georgia,serif;overflow-wrap:anywhere}
+.item-card h2{display:flex;flex:1;min-width:0;margin:0;font:600 1.3rem Georgia,serif;overflow-wrap:anywhere}
+.item-title-button{width:100%;min-width:0;padding:.1rem .2rem;border-color:transparent;background:transparent;font:inherit;text-align:left;overflow-wrap:anywhere}
+.item-title-button:hover{border-color:#d9dfe9;background:#f7f8fb}
+.item-title-input{width:100%;min-width:0;padding:.1rem .3rem;border:1px solid #a6b5db;border-radius:6px;background:#fff;color:inherit;font:inherit}
 .card-actions{display:flex;align-items:center;gap:.12rem;flex:none}
+.image-item-card .item-content{padding:.75rem}
+.image-item,.image-transclusion{display:grid;place-items:center;margin:0;padding:0;background:transparent;border:0;border-radius:0}
+.image-item img,.image-transclusion img{display:block;max-width:100%;max-height:70vh;width:auto;height:auto;border-radius:5px}
+.transclusion .image-transclusion{margin-top:.55rem}
 .icon-button{display:inline-grid;place-items:center;width:2rem;height:2rem;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:#4b5563}
 .icon-button svg{width:1.1rem;height:1.1rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .icon-button:hover{background:#edf0f7;border-color:#d9dfe9}
@@ -42,6 +86,10 @@ button:disabled{opacity:.45;cursor:default}
 .item-content{padding:1rem 1.2rem;line-height:1.65;overflow-wrap:anywhere}
 .item-content> :first-child{margin-top:0}
 .item-content> :last-child{margin-bottom:0}
+.item-tags{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .9rem;padding:0;list-style:none}
+.item-tags li{max-width:100%;overflow-wrap:anywhere}
+.item-tag-button{max-width:100%;padding:.08rem .45rem;border:1px solid #d7dded;border-radius:999px;background:#f4f7fd;color:#52658e;font-size:.76rem;font-weight:600;line-height:1.45;overflow-wrap:anywhere}
+.item-tag-button:hover{background:#e7edfa;border-color:#b8c6e5;color:#2854a8}
 .item-content h1,.item-content h2,.item-content h3{font-family:Georgia,serif;line-height:1.25}
 .item-content h1{font-size:1.5rem}
 .item-content h2{font-size:1.3rem}
@@ -65,14 +113,24 @@ button:disabled{opacity:.45;cursor:default}
 .link-completion{position:absolute;z-index:20;width:min(26rem,calc(100vw - 3rem));max-height:18rem;overflow-y:auto;padding:.45rem;background:#fff;border:1px solid #b7c1d8;border-radius:9px;box-shadow:0 10px 30px #27344d2e}
 .link-completion-empty{margin:.35rem .5rem;color:#746b61;font-size:.85rem}
 .link-completion-option.active{background:#e8edf8}
+.link-completion-file{grid-template-columns:2.6rem minmax(0,1fr);align-items:center;column-gap:.55rem}
+.link-completion-file-text{display:grid;gap:.12rem;min-width:0}
+.link-completion-preview{display:grid;place-items:center;width:2.6rem;height:2.2rem;overflow:hidden;border:1px solid #d7dded;border-radius:6px;background:#f7f9ff}
+.link-completion-preview img{width:100%;height:100%;object-fit:cover}
+.link-completion-file-icon{width:1.25rem;height:1.25rem;fill:none;stroke:#5d6f98;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .tag-field{position:relative}
 .tag-completion{position:absolute;z-index:20;top:calc(100% + .25rem);left:0;width:100%;max-height:13rem;overflow-y:auto;padding:.3rem;background:#fff;border:1px solid #b7c1d8;border-radius:9px;box-shadow:0 10px 30px #27344d2e}
 .tag-completion-option{display:block;width:100%;padding:.35rem .5rem;border:0;border-radius:5px;background:transparent;text-align:left}
 .tag-completion-option.active{background:#e8edf8}
-.loom-snippet,.transclusion{border:1px solid #d7dded;border-radius:8px;padding:.45rem .7rem .7rem;margin:.9rem 0;background:#f9faff}
-.transclusion>header{display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:#5e6a88}
+.loom-snippet,.transclusion{border-radius:8px;padding:.45rem .7rem .7rem;margin:.9rem 0;background:#f9faff}
+.loom-snippet{border:1px solid #d7dded}
+.transclusion{border:0}
 .render-error{display:inline-block;color:#9a3026;background:#fff0eb;padding:.2rem .4rem;border-radius:4px}
 .unresolved-link{color:#9a3026;background:#fff0eb;border-bottom:1px dotted #c97066;padding:0 .2rem;border-radius:3px}
+.unresolved-file{display:inline-block;color:#9a3026;background:#fff0eb;padding:.2rem .4rem;border-radius:4px}
+.loom-file-link{display:inline-flex;align-items:center;gap:.25rem;padding:.08rem .3rem;border:1px solid #cbd4e7;border-radius:5px;background:#f7f9ff;text-decoration:none;overflow-wrap:anywhere}
+.loom-image{display:block;margin:.9rem 0}
+.loom-image img{display:block;max-width:100%;height:auto;border:1px solid #d7dded;border-radius:8px;background:#fff;box-shadow:0 6px 20px #27344d14}
 .loom-snippet{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;column-gap:.5rem}
 .snippet-output{grid-column:1;grid-row:1;min-width:0;margin-top:0}
 .snippet-output> :first-child{margin-top:0}
@@ -99,6 +157,23 @@ button:disabled{opacity:.45;cursor:default}
 .snippet-highlight .k{color:#8d2f87;font-weight:600}
 .snippet-highlight .b{color:#166b7c;font-weight:600}
 .snippet-editor textarea{position:relative;z-index:1;overflow:auto;border-color:#a6b5db;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:transparent;resize:vertical}
+.clojure-assistance{display:grid;grid-template-columns:minmax(10rem,.9fr) minmax(0,1.1fr);gap:.35rem .7rem;width:100%;padding:.55rem;background:#fff;border:1px solid #b7c1d8;border-radius:7px;box-shadow:0 8px 22px #27344d1f}
+.clojure-assistance[hidden]{display:none}
+.clojure-assistance-title{grid-column:1/-1;margin:0;color:#655e56;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.clojure-assistance-list{display:flex;flex-direction:column;max-height:11rem;overflow-y:auto;padding:.15rem;border:1px solid #d8deeb;border-radius:5px;background:#fafbff}
+.clojure-assistance-option{display:block;width:100%;padding:.28rem .45rem;border:0;border-radius:4px;background:transparent;color:#26354b;font:400 13px/1.4 "Courier New",Courier,monospace;text-align:left}
+.clojure-assistance-option:hover,.clojure-assistance-option.active{background:#e4eaf7;color:#183f82}
+.clojure-assistance-doc{display:grid;align-content:start;gap:.2rem;min-width:0;padding:.35rem .55rem;border-left:1px solid #dce2ee}
+.clojure-assistance-name{color:#183f82;font:700 13px/1.4 "Courier New",Courier,monospace}
+.clojure-assistance-signature{color:#4d5e77;font:400 12px/1.4 "Courier New",Courier,monospace;overflow-wrap:anywhere}
+.clojure-assistance-description{margin:0;color:#5e574f;font-size:.82rem;line-height:1.45}
+.clojure-assistance-hint{grid-column:1/-1;margin:0;color:#7a736b;font-size:.72rem}
+.snippet-evaluation{display:grid;gap:.25rem;width:100%;padding:.55rem .65rem;background:#fff;border:1px solid #b7c1d8;border-radius:7px}
+.snippet-evaluation[hidden]{display:none}
+.snippet-evaluation-label{margin:0;color:#655e56;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.snippet-evaluation-output{min-width:0;color:#26354b;overflow-wrap:anywhere}
+.snippet-evaluation-output> :first-child{margin-top:0}
+.snippet-evaluation-output> :last-child{margin-bottom:0}
 .snippet-editor [role=alert]{margin:0;color:#96352c;width:100%}
 @media(max-width:700px){
   #loom-app{height:auto;min-height:100vh;overflow:visible}
@@ -109,4 +184,6 @@ button:disabled{opacity:.45;cursor:default}
   .sidebar{width:100%;max-height:45vh;border-right:0;border-bottom:1px solid #d6cec0}
   .workspace{min-height:30rem;padding:1rem;overflow:visible}
   .item-content{padding:.85rem 1rem}
+  .clojure-assistance{grid-template-columns:minmax(0,1fr)}
+  .clojure-assistance-doc{border-top:1px solid #dce2ee;border-left:0}
 }

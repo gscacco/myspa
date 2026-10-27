@@ -92,3 +92,19 @@ test('keyboard backward slurp and barf keep reader-prefixed forms intact', () =>
   run('(baz foo bar)', 9, 'ArrowLeft', 'baz (foo bar)');
   dom.window.close();
 });
+
+test('Ctrl+Enter requests evaluation without changing or wrapping the source', () => {
+  const dom = new JSDOM('<textarea></textarea>');
+  const textarea = dom.window.document.querySelector('textarea');
+  let evaluations = 0;
+  attachStructuralEditor(textarea, { onEvaluate: () => { evaluations += 1; } });
+  textarea.value = '(+ 1 2)'; textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  const event = new dom.window.KeyboardEvent('keydown', {
+    key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true,
+  });
+  textarea.dispatchEvent(event);
+  assert.equal(evaluations, 1);
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(textarea.value, '(+ 1 2)');
+  dom.window.close();
+});

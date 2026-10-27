@@ -35,8 +35,11 @@ test('item editing exposes a labelled formatting toolbar with SVG controls', asy
   const toolbar = card.querySelector('.format-toolbar');
   assert.equal(toolbar.getAttribute('role'), 'toolbar');
   assert.equal(toolbar.getAttribute('aria-label'), 'Markdown formatting');
-  const actions = [...toolbar.querySelectorAll('button')].map(button => button.dataset.formatAction);
+  const actions = [...toolbar.querySelectorAll('[data-format-action]')].map(button => button.dataset.formatAction);
   assert.deepEqual(actions, ['bold', 'italic', 'strikethrough', 'inline-code', 'heading', 'bullet-list', 'blockquote', 'item-link', 'executable-code']);
+  const attach = toolbar.querySelector('[data-attachment-action="attach-file"]');
+  assert.equal(attach.title, 'Attach file');
+  assert.ok(attach.querySelector('svg'));
   for (const button of toolbar.querySelectorAll('button')) {
     assert.ok(button.querySelector('svg'));
     assert.ok(button.title);

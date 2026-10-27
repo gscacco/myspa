@@ -45,6 +45,34 @@ test('loom.core remains a compatibility surface for existing snippets', () => {
   assert.deepEqual(value, [1, 'Alpha']);
 });
 
+test('item maps expose timestamps and derived referenced and transcluded items', () => {
+  const C = '550e8400-e29b-41d4-a716-446655440002';
+  let value = addItem(emptyKnowledgeBase(), {
+    title: 'Relations',
+    body: `Link [[item:${B}]] and embed ![[item:${C}]].`,
+  }, { id: A, now: NOW });
+  value = addItem(value, { title: 'Linked', body: 'Destination' }, { id: B, now: NOW });
+  value = addItem(value, { title: 'Embedded', body: 'Included' }, { id: C, now: NOW });
+  const runtime = createSnippetRuntime({ getItems: () => value.items, scittle: globalThis.scittle });
+  const item = runtime.run(`(loom/item "${A}")`).value;
+  assert.equal(item['created-at'], NOW);
+  assert.equal(item['updated-at'], NOW);
+  assert.deepEqual(item['referenced-items'], [{ id: B, title: 'Linked' }]);
+  assert.deepEqual(item['transcluded-items'], [{ id: C, title: 'Embedded' }]);
+  const summary = runtime.run('(loom/items)').value[0];
+  assert.equal(summary['created-at'], NOW);
+  assert.equal(summary['updated-at'], NOW);
+  assert.deepEqual(summary['referenced-items'], [{ id: B, title: 'Linked' }]);
+  assert.deepEqual(summary['transcluded-items'], [{ id: C, title: 'Embedded' }]);
+});
+
+test('defining a function returns a portable definition result and keeps it in the session', () => {
+  const runtime = createSnippetRuntime({ getItems: () => [], scittle: globalThis.scittle });
+  const definition = runtime.run('(defn greet [name] (str "Hello " name))').value;
+  assert.deepEqual(definition, { 'loom/definition': "#'loom.user/greet" });
+  assert.equal(runtime.run('(greet "Loom")').value, 'Hello Loom');
+});
+
 test('link dependencies refresh dynamic titles and missing targets without guessing by title', () => {
   const runtime = createSnippetRuntime({ getItems: () => base().items, scittle: globalThis.scittle });
   const { value, dependencies } = runtime.run(`[(loom/link "${A}") (loom/link "${B.replace(/.$/, '2')}")]`);
@@ -66,7 +94,7 @@ test('dynamic links follow the shared workspace rules and refresh when their tar
   const dom = new JSDOM(html, { url: 'http://localhost/' });
   let value = addItem(emptyKnowledgeBase(), { title: 'Target', body: 'Destination' }, { id: A, now: NOW });
   value = addItem(value, { title: 'Query', body: `~~~clojurescript\n(loom/link "${A}")\n~~~` }, { id: B, now: NOW });
-  const app = createLoomApp({ document: dom.window.document, window: dom.window, base: value, confirmDelete: () => true });
+  const app = createLoomApp({ document: dom.window.document, window: dom.window, base: value });
   app.openItem(B);
   const query = dom.window.document.querySelector(`[data-item-id="${B}"]`);
   assert.equal(query.querySelector('.snippet-output a').textContent, 'Target');
@@ -80,6 +108,7 @@ test('dynamic links follow the shared workspace rules and refresh when their tar
   assert.equal(query.querySelector('.snippet-output a').textContent, 'Renamed target');
 
   target.querySelector('[data-action="delete"]').click();
+  dom.window.document.querySelector('[data-action="confirm-delete"]').click();
   assert.equal(query.querySelector('.snippet-output a'), null);
   assert.equal(query.querySelector('.snippet-output .unresolved-link').dataset.loomTarget, A);
   dom.window.close();

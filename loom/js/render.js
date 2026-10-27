@@ -4,8 +4,11 @@ import { EDNKeyword, writeEDN } from '../../shared/js/edn-codec.js';
 import { lexMarkdown } from './markdown.js';
 import { isClojureLanguage, isExecutableLanguage } from './code-blocks.js';
 import { highlightClojure } from './syntax-highlight.js';
+import { isImageAttachment } from './attachments.js';
+import { parseLoomURL } from './item-relationships.js';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export { parseLoomURL } from './item-relationships.js';
+
 const ELEMENTS = new Set('p span div section article aside h1 h2 h3 h4 h5 h6 ul ol li blockquote pre code em strong b i small br hr table thead tbody tr th td a'.split(' '));
 const HICCUP_STYLE_PROPERTIES = new Set(`color background-color
   font font-family font-size font-style font-weight font-variant
@@ -64,11 +67,6 @@ function errorNode(document, message) {
   return node;
 }
 
-export function parseLoomURL(value) {
-  const match = /^loom:([0-9a-f-]{36})(?:#([a-z0-9-]+))?$/i.exec(String(value));
-  return match && UUID.test(match[1]) ? { id: match[1], section: match[2] || null } : null;
-}
-
 function safeExternalURL(value) {
   if (typeof value !== 'string' || /[\u0000-\u0020\u007f]/.test(value)) return null;
   try {
@@ -106,6 +104,49 @@ function itemLink(ctx, target, anchor = ctx.document.createElement('a')) {
   return anchor;
 }
 
+function unresolvedFile(ctx, id) {
+  const node = errorNode(ctx.document, `Missing file: ${id}`);
+  node.classList.add('unresolved-file');
+  node.dataset.loomFile = id;
+  return node;
+}
+
+function attachmentSource(ctx, attachment) {
+  const url = ctx.attachmentURL?.(attachment);
+  return typeof url === 'string' && url ? url : null;
+}
+
+function fileLink(ctx, id) {
+  ctx.dependencies?.add(`file:${id}`);
+  const attachment = ctx.attachments?.get(id);
+  if (!attachment) return unresolvedFile(ctx, id);
+  const url = attachmentSource(ctx, attachment);
+  if (!url) return errorNode(ctx.document, `Attachment unavailable: ${attachment.name}`);
+  const anchor = ctx.document.createElement('a');
+  anchor.className = 'loom-file-link'; anchor.href = url; anchor.download = attachment.name;
+  anchor.textContent = attachment.name; anchor.title = attachment.name;
+  anchor.dataset.loomFile = id;
+  return anchor;
+}
+
+function fileEmbed(ctx, id, block = false) {
+  ctx.dependencies?.add(`file:${id}`);
+  const attachment = ctx.attachments?.get(id);
+  if (!attachment) return unresolvedFile(ctx, id);
+  if (!attachment.type?.toLocaleLowerCase().startsWith('image/')) {
+    return errorNode(ctx.document, `Attachment is not an image: ${attachment.name}`);
+  }
+  const url = attachmentSource(ctx, attachment);
+  if (!url) return errorNode(ctx.document, `Attachment unavailable: ${attachment.name}`);
+  const figure = ctx.document.createElement(block ? 'figure' : 'span');
+  figure.className = 'loom-image'; figure.dataset.loomFile = id;
+  const image = ctx.document.createElement('img');
+  image.src = url; image.alt = attachment.name; image.title = attachment.name;
+  image.loading = 'lazy'; image.decoding = 'async';
+  figure.append(image);
+  return figure;
+}
+
 function plainInline(tokens = []) { return tokens.map(token => token.tokens ? plainInline(token.tokens) : token.text || '').join(''); }
 
 function slug(value) {
@@ -135,7 +176,7 @@ function sectionTokens(tokens, name) {
   return { tokens: selected, slugs: new Map([...slugs].filter(([index]) => index >= start && index < end).map(([index, value]) => [index - start, value])) };
 }
 
-function transclude(target, label, ctx) {
+function transclude(target, ctx) {
   const { document } = ctx;
   if (!target) return errorNode(document, 'Invalid transclusion target');
   ctx.dependencies?.add(`item:${target.id}`);
@@ -145,17 +186,30 @@ function transclude(target, label, ctx) {
   const path = ctx.path || [];
   if (path.includes(key)) return errorNode(document, `Transclusion cycle: ${item.title}`);
   if (path.length >= 16) return errorNode(document, 'Transclusion depth limit reached');
+  if (item.kind?.name === 'image') {
+    if (target.section) return errorNode(document, `Missing section: ${target.section}`);
+    ctx.dependencies?.add(`file:${item['attachment-id']}`);
+    const attachment = (ctx.itemAttachments || ctx.attachments)?.get(item['attachment-id']);
+    if (!attachment) return errorNode(document, `Missing file: ${item['attachment-id']}`);
+    if (!isImageAttachment(attachment)) return errorNode(document, `Attachment is not an image: ${attachment.name}`);
+    const url = attachmentSource(ctx, attachment);
+    if (!url) return errorNode(document, `Attachment unavailable: ${attachment.name}`);
+    const embed = document.createElement('section');
+    embed.className = 'transclusion'; embed.dataset.loomSource = target.id;
+    const figure = document.createElement('figure');
+    figure.className = 'image-transclusion'; figure.dataset.loomFile = attachment.id;
+    const image = document.createElement('img');
+    image.src = url; image.alt = item.title; image.loading = 'lazy'; image.decoding = 'async';
+    figure.append(image); embed.append(figure);
+    return embed;
+  }
   const tokens = lexMarkdown(item.body);
   const selected = sectionTokens(tokens, target.section);
   if (!selected) return errorNode(document, `Missing section: ${target.section}`);
   const embed = document.createElement('section');
   embed.className = 'transclusion'; embed.dataset.loomSource = target.id;
   if (target.section) embed.dataset.loomSection = target.section;
-  embed.setAttribute('aria-label', label || `Embedded ${item.title}`);
-  const header = document.createElement('header');
-  const title = document.createElement('span'); title.textContent = `From ${item.title}`;
-  header.append(title);
-  embed.append(header, blocks(selected.tokens, { ...ctx, path: [...path, key], transcluded: true }, selected.slugs));
+  embed.append(blocks(selected.tokens, { ...ctx, path: [...path, key], transcluded: true }, selected.slugs));
   return embed;
 }
 
@@ -173,9 +227,11 @@ function inline(tokens, ctx) {
       case 'br': node = ctx.document.createElement('br'); break;
       case 'link': node = makeLink(ctx, token.href, inline(token.tokens, ctx)); break;
       case 'loomItemReference': node = itemLink(ctx, { id: token.id, section: null }); break;
-      case 'loomTransclusion': node = transclude({ id: token.id, section: token.section }, null, ctx); break;
+      case 'loomTransclusion': node = transclude({ id: token.id, section: token.section }, ctx); break;
+      case 'loomFileReference': node = fileLink(ctx, token.id); break;
+      case 'loomFileEmbed': node = fileEmbed(ctx, token.id, false); break;
       case 'image': node = token.href?.startsWith('loom:')
-        ? transclude(parseLoomURL(token.href), token.text, ctx)
+        ? transclude(parseLoomURL(token.href), ctx)
         : errorNode(ctx.document, `Unsupported image: ${token.href}`); break;
       default: node = ctx.document.createTextNode(token.raw || token.text || '');
     }
@@ -196,7 +252,8 @@ function blocks(tokens, ctx, slugs = headingSlugs(tokens)) {
       case 'paragraph': case 'text':
         node = ctx.document.createElement('p'); node.append(inline(token.tokens, ctx)); break;
       case 'loomTransclusion':
-        node = transclude({ id: token.id, section: token.section }, null, ctx); break;
+        node = transclude({ id: token.id, section: token.section }, ctx); break;
+      case 'loomFileEmbed': node = fileEmbed(ctx, token.id, true); break;
       case 'code': {
         if (isExecutableLanguage(token.lang) && !ctx.transcluded) {
           node = ctx.document.createElement('div'); node.className = 'loom-snippet';
@@ -298,6 +355,11 @@ export function renderResult(value, ctx) {
   if (value === null || value === undefined) return ctx.document.createDocumentFragment();
   if (Array.isArray(value) && value[0] instanceof EDNKeyword) return renderHiccup(value, ctx);
   if (Array.isArray(value) && value.every(child => Array.isArray(child) && child[0] instanceof EDNKeyword)) return renderHiccup(value, ctx);
+  if (typeof value === 'object' && typeof value['loom/definition'] === 'string') {
+    const status = ctx.document.createElement('p'); status.className = 'definition-result';
+    status.textContent = `Defined ${value['loom/definition'].replace(/^#'/, '')}`;
+    return status;
+  }
   if (typeof value === 'object' && Object.hasOwn(value, 'loom/data')) value = value['loom/data'];
   if (typeof value === 'object') {
     const pre = ctx.document.createElement('pre'); pre.textContent = writeEDN(value); return pre;

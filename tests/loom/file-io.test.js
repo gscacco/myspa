@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { createEDNFileIO } from '../../loom/js/files.js';
+import { createAttachmentFileIO, createEDNFileIO } from '../../loom/js/files.js';
 
 test('native EDN save writes the separate user file and cancellation keeps it unsaved', async () => {
   const dom = new JSDOM('<input id="edn-file" type="file">');
@@ -33,5 +33,25 @@ test('download and file-input fallbacks work without native pickers', async () =
   input.dispatchEvent(new view.Event('change'));
   assert.equal(await selection, file);
   assert.equal(revoked, true);
+  dom.window.close();
+});
+
+test('attachment bundles use the JSON picker and hidden bundle input', async () => {
+  const dom = new JSDOM('<input id="attachment-files" type="file">');
+  let written, types;
+  dom.window.showSaveFilePicker = async options => {
+    types = options.types;
+    return { createWritable: async () => ({ write: async source => { written = source; }, close: async () => {} }) };
+  };
+  const files = createAttachmentFileIO({ window: dom.window, document: dom.window.document });
+  assert.equal(await files.save('{"files":[]}', 'loom-files.json'), true);
+  assert.equal(written, '{"files":[]}');
+  assert.equal(types[0].accept['application/json'][0], '.json');
+  const chosen = { name: 'loom-files.json', text: async () => '{"files":[]}' };
+  const selection = files.choose();
+  const input = dom.window.document.querySelector('#attachment-files');
+  Object.defineProperty(input, 'files', { configurable: true, value: [chosen] });
+  input.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(await selection, chosen);
   dom.window.close();
 });
