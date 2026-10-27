@@ -39,12 +39,135 @@ test('the sidebar owns search and the New Item button while the workspace stays 
   dom.window.close();
 });
 
+test('the workspace toolbar closes every open item with an SVG action', async () => {
+  const { app, dom, document } = await mount();
+  const closeAll = document.querySelector('.toolbar #close-all');
+  assert.ok(closeAll);
+  assert.ok(closeAll.querySelector('svg'));
+  assert.equal(closeAll.textContent.trim(), '');
+  assert.equal(closeAll.title, 'Close all items');
+  assert.equal(closeAll.getAttribute('aria-label'), 'Close all items');
+
+  app.openItem(B);
+  assert.equal(closeAll.disabled, false);
+  closeAll.click();
+
+  assert.deepEqual(app.getBase().workspace, { 'open-ids': [], 'active-id': null });
+  assert.equal(document.querySelectorAll('#workspace [data-item-id]').length, 0);
+  assert.match(document.querySelector('#workspace').textContent, /Open an item/);
+  assert.equal(app.getBase().items.length, 2);
+  assert.equal(document.activeElement, document.querySelector('#loom-search'));
+  app.back();
+  assert.deepEqual(app.getBase().workspace['open-ids'], [B, A]);
+  dom.window.close();
+});
+
+test('closing all items can preserve unsaved edits', async () => {
+  let confirmations = 0;
+  const { app, dom, document } = await mount({ confirmCloseAll: () => { confirmations += 1; return false; } });
+  const card = document.querySelector(`[data-item-id="${A}"]`);
+  card.querySelector('[data-action="edit"]').click();
+  const body = card.querySelector('[name="body"]');
+  body.value = 'Unsaved body';
+
+  document.querySelector('#close-all').click();
+
+  assert.equal(confirmations, 1);
+  assert.deepEqual(app.getBase().workspace['open-ids'], [A]);
+  assert.equal(document.querySelector(`[data-item-id="${A}"] [name="body"]`).value, 'Unsaved body');
+  dom.window.close();
+});
+
+test('discarding a draft uses the in-app delete confirmation', async () => {
+  const { app, dom, document } = await mount();
+  document.querySelector('#new-item').click();
+  const draft = document.querySelector('#workspace [data-item-id]');
+  const draftId = draft.dataset.itemId;
+  let nativeConfirmations = 0;
+  dom.window.confirm = () => { nativeConfirmations += 1; return true; };
+
+  draft.querySelector('[data-action="delete"]').click();
+  const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
+  assert.ok(dialog);
+  assert.match(dialog.textContent, /Discard draft\?/);
+  assert.equal(nativeConfirmations, 0);
+  assert.ok(document.querySelector('#workspace [data-item-id]'));
+
+  dialog.querySelector('[data-action="cancel-delete"]').click();
+  assert.ok(document.querySelector('#workspace [data-item-id]'));
+  assert.equal(app.getBase().items.length, 2);
+
+  document.querySelector('#workspace [data-item-id] [data-action="delete"]').click();
+  document.querySelector('[role="dialog"] [data-action="confirm-delete"]').click();
+  assert.equal(document.querySelector(`[data-item-id="${draftId}"]`), null);
+  assert.equal(app.getBase().items.length, 2);
+  assert.equal(nativeConfirmations, 0);
+  dom.window.close();
+});
+
+test('the sidebar setup page owns EDN import and export without losing search state', async () => {
+  const { dom, document } = await mount();
+  const sidebar = document.querySelector('#sidebar');
+  const itemsPage = sidebar.querySelector('#items-page');
+  const setupPage = sidebar.querySelector('#setup-page');
+  const setupButton = sidebar.querySelector('#setup-button');
+  const search = sidebar.querySelector('#loom-search');
+  assert.ok(itemsPage);
+  assert.ok(setupPage);
+  assert.ok(setupButton);
+  assert.equal(setupPage.hidden, true);
+  assert.equal(itemsPage.hidden, false);
+  assert.equal(setupButton.getAttribute('aria-controls'), 'setup-page');
+  assert.equal(setupButton.getAttribute('aria-expanded'), 'false');
+  assert.equal(setupPage.querySelector('#save-edn')?.textContent, 'Save EDN');
+  assert.equal(setupPage.querySelector('#import-edn')?.textContent, 'Import EDN');
+  assert.equal(setupPage.querySelector('#export-files')?.textContent, 'Export files');
+  assert.equal(setupPage.querySelector('#import-files')?.textContent, 'Import files');
+  assert.equal(document.querySelector('.app-header #save-edn'), null);
+  assert.equal(document.querySelector('.app-header #import-edn'), null);
+
+  search.value = 'Alpha';
+  search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  const resultCount = sidebar.querySelectorAll('#search-results button').length;
+  setupButton.click();
+  assert.equal(setupPage.hidden, false);
+  assert.equal(itemsPage.hidden, true);
+  assert.equal(setupButton.getAttribute('aria-expanded'), 'true');
+  assert.equal(document.activeElement, setupPage.querySelector('#save-edn'));
+
+  setupButton.click();
+  assert.equal(setupPage.hidden, true);
+  assert.equal(itemsPage.hidden, false);
+  assert.equal(search.value, 'Alpha');
+  assert.equal(sidebar.querySelectorAll('#search-results button').length, resultCount);
+  assert.equal(document.activeElement, search);
+
+  setupButton.click();
+  setupPage.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(setupPage.hidden, true);
+  assert.equal(document.activeElement, search);
+  dom.window.close();
+});
+
 test('item editor fields use a plain font weight inside bold labels', async () => {
   const css = await readFile(new URL('../../loom/css/style.css', import.meta.url), 'utf8');
   const dom = new JSDOM(`<!doctype html><style>${css}</style><form class="item-form"><label>Title<input name="title"></label><label>Markdown<textarea name="body"></textarea></label></form>`);
   const { document } = dom.window;
   assert.equal(dom.window.getComputedStyle(document.querySelector('[name="title"]')).fontWeight, '400');
   assert.equal(dom.window.getComputedStyle(document.querySelector('[name="body"]')).fontWeight, '400');
+  dom.window.close();
+});
+
+test('image previews add no second frame inside cards or transclusions', async () => {
+  const css = await readFile(new URL('../../loom/css/style.css', import.meta.url), 'utf8');
+  const dom = new JSDOM(`<!doctype html><style>${css}</style><figure class="image-item"></figure><section class="transclusion"><figure class="image-transclusion"></figure></section>`);
+  const { document } = dom.window;
+  for (const selector of ['.image-item', '.image-transclusion']) {
+    const style = dom.window.getComputedStyle(document.querySelector(selector));
+    assert.equal(style.borderTopWidth, '0px', `${selector} must not add an inner border`);
+    assert.equal(style.paddingTop, '0px', `${selector} must not add an inner frame`);
+    assert.equal(style.backgroundColor, 'rgba(0, 0, 0, 0)', `${selector} must not add an inner background`);
+  }
   dom.window.close();
 });
 
@@ -137,6 +260,34 @@ test('applying an edit updates once and cancelling restores the saved state', as
   assert.equal(app.getBase().items.find(item => item.id === A).body, 'Changed body');
   assert.equal(card.querySelector('h2').textContent, 'Alpha updated');
   assert.equal(card.querySelector('.item-form'), null);
+  dom.window.close();
+});
+
+test('title editing happens in place in the card header', async () => {
+  const { app, dom, document } = await mount();
+  const card = document.querySelector(`[data-item-id="${A}"]`);
+  const title = card.querySelector('h2 .item-title-button');
+  assert.ok(title);
+
+  title.click();
+  const form = card.querySelector('.item-form');
+  const input = card.querySelector('header [name="title"]');
+  assert.ok(input);
+  assert.equal(form.querySelector('[name="title"]'), null);
+  assert.equal(form.elements.title, input);
+  assert.equal(document.activeElement, input);
+
+  input.value = 'Alpha in place';
+  card.querySelector('[data-action="apply"]').click();
+  assert.equal(card.querySelector('h2').textContent, 'Alpha in place');
+  assert.equal(app.getBase().items.find(item => item.id === A).title, 'Alpha in place');
+
+  document.querySelector('#new-item').click();
+  const draft = document.querySelector('#workspace [data-item-id]');
+  const draftForm = draft.querySelector('.item-form');
+  assert.ok(draft.querySelector('header [name="title"]'));
+  assert.equal(draftForm.querySelector('[name="title"]'), null);
+  assert.equal(draftForm.elements.title, draft.querySelector('header [name="title"]'));
   dom.window.close();
 });
 

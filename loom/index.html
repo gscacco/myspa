@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Loom</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232854a8'/%3E%3Cpath d='M18 16v32h26v-8H26V16z' fill='white'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect id='loom-background' x='2' y='2' width='60' height='60' rx='13' fill='%23f5efe4'/%3E%3Cg id='loom-frame' fill='none' stroke='%23273449' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='11' y='9' width='42' height='46' rx='4' stroke-width='5'/%3E%3C/g%3E%3Cg id='loom-warp' fill='none' stroke='%237f95b7' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M21 15v34M32 15v34M43 15v34'/%3E%3C/g%3E%3Cg id='loom-weft' fill='none' stroke='%23b65b3c' stroke-width='3.2' stroke-linecap='round'%3E%3Cpath d='M16 23h32M16 32h32M16 41h32'/%3E%3C/g%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -14,22 +14,90 @@
       <nav class="toolbar" aria-label="Workspace actions">
         <button id="history-back" type="button" aria-label="Back" disabled>←</button>
         <button id="history-forward" type="button" aria-label="Forward" disabled>→</button>
-        <button id="save-edn" type="button">Save EDN</button>
-        <button id="import-edn" type="button">Import EDN</button>
+        <button id="close-all" class="icon-button" type="button" title="Close all items" aria-label="Close all items" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5l6 6M11 5l-6 6M13 13l6 6M19 13l-6 6"/></svg>
+        </button>
       </nav>
-      <input id="edn-file" type="file" accept=".edn,application/edn,text/plain" hidden>
       <span id="loom-status" role="status" aria-live="polite"></span>
     </header>
     <div class="app-body">
-      <aside id="sidebar" class="sidebar" aria-label="Search and create items">
-        <button id="new-item" class="icon-button new-item-button" type="button" title="New Item" aria-label="New Item">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-        <div class="search-area">
-          <label for="loom-search">Search items</label>
-          <input id="loom-search" type="search" autocomplete="off" placeholder="Title, tag, or text">
-          <div id="search-results" role="region" aria-label="Search results"></div>
+      <aside id="sidebar" class="sidebar" aria-label="Items, search, and setup">
+        <div class="sidebar-actions">
+          <button id="new-item" class="icon-button new-item-button" type="button" title="New Item" aria-label="New Item">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button id="setup-button" class="icon-button setup-button" type="button" title="Setup" aria-label="Setup" aria-controls="setup-page" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg>
+          </button>
         </div>
+        <div id="items-page" class="sidebar-page items-page">
+          <div id="items-browser" class="items-browser">
+            <div class="browser-tabs" role="tablist" aria-label="Item lists">
+              <button id="updated-tab" class="browser-tab" type="button" role="tab" aria-selected="true" aria-controls="updated-panel" data-browser-page="updated">Updated</button>
+              <button id="opened-tab" class="browser-tab" type="button" role="tab" aria-selected="false" aria-controls="opened-panel" tabindex="-1" data-browser-page="opened">Opened</button>
+              <button id="search-tab" class="browser-tab" type="button" role="tab" aria-selected="false" aria-controls="search-panel" tabindex="-1" data-browser-page="search">Search</button>
+              <button id="tag-tab" class="browser-tab" type="button" role="tab" aria-selected="false" aria-controls="tag-panel" tabindex="-1" data-browser-page="tag">Tag</button>
+            </div>
+            <section id="updated-panel" class="browser-panel" role="tabpanel" aria-labelledby="updated-tab">
+              <div id="updated-items" class="item-browser-list" aria-live="polite"></div>
+              <nav id="updated-pagination" class="browser-pagination" aria-label="Updated items pages" hidden>
+                <button id="updated-previous" type="button">Previous</button>
+                <span id="updated-page-status" class="browser-page-status" role="status"></span>
+                <button id="updated-next" type="button">Next</button>
+              </nav>
+            </section>
+            <section id="opened-panel" class="browser-panel" role="tabpanel" aria-labelledby="opened-tab" hidden>
+              <div id="opened-items" class="item-browser-list" aria-live="polite"></div>
+              <nav id="opened-pagination" class="browser-pagination" aria-label="Opened items pages" hidden>
+                <button id="opened-previous" type="button">Previous</button>
+                <span id="opened-page-status" class="browser-page-status" role="status"></span>
+                <button id="opened-next" type="button">Next</button>
+              </nav>
+            </section>
+            <section id="search-panel" class="browser-panel" role="tabpanel" aria-labelledby="search-tab" hidden>
+              <div class="search-area">
+                <label for="loom-search">Search items</label>
+                <input id="loom-search" type="search" autocomplete="off" placeholder="Title, tag, or text">
+                <div id="search-results" role="region" aria-label="Search results"></div>
+                <nav id="search-pagination" class="browser-pagination" aria-label="Search result pages" hidden>
+                  <button id="search-previous" type="button">Previous</button>
+                  <span id="search-page-status" class="browser-page-status" role="status"></span>
+                  <button id="search-next" type="button">Next</button>
+                </nav>
+              </div>
+            </section>
+            <section id="tag-panel" class="browser-panel" role="tabpanel" aria-labelledby="tag-tab" hidden>
+              <p class="tag-filter">Tag <strong id="tag-filter-name">None selected</strong></p>
+              <div id="tag-items" class="item-browser-list" aria-live="polite"></div>
+              <nav id="tag-pagination" class="browser-pagination" aria-label="Tagged item pages" hidden>
+                <button id="tag-previous" type="button">Previous</button>
+                <span id="tag-page-status" class="browser-page-status" role="status"></span>
+                <button id="tag-next" type="button">Next</button>
+              </nav>
+            </section>
+          </div>
+        </div>
+        <section id="setup-page" class="sidebar-page setup-page" aria-labelledby="setup-title" hidden>
+          <h2 id="setup-title">Setup</h2>
+          <p>Back up or restore the current Loom knowledge base.</p>
+          <div class="setup-group">
+            <h3>Knowledge base</h3>
+            <div class="setup-actions">
+              <button id="save-edn" type="button">Save EDN</button>
+              <button id="import-edn" type="button">Import EDN</button>
+            </div>
+          </div>
+          <div class="setup-group">
+            <h3>Files</h3>
+            <p>Export or restore attached files, including screenshots.</p>
+            <div class="setup-actions">
+              <button id="export-files" type="button">Export files</button>
+              <button id="import-files" type="button">Import files</button>
+            </div>
+          </div>
+          <input id="edn-file" type="file" accept=".edn,application/edn,text/plain" hidden>
+          <input id="attachment-files" type="file" accept=".json,application/json" hidden>
+        </section>
       </aside>
       <section id="workspace" class="workspace" aria-label="Open items"></section>
     </div>

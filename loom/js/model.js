@@ -3,7 +3,8 @@
 import { EDNKeyword, readEDN, writeEDN } from '../../shared/js/edn-codec.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ITEM_KEYS = new Set(['id', 'title', 'body', 'tags', 'created-at', 'updated-at']);
+const ITEM_KEYS = new Set(['id', 'title', 'body', 'tags', 'created-at', 'updated-at', 'kind', 'attachment-id']);
+const ITEM_KINDS = new Set(['note', 'image']);
 const BASE_KEYS = new Set(['schema-version', 'items', 'workspace']);
 const WORKSPACE_KEYS = new Set(['open-ids', 'active-id']);
 
@@ -34,7 +35,21 @@ function itemValue(value) {
   const created = isoTime(value['created-at'], 'Item created-at');
   const updated = isoTime(value['updated-at'], 'Item updated-at');
   if (updated < created) throw new TypeError('Item updated-at precedes created-at');
-  return { id: value.id, title: value.title, body: value.body, tags: [...value.tags], 'created-at': created, 'updated-at': updated };
+  const kind = value.kind;
+  if (kind !== undefined && (!(kind instanceof EDNKeyword) || !ITEM_KINDS.has(kind.name))) {
+    throw new TypeError('Item kind must be :note or :image');
+  }
+  const attachmentId = value['attachment-id'];
+  if (kind?.name === 'image') {
+    if (typeof attachmentId !== 'string' || !UUID.test(attachmentId)) throw new TypeError('Image item attachment-id must be a UUID string');
+    if (value.body !== '') throw new TypeError('Image item body must be empty');
+  } else if (attachmentId !== undefined) {
+    throw new TypeError('Only image items may have an attachment-id');
+  }
+  const item = { id: value.id, title: value.title, body: value.body, tags: [...value.tags], 'created-at': created, 'updated-at': updated };
+  if (kind !== undefined) item.kind = kind;
+  if (attachmentId !== undefined) item['attachment-id'] = attachmentId;
+  return item;
 }
 
 /** Validate and copy an imported or in-memory knowledge base. */
@@ -64,7 +79,7 @@ export function emptyKnowledgeBase() {
   return { 'schema-version': 1, items: [], workspace: { 'open-ids': [], 'active-id': null } };
 }
 
-function createUUID() {
+export function createUUID() {
   const crypto = globalThis.crypto;
   if (typeof crypto?.randomUUID === 'function') {
     try { return crypto.randomUUID(); } catch { /* Fall back for insecure contexts. */ }
@@ -82,7 +97,11 @@ export function addItem(base, fields, { id = createUUID(), now = new Date().toIS
   const current = validateKnowledgeBase(base);
   if (!id) throw new Error('Cryptographic UUID generation is unavailable');
   if (current.items.some(item => item.id === id)) throw new TypeError(`Duplicate item ID: ${id}`);
-  const item = itemValue({ id, title: fields.title, body: fields.body ?? '', tags: fields.tags ?? [], 'created-at': now, 'updated-at': now });
+  const item = itemValue({
+    id, title: fields.title, body: fields.body ?? '', tags: fields.tags ?? [], 'created-at': now, 'updated-at': now,
+    ...(fields.kind === undefined ? {} : { kind: fields.kind }),
+    ...(fields['attachment-id'] === undefined ? {} : { 'attachment-id': fields['attachment-id'] }),
+  });
   return { ...current, items: [...current.items, item] };
 }
 

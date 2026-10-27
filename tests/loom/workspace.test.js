@@ -26,6 +26,12 @@ async function mount(options = {}) {
   return { app, dom, document: dom.window.document };
 }
 
+function confirmDelete(document) {
+  const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
+  assert.ok(dialog);
+  dialog.querySelector('[data-action="confirm-delete"]').click();
+}
+
 test('cards open and close independently, and history restores exploration', async () => {
   const { app, dom, document } = await mount();
   app.openItem(A);
@@ -57,9 +63,10 @@ test('opening an item that is already open moves it to the top without duplicati
 });
 
 test('deleting an item removes its card and history skips its stale ID', async () => {
-  const { app, dom, document } = await mount({ confirmDelete: () => true });
+  const { app, dom, document } = await mount();
   app.openItem(A); app.openItem(B); app.openItem(C);
   document.querySelector(`[data-item-id="${B}"] [data-action="delete"]`).click();
+  confirmDelete(document);
   assert.equal(app.getBase().items.some(item => item.id === B), false);
   assert.equal(document.querySelector(`[data-item-id="${B}"]`), null);
   app.back(); app.back(); app.forward();
@@ -68,13 +75,15 @@ test('deleting an item removes its card and history skips its stale ID', async (
 });
 
 test('deleting a focused card restores focus to the remaining card or search', async () => {
-  const { app, dom, document } = await mount({ confirmDelete: () => true });
+  const { app, dom, document } = await mount();
   app.openItem(A); app.openItem(B);
   let remove = document.querySelector(`[data-item-id="${B}"] [data-action="delete"]`);
   remove.focus(); remove.click();
+  confirmDelete(document);
   assert.equal(document.activeElement?.dataset.itemId, A);
   remove = document.querySelector(`[data-item-id="${A}"] [data-action="delete"]`);
   remove.focus(); remove.click();
+  confirmDelete(document);
   assert.equal(document.activeElement, document.querySelector('#loom-search'));
   dom.window.close();
 });

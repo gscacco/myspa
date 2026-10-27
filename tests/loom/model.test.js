@@ -94,3 +94,29 @@ test('UUID generation falls back to getRandomValues without randomUUID', () => {
     else delete globalThis.crypto;
   }
 });
+
+test('image items have a dedicated kind and private attachment ID', () => {
+  const image = addItem(emptyKnowledgeBase(), {
+    title: 'Screenshot',
+    body: '',
+    tags: [],
+    kind: keyword('image'),
+    'attachment-id': B,
+  }, { id: A, now: NOW });
+  assert.equal(image.items[0].kind.name, 'image');
+  assert.equal(image.items[0]['attachment-id'], B);
+  const source = writeKnowledgeBase(image);
+  assert.match(source, /:kind :image/);
+  assert.match(source, /:attachment-id "550e8400-e29b-41d4-a716-446655440001"/);
+  assert.deepEqual(parseKnowledgeBase(source), image);
+
+  assert.throws(() => addItem(emptyKnowledgeBase(), {
+    title: 'Broken image', body: '', tags: [], kind: keyword('image'),
+  }, { id: A, now: NOW }), /attachment-id/i);
+  assert.throws(() => addItem(emptyKnowledgeBase(), {
+    title: 'Broken note', body: '', tags: [], 'attachment-id': B,
+  }, { id: A, now: NOW }), /attachment-id/i);
+  assert.throws(() => addItem(emptyKnowledgeBase(), {
+    title: 'Broken image', body: 'Not empty', tags: [], kind: keyword('image'), 'attachment-id': B,
+  }, { id: A, now: NOW }), /body/i);
+});

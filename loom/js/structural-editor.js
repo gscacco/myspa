@@ -26,7 +26,7 @@ function lexicalState(source, end) {
   return { string, comment };
 }
 
-export function attachStructuralEditor(textarea, { onStatus = () => {} } = {}) {
+export function attachStructuralEditor(textarea, { onStatus = () => {}, onEvaluate = () => {} } = {}) {
   function replace(edit) {
     if (!edit) { onStatus('No structural edit is available here'); return false; }
     textarea.setRangeText(edit.text, edit.from, edit.to, 'end');
@@ -39,6 +39,7 @@ export function attachStructuralEditor(textarea, { onStatus = () => {} } = {}) {
     const source = textarea.value, from = textarea.selectionStart, to = textarea.selectionEnd;
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && !event.altKey) {
+      if (event.key === 'Enter') { event.preventDefault(); onEvaluate(); return; }
       const operation = {
         ArrowRight: () => event.shiftKey ? pareditBackwardSlurp(source, from) : pareditSlurp(source, from),
         ArrowLeft: () => event.shiftKey ? pareditBackwardBarf(source, from) : pareditBarf(source, from),

@@ -2,6 +2,7 @@
 
 import { lexMarkdown } from './markdown.js';
 import { EXECUTABLE_FENCE_OPENING, isExecutableLanguage } from './code-blocks.js';
+import { formBefore } from '../../shared/js/paredit.js';
 
 export function findSnippetSpan(source, ordinal) {
   if (!Number.isInteger(ordinal) || ordinal < 0) return null;
@@ -39,4 +40,13 @@ export function applySnippetEdit(originalBody, currentBody, span, newCode) {
     throw new TypeError('Snippet source span is invalid');
   }
   return originalBody.slice(0, span.start) + newCode + originalBody.slice(span.end);
+}
+
+/** Return the complete s-expression ending at a collapsed cursor, or nil. */
+export function evaluationForm(source, cursor) {
+  if (typeof source !== 'string' || !Number.isInteger(cursor) || cursor < 0 || cursor > source.length) return null;
+  if (cursor < source.length && !/[\s,()\[\]{}";]/.test(source[cursor])) return null;
+  const form = formBefore(source, cursor);
+  if (!form || source.slice(form.to, cursor).trim()) return null;
+  return form;
 }

@@ -41,7 +41,9 @@ test('transclusion exposes no source action buttons or implicit editing', async 
   app.openItem(A);
   const parent = dom.window.document.querySelector(`[data-item-id="${A}"]`);
   const embed = parent.querySelector('.transclusion');
-  assert.match(embed.textContent, /From Source/);
+  assert.doesNotMatch(embed.textContent, /From Source/);
+  assert.equal(embed.querySelector('header'), null);
+  assert.equal(embed.hasAttribute('aria-label'), false);
   assert.match(embed.textContent, /Second/);
   assert.equal(embed.querySelectorAll('button').length, 0);
   assert.deepEqual(app.getBase().workspace['open-ids'], [A]);

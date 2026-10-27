@@ -30,7 +30,7 @@ async function mount() {
   let base = addItem(emptyKnowledgeBase(), { title: 'Source', body: `[[item:${B}]]` }, { id: A, now: NOW });
   base = addItem(base, { title: 'Target', body: 'Destination' }, { id: B, now: NOW });
   base = addItem(base, { title: 'Draft holder', body: 'Draft body' }, { id: C, now: NOW });
-  const app = createLoomApp({ document: dom.window.document, window: dom.window, base, confirmDelete: () => true });
+  const app = createLoomApp({ document: dom.window.document, window: dom.window, base });
   return { app, dom, document: dom.window.document };
 }
 
@@ -98,11 +98,12 @@ test('following a stable reference preserves open cards, relative order, and uns
   dom.window.close();
 });
 
-test('deleting a target leaves existing references unresolved', async () => {
+test('deleting a referenced target opens the reference warning instead', async () => {
   const { app, dom, document } = await mount();
   app.openItem(A); app.openItem(B);
   document.querySelector(`[data-item-id="${B}"] [data-action="delete"]`).click();
-  assert.equal(document.querySelector(`[data-item-id="${A}"] a`), null);
-  assert.equal(document.querySelector(`[data-item-id="${A}"] .unresolved-link`).textContent, `Missing item: ${B}`);
+  assert.ok(document.querySelector('[role="dialog"]'));
+  assert.ok(app.getBase().items.some(item => item.id === B));
+  assert.equal(document.querySelector(`[data-item-id="${A}"] a`).textContent, 'Target');
   dom.window.close();
 });

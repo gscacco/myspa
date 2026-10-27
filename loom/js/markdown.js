@@ -6,6 +6,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const ITEM_REFERENCE = /^\[\[item:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\]\]/i;
 const ITEM_TRANSCLUSION = /^!\[\[item:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:#([a-z0-9-]+))?\]\]/i;
 const ESCAPED_ITEM_TRANSCLUSION = /^\\!\[\[item:[^\]]+\]\]/;
+const FILE_REFERENCE = /^\[\[file:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\]\]/i;
+const FILE_EMBED = /^!\[\[file:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\]\]/i;
+const ESCAPED_FILE_EMBED = /^\\!\[\[file:[^\]]+\]\]/;
 
 const parser = new Marked({ gfm: true });
 parser.use({
@@ -52,6 +55,24 @@ parser.use({
         const match = ITEM_REFERENCE.exec(source);
         if (!match || !UUID.test(match[1])) return undefined;
         return { type: 'loomItemReference', raw: match[0], id: match[1] };
+      },
+    },
+    {
+      name: 'loomFileReference',
+      level: 'inline',
+      start(source) {
+        const starts = [source.indexOf('\\![[file:'), source.indexOf('![[file:'), source.indexOf('[[file:')]
+          .filter(index => index >= 0);
+        return starts.length ? Math.min(...starts) : undefined;
+      },
+      tokenizer(source) {
+        const escaped = ESCAPED_FILE_EMBED.exec(source);
+        if (escaped) return { type: 'text', raw: escaped[0], text: escaped[0].slice(1) };
+        const embed = FILE_EMBED.exec(source);
+        if (embed && UUID.test(embed[1])) return { type: 'loomFileEmbed', raw: embed[0], id: embed[1] };
+        const reference = FILE_REFERENCE.exec(source);
+        if (reference && UUID.test(reference[1])) return { type: 'loomFileReference', raw: reference[0], id: reference[1] };
+        return undefined;
       },
     },
   ],
